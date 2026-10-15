@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The installer window: events for progress and dragging the frameless window.",
+  "description": "The installer window: progress events, dragging the frameless window and choosing an install folder.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-minimize"]
+  "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-minimize", "dialog:allow-open"]
 }

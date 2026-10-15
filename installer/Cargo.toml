@@ -1,5 +1,5 @@
-# The themed installer (Bing-Ads-Chat-Setup.exe): its own small window in the chat's
-# style that runs the signed NSIS installer silently and opens the app afterwards.
+# The installer (Bing-Ads-Chat-Setup.exe): a step-by-step guide in the app's own layout
+# that runs the signed NSIS installer silently and opens the app afterwards.
 # The NSIS installer is embedded at build time (BAC_SETUP_PAYLOAD, see build.rs).
 [package]
 name = "bing-ads-chat-setup"
@@ -13,6 +13,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["custom-protocol"] }
 serde = { version = "1", features = ["derive"] }
+tauri-plugin-dialog = "2"
 
 [profile.release]
 codegen-units = 1
