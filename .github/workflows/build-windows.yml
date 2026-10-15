@@ -16,7 +16,8 @@ permissions:
 
 concurrency:
   group: build-windows-${{ github.ref }}
-  cancel-in-progress: true
+  # Queue instead of cancelling, so every build finishes (the newest one publishes last).
+  cancel-in-progress: false
 
 jobs:
   build:
