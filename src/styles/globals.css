@@ -1,0 +1,217 @@
+@import 'tailwindcss';
+
+/*
+ * Bing Ads Chat design tokens – soft, light and calm.
+ * Brand blue is used for primary actions and the active state; violet and teal
+ * appear only in the assistant's gradient accents. KPI semantics use
+ * positive (green) / negative (red) / neutral (grey).
+ */
+@theme {
+  --font-sans: 'Inter Variable', 'Segoe UI Variable Text', 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
+
+  --color-brand: #4f6bf5;
+  --color-brand-600: #3f57e0;
+  --color-brand-50: #f1f4ff;
+  --color-brand-100: #e3e9ff;
+  --color-violet: #8b5cf6;
+  --color-violet-50: #f5f1ff;
+  --color-teal: #14b8a6;
+  --color-teal-50: #ecfbf8;
+
+  --color-ink: #0f1222;
+  --color-ink-2: #3b3f55;
+  --color-muted: #6b7088;
+  --color-subtle: #a2a6b8;
+  --color-line: #e9ebf2;
+  --color-line-2: #f2f3f8;
+  --color-canvas: #f6f7fb;
+  --color-surface: #ffffff;
+
+  --color-positive: #16a34a;
+  --color-positive-bg: #eaf7ee;
+  --color-negative: #dc2626;
+  --color-negative-bg: #fdeeee;
+  --color-neutral: #71717a;
+  --color-neutral-bg: #f1f1f4;
+  --color-warning: #b45309;
+  --color-warning-bg: #fff6e5;
+
+  --shadow-card: 0 1px 2px rgb(16 24 64 / 0.04), 0 10px 28px -14px rgb(16 24 64 / 0.12);
+  --shadow-pop: 0 16px 48px -14px rgb(16 24 64 / 0.24), 0 2px 6px rgb(16 24 64 / 0.06);
+  --shadow-glow: 0 10px 40px -10px rgb(79 107 245 / 0.35);
+
+  --animate-spin-slow: spin 1.4s linear infinite;
+  --animate-shimmer: shimmer 2.4s linear infinite;
+  --animate-caret: caret 1s steps(2, start) infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes caret {
+  to {
+    visibility: hidden;
+  }
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-ink antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* Desktop feel: text is selectable only where it is useful. */
+  input,
+  textarea,
+  [data-selectable] {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  ::selection {
+    background: var(--color-brand-100);
+  }
+
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-brand) 55%, transparent);
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #d8dae6;
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: #bfc3d4;
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility card {
+  @apply rounded-[20px] border border-black/[0.045] bg-surface shadow-card;
+}
+
+@utility glass {
+  @apply border border-white/70 bg-white/70 backdrop-blur-xl;
+}
+
+@utility text-gradient {
+  background-image: linear-gradient(100deg, var(--color-brand) 0%, var(--color-violet) 55%, var(--color-teal) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Markdown inside assistant messages. */
+@layer components {
+  .prose-chat {
+    @apply text-[15px] leading-[1.65] text-ink-2;
+  }
+  .prose-chat > * + * {
+    margin-top: 0.7em;
+  }
+  .prose-chat h1,
+  .prose-chat h2,
+  .prose-chat h3 {
+    @apply font-semibold tracking-[-0.01em] text-ink;
+  }
+  .prose-chat h1 {
+    @apply text-[19px];
+  }
+  .prose-chat h2 {
+    @apply text-[17px];
+  }
+  .prose-chat h3 {
+    @apply text-[15.5px];
+  }
+  .prose-chat strong {
+    @apply font-semibold text-ink;
+  }
+  .prose-chat a {
+    @apply text-brand underline decoration-brand/30 underline-offset-2 hover:decoration-brand;
+  }
+  .prose-chat ul {
+    @apply list-disc pl-5;
+  }
+  .prose-chat ol {
+    @apply list-decimal pl-5;
+  }
+  .prose-chat li + li {
+    margin-top: 0.25em;
+  }
+  .prose-chat li::marker {
+    @apply text-subtle;
+  }
+  .prose-chat code {
+    @apply rounded-md bg-line-2 px-1.5 py-0.5 text-[13px] text-ink;
+  }
+  .prose-chat pre {
+    @apply overflow-x-auto rounded-xl bg-[#0f1222] p-4 text-[13px] text-white;
+  }
+  .prose-chat pre code {
+    @apply bg-transparent p-0 text-white;
+  }
+  .prose-chat blockquote {
+    @apply border-l-2 border-brand/30 pl-3 text-muted;
+  }
+  .prose-chat hr {
+    @apply border-line;
+  }
+  .prose-chat table {
+    @apply w-full border-separate border-spacing-0 overflow-hidden rounded-xl border border-line text-[13.5px];
+  }
+  .prose-chat thead th {
+    @apply bg-line-2 px-3 py-2 text-left text-[12px] font-semibold uppercase tracking-wide text-muted;
+  }
+  .prose-chat tbody td {
+    @apply border-t border-line px-3 py-2 tabular;
+  }
+}
+
+/* Blinking caret at the end of streaming text. */
+.streaming-caret .prose-chat > :last-child::after {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--color-brand), var(--color-violet));
+  animation: caret 1s steps(2, start) infinite;
+}

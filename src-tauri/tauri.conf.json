@@ -1,0 +1,60 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Bing Ads Chat",
+  "mainBinaryName": "BingAdsChat",
+  "version": "0.1.0",
+  "identifier": "dk.bingadschat.app",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1430",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Bing Ads Chat",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 1040,
+        "minHeight": 680,
+        "center": true,
+        "backgroundColor": "#F6F7FB",
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src ipc: http://ipc.localhost 'self' data: blob: https://api.anthropic.com; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      "devCsp": "default-src 'self' http://localhost:1430; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' http://localhost:1430; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http://localhost:1430; font-src 'self' data: http://localhost:1430; connect-src ipc: http://ipc.localhost ws://localhost:1430 http://localhost:1430 data: blob: https://api.anthropic.com; object-src 'none'",
+      "dangerousDisableAssetCspModification": ["style-src"],
+      "capabilities": ["default"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "publisher": "Bing Ads Chat",
+    "copyright": "© Bing Ads Chat",
+    "category": "Business",
+    "shortDescription": "Chat-assistent til Microsoft Advertising",
+    "longDescription": "Bing Ads Chat er en lokal desktop-app, hvor en AI-assistent (Claude) læser og ændrer din Microsoft Advertising-konto via chat – med forbrugsregler og godkendelse af ændringer.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["Danish"],
+        "displayLanguageSelector": false
+      },
+      "wix": { "language": "da-DK" }
+    }
+  }
+}

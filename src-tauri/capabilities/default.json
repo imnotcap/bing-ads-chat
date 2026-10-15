@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the main window. HTTP is limited to Microsoft Advertising, Microsoft sign-in and report downloads; Claude is reached with the webview's own fetch (allowed by the CSP).",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "allow-secret-get",
+    "allow-secret-set",
+    "allow-secret-delete",
+    "allow-oauth-listen",
+    "opener:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://*.api.bingads.microsoft.com/*" },
+        { "url": "https://*.api.sandbox.bingads.microsoft.com/*" },
+        { "url": "https://login.microsoftonline.com/*" },
+        { "url": "https://*.blob.core.windows.net/*" }
+      ]
+    }
+  ]
+}
