@@ -1,26 +1,77 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, CalendarDays, Sparkles, Square } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowUp, ClipboardPaste, FileText, FolderOpen, ImageIcon, Loader2, Paperclip, Plus, Sparkles, Square, X } from 'lucide-react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { MODELS, type ModelId } from '@/ai/models';
 import { Magnet } from '@/components/reactbits';
-import { Select } from '@/components/ui/overlays';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Select, Tooltip } from '@/components/ui/overlays';
 import { EASE } from '@/components/motion';
-import { DATE_PRESET_LABELS, type DatePreset } from '@/lib/format';
-import { cn } from '@/lib/utils';
+import { ACCEPT_ALL, MAX_ATTACHMENTS, classify, formatBytes, readAttachment, type Attachment } from '@/lib/attachments';
+import { cn, errorMessage } from '@/lib/utils';
 import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
 import { SLASH_COMMANDS } from './suggestions';
 
-export function Composer({ running, onSend, onStop, disabled }: { running: boolean; onSend: (text: string) => void; onStop: () => void; disabled?: boolean }) {
+export interface ComposerHandle {
+  addFiles: (files: File[]) => void;
+}
+
+function AttachmentChip({ a, onRemove }: { a: Attachment; onRemove: () => void }) {
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.12 } }}
+      className="group relative flex h-14 max-w-[220px] items-center gap-2.5 rounded-xl border border-line bg-surface pl-1.5 pr-3"
+      title={a.name}
+    >
+      {a.thumb ? (
+        <img src={a.thumb} alt="" className="size-11 rounded-lg object-cover" />
+      ) : (
+        <span className={cn('grid size-11 place-items-center rounded-lg', a.kind === 'pdf' ? 'bg-negative-bg text-negative' : 'bg-brand-50 text-brand')}>
+          <FileText className="size-5" />
+        </span>
+      )}
+      <span className="min-w-0">
+        <span className="block truncate text-[12.5px] font-medium text-ink">{a.name}</span>
+        <span className="block text-[11px] uppercase text-muted">
+          {a.kind === 'text' ? a.name.split('.').pop() : a.kind} · {formatBytes(a.size)}
+        </span>
+      </span>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Fjern ${a.name}`}
+        className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full bg-ink text-white opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+      >
+        <X className="size-3" />
+      </button>
+    </motion.div>
+  );
+}
+
+export const Composer = forwardRef<
+  ComposerHandle,
+  { running: boolean; onSend: (text: string, attachments: Attachment[]) => void; onStop: () => void; disabled?: boolean }
+>(function Composer({ running, onSend, onStop, disabled }, handle) {
   const [text, setText] = useState('');
   const [active, setActive] = useState(0);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [reading, setReading] = useState(0);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const imageInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
   const draft = useUi((s) => s.draft);
   const setDraft = useUi((s) => s.setDraft);
-  const datePreset = useSettings((s) => s.datePreset);
-  const setDatePreset = useSettings((s) => s.setDatePreset);
   const model = useSettings((s) => s.ai.model);
   const setAi = useSettings((s) => s.setAi);
+
+  useEffect(() => {
+    folderInput.current?.setAttribute('webkitdirectory', '');
+    folderInput.current?.setAttribute('directory', '');
+  }, []);
 
   useEffect(() => {
     if (draft === null) return;
@@ -40,6 +91,55 @@ export function Composer({ running, onSend, onStop, disabled }: { running: boole
     el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
   }, [text]);
 
+  const addFiles = async (files: File[], fromFolder = false) => {
+    let list = files;
+    if (fromFolder) {
+      const supported = files.filter((f) => classify(f));
+      if (supported.length < files.length) toast(`${files.length - supported.length} filer i mappen blev sprunget over (ikke-understøttet type).`);
+      list = supported;
+    }
+    const room = MAX_ATTACHMENTS - attachments.length;
+    if (list.length > room) {
+      toast.warning(`Du kan højst vedhæfte ${MAX_ATTACHMENTS} filer pr. besked.`);
+      list = list.slice(0, Math.max(0, room));
+    }
+    if (!list.length) return;
+    setReading((n) => n + list.length);
+    for (const file of list) {
+      try {
+        const a = await readAttachment(file);
+        setAttachments((prev) => [...prev, a]);
+      } catch (e) {
+        toast.error('Filen kunne ikke vedhæftes', { description: errorMessage(e) });
+      } finally {
+        setReading((n) => n - 1);
+      }
+    }
+    requestAnimationFrame(() => ref.current?.focus());
+  };
+
+  useImperativeHandle(handle, () => ({ addFiles: (files) => void addFiles(files) }));
+
+  const pasteFromClipboard = async () => {
+    try {
+      const items = await navigator.clipboard.read();
+      const files: File[] = [];
+      for (const item of items) {
+        const type = item.types.find((t) => t.startsWith('image/'));
+        if (type) files.push(new File([await item.getType(type)], `udklip-${files.length + 1}.${type.split('/')[1]}`, { type }));
+        else if (item.types.includes('text/plain')) {
+          const t = await (await item.getType('text/plain')).text();
+          setText((cur) => (cur ? `${cur}\n${t}` : t));
+        }
+      }
+      if (files.length) void addFiles(files);
+      else if (!items.length) toast('Udklipsholderen er tom.');
+    } catch {
+      toast('Tryk Ctrl+V i chatfeltet for at indsætte fra udklipsholderen.');
+      ref.current?.focus();
+    }
+  };
+
   const slash = useMemo(() => {
     const m = /^\/(\S*)$/.exec(text);
     if (!m) return [];
@@ -49,11 +149,12 @@ export function Composer({ running, onSend, onStop, disabled }: { running: boole
 
   useEffect(() => setActive(0), [slash.length]);
 
+  const canSend = (text.trim().length > 0 || attachments.length > 0) && !reading && !running && !disabled;
   const submit = () => {
-    const t = text.trim();
-    if (!t || running || disabled) return;
-    onSend(t);
+    if (!canSend) return;
+    onSend(text.trim(), attachments);
     setText('');
+    setAttachments([]);
   };
 
   const pick = (i: number) => {
@@ -63,8 +164,17 @@ export function Composer({ running, onSend, onStop, disabled }: { running: boole
     requestAnimationFrame(() => ref.current?.focus());
   };
 
+  const fileInputs = (
+    <>
+      <input ref={fileInput} type="file" multiple accept={ACCEPT_ALL} hidden onChange={(e) => (void addFiles([...(e.target.files ?? [])]), (e.target.value = ''))} />
+      <input ref={imageInput} type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp" hidden onChange={(e) => (void addFiles([...(e.target.files ?? [])]), (e.target.value = ''))} />
+      <input ref={folderInput} type="file" multiple hidden onChange={(e) => (void addFiles([...(e.target.files ?? [])], true), (e.target.value = ''))} />
+    </>
+  );
+
   return (
     <div className="relative">
+      {fileInputs}
       <AnimatePresence>
         {slash.length > 0 && (
           <motion.div
@@ -72,7 +182,7 @@ export function Composer({ running, onSend, onStop, disabled }: { running: boole
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 6, scale: 0.98, transition: { duration: 0.12 } }}
             transition={{ duration: 0.2, ease: EASE }}
-            className="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-2xl border border-black/[0.06] bg-white/95 p-1.5 shadow-pop backdrop-blur-xl"
+            className="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-xl border border-line bg-white/95 p-1 shadow-pop backdrop-blur-xl"
             role="listbox"
           >
             {slash.map((c, i) => (
@@ -83,10 +193,10 @@ export function Composer({ running, onSend, onStop, disabled }: { running: boole
                 aria-selected={i === active}
                 onMouseEnter={() => setActive(i)}
                 onClick={() => pick(i)}
-                className={cn('flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[13.5px]', i === active ? 'bg-brand-50 text-ink' : 'text-ink-2')}
+                className={cn('flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[13.5px]', i === active ? 'bg-line-2 text-ink' : 'text-ink-2')}
               >
                 <c.icon className="size-4 text-brand" />
-                <span className="font-semibold">{c.command}</span>
+                <span className="font-medium">{c.command}</span>
                 <span className="text-muted">{c.label}</span>
               </button>
             ))}
@@ -100,12 +210,43 @@ export function Composer({ running, onSend, onStop, disabled }: { running: boole
           'focus-within:border-brand/40 focus-within:shadow-[0_12px_40px_-14px_rgb(109_92_246/0.5),0_0_0_4px_rgb(109_92_246/0.07)]',
         )}
       >
+        <AnimatePresence initial={false}>
+          {(attachments.length > 0 || reading > 0) && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: EASE }}
+              className="overflow-hidden"
+            >
+              <div className="flex flex-wrap gap-2 px-1.5 pb-1 pt-1.5">
+                <AnimatePresence>
+                  {attachments.map((a) => (
+                    <AttachmentChip key={a.id} a={a} onRemove={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))} />
+                  ))}
+                </AnimatePresence>
+                {reading > 0 && (
+                  <div className="flex h-14 items-center gap-2 rounded-xl border border-dashed border-line px-3 text-[12.5px] text-muted">
+                    <Loader2 className="size-4 animate-spin" /> Læser {reading} fil{reading === 1 ? '' : 'er'} …
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <textarea
           ref={ref}
           value={text}
           rows={1}
           disabled={disabled}
           onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => {
+            const files = [...e.clipboardData.files];
+            if (files.length) {
+              e.preventDefault();
+              void addFiles(files);
+            }
+          }}
           onKeyDown={(e) => {
             if (slash.length) {
               if (e.key === 'ArrowDown') {
@@ -131,14 +272,37 @@ export function Composer({ running, onSend, onStop, disabled }: { running: boole
           className="block max-h-[220px] w-full resize-none bg-transparent px-2.5 pb-1 pt-2 text-[15px] leading-relaxed text-ink outline-none placeholder:text-subtle"
           aria-label="Besked til assistenten"
         />
-        <div className="flex items-center gap-1.5 px-1 pt-1">
-          <Select<DatePreset>
-            triggerVariant="pill"
-            aria-label="Periode"
-            value={datePreset}
-            onChange={setDatePreset}
-            options={(Object.keys(DATE_PRESET_LABELS) as DatePreset[]).map((p) => ({ value: p, label: DATE_PRESET_LABELS[p], icon: <CalendarDays className="size-3.5 text-muted" /> }))}
-          />
+        <div className="flex items-center gap-1 px-1 pt-1">
+          <DropdownMenu>
+            <Tooltip content="Vedhæft filer, billeder eller mapper">
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  aria-label="Vedhæft"
+                  className="grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-line-2 hover:text-ink disabled:opacity-40 data-[state=open]:bg-line-2 data-[state=open]:text-ink"
+                >
+                  <Plus className="size-[18px] transition-transform duration-200 [[data-state=open]>&]:rotate-45" />
+                </button>
+              </DropdownMenuTrigger>
+            </Tooltip>
+            <DropdownMenuContent side="top" align="start" sideOffset={10} className="w-[268px]">
+              <DropdownMenuItem onSelect={() => fileInput.current?.click()}>
+                <Paperclip /> <span className="flex-1">Upload filer</span> <span className="text-[11px] text-subtle">PDF, CSV, TXT</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => imageInput.current?.click()}>
+                <ImageIcon /> <span className="flex-1">Billeder</span> <span className="text-[11px] text-subtle">PNG, JPG</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => folderInput.current?.click()}>
+                <FolderOpen /> Mappe
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void pasteFromClipboard()}>
+                <ClipboardPaste /> <span className="flex-1">Indsæt fra udklipsholder</span> <span className="text-[11px] text-subtle">Ctrl V</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="normal-case tracking-normal">Du kan også trække filer ind i chatten</DropdownMenuLabel>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Select<ModelId>
             triggerVariant="pill"
             aria-label="Model"
@@ -147,23 +311,17 @@ export function Composer({ running, onSend, onStop, disabled }: { running: boole
             contentClassName="w-[300px]"
             options={MODELS.map((m) => ({ value: m.id, label: m.label, description: m.description, icon: <Sparkles className="size-3.5 text-violet" /> }))}
           />
-          <span className="ml-auto hidden pr-2 text-[11px] text-subtle md:inline">Enter sender · / genveje</span>
+          <span className="ml-auto" />
           <Magnet strength={6} padding={16} disabled={running}>
             {running ? (
-              <motion.button
-                type="button"
-                onClick={onStop}
-                whileTap={{ scale: 0.92 }}
-                className="grid size-10 place-items-center rounded-full bg-ink text-white shadow-[0_6px_16px_-6px_rgb(15_18_34/0.6)]"
-                aria-label="Stop"
-              >
+              <motion.button type="button" onClick={onStop} whileTap={{ scale: 0.92 }} className="grid size-9 place-items-center rounded-[10px] bg-ink text-white" aria-label="Stop">
                 <Square className="size-3.5 fill-current" />
               </motion.button>
             ) : (
               <motion.button
                 type="button"
                 onClick={submit}
-                disabled={!text.trim() || disabled}
+                disabled={!canSend}
                 whileTap={{ scale: 0.9 }}
                 className="grid size-9 place-items-center rounded-[10px] bg-ink text-white transition-[opacity,background-color] hover:bg-brand disabled:bg-line disabled:text-subtle"
                 aria-label="Send"
@@ -176,4 +334,4 @@ export function Composer({ running, onSend, onStop, disabled }: { running: boole
       </div>
     </div>
   );
-}
+});

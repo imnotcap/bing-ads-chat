@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import type { ChangePlan, GuardrailDecision } from '@/ai/guardrails';
 import type { ToolPreview, VisualSpec } from '@/ai/visuals';
+import type { AttachmentMeta } from '@/lib/attachments';
 import { uid } from '@/lib/utils';
 
 export type ApiMessage = Anthropic.Beta.BetaMessageParam;
@@ -61,6 +62,7 @@ export interface UserItem {
   id: string;
   ts: number;
   text: string;
+  attachments?: AttachmentMeta[];
 }
 
 export interface AssistantItem {

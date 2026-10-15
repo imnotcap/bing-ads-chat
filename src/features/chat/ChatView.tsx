@@ -1,19 +1,17 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowDown, PanelRight, SquarePen } from 'lucide-react';
+import { ArrowDown, Upload } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sendMessage, stopConversation } from '@/ai/agent';
 import { Aurora } from '@/components/reactbits';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/controls';
-import { Tooltip } from '@/components/ui/overlays';
+import type { Attachment } from '@/lib/attachments';
 import { useActiveConversation, useChat } from '@/stores/chat';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
-import { Composer } from './Composer';
+import { Composer, type ComposerHandle } from './Composer';
 import { EmptyState } from './EmptyState';
 import { AssistantMessage, UserMessage } from './Messages';
 
-export function startChat(text: string) {
+export function startChat(text: string, attachments: Attachment[] = []) {
   const chat = useChat.getState();
   const { accountId, mode } = useConnection.getState();
   let id = chat.activeId;
@@ -22,7 +20,7 @@ export function startChat(text: string) {
   if (!active || (active.items.length > 0 && (active.accountId !== accountId || active.mode !== mode))) {
     id = chat.newConversation(accountId, mode);
   }
-  void sendMessage(id!, text);
+  void sendMessage(id!, text, attachments);
 }
 
 /** Keeps the view pinned to the newest message unless the user scrolled up. */
@@ -51,13 +49,12 @@ function useStickToBottom(dep: unknown) {
 export function ChatView() {
   const conversation = useActiveConversation();
   const running = useChat((s) => (conversation ? !!s.running[conversation.id] : false));
-  const newConversation = useChat((s) => s.newConversation);
   const account = useCurrentAccount();
-  const mode = useConnection((s) => s.mode);
   const hasKey = useConnection((s) => s.hasAnthropicKey);
   const aurora = useSettings((s) => s.appearance.auroraBackground);
-  const insights = useSettings((s) => s.appearance.insightsPanel);
-  const setAppearance = useSettings((s) => s.setAppearance);
+  const composer = useRef<ComposerHandle>(null);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
   const items = conversation?.items ?? [];
   const lastItem = items[items.length - 1];
   const tick = lastItem?.kind === 'assistant' ? JSON.stringify(lastItem.parts.map((p) => (p.type === 'text' || p.type === 'thinking' ? p.text.length : p.type === 'tool' ? p.status : p.id))) : items.length;
@@ -65,54 +62,50 @@ export function ChatView() {
   const currency = account?.currency ?? 'DKK';
   const empty = items.length === 0;
 
-  return (
-    <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-      {/* Soft static light from the top-right corner; the animated aurora is opt-in (Udseende). */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 transition-opacity duration-700"
-        style={{
-          opacity: empty ? 1 : 0.55,
-          background:
-            'radial-gradient(600px 380px at 100% 0%, rgb(139 123 255 / 0.16), transparent 70%), radial-gradient(500px 300px at 0% 100%, rgb(109 92 246 / 0.05), transparent 70%)',
-        }}
-      />
-      {aurora && <Aurora className="h-[420px] [mask-image:linear-gradient(to_bottom,black_30%,transparent)]" intensity={empty ? 0.45 : 0.25} />}
+  const hasFiles = (e: React.DragEvent) => [...e.dataTransfer.types].includes('Files');
 
-      <header className="relative z-10 flex h-14 shrink-0 items-center gap-2 border-b border-line/70 px-5">
-        <div className="min-w-0 flex-1">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div key={conversation?.id ?? 'new'} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="flex items-center gap-2.5">
-              <h2 className="truncate text-[14px] font-medium text-ink">{empty ? 'Ny samtale' : conversation?.title}</h2>
-              {mode === 'demo' && <Badge tone="violet">Demo-konto</Badge>}
-            </motion.div>
-          </AnimatePresence>
-        </div>
-        {!empty && (
-          <Button size="sm" variant="ghost" onClick={() => newConversation(useConnection.getState().accountId, mode)}>
-            <SquarePen /> Ny samtale
-          </Button>
-        )}
-        {!insights && (
-          <Tooltip content="Vis indsigt">
-            <Button size="sm" variant="secondary" onClick={() => setAppearance({ insightsPanel: true })} aria-label="Vis indsigt">
-              <PanelRight /> Indsigt
-            </Button>
-          </Tooltip>
-        )}
-      </header>
+  return (
+    <div
+      className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden"
+      onDragEnter={(e) => {
+        if (!hasFiles(e) || !hasKey) return;
+        dragDepth.current += 1;
+        setDragging(true);
+      }}
+      onDragOver={(e) => hasFiles(e) && e.preventDefault()}
+      onDragLeave={() => {
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (!dragDepth.current) setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        dragDepth.current = 0;
+        setDragging(false);
+        if (hasKey) composer.current?.addFiles([...e.dataTransfer.files]);
+      }}
+    >
+      {/* Soft static light from the top-right corner; the animated aurora is opt-in (Udseende). */}
+      {!empty && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-60"
+          style={{ background: 'radial-gradient(600px 380px at 100% 0%, rgb(139 123 255 / 0.14), transparent 70%)' }}
+        />
+      )}
+      {aurora && <Aurora className="h-[420px] [mask-image:linear-gradient(to_bottom,black_30%,transparent)]" intensity={empty ? 0.45 : 0.25} />}
 
       <div ref={ref} onScroll={onScroll} className="relative z-0 flex-1 overflow-y-auto">
         {empty ? (
-          <EmptyState onPick={startChat} running={running} />
+          <EmptyState onPick={(p) => startChat(p)} />
         ) : (
-          <div className="mx-auto grid w-full max-w-[760px] gap-7 px-6 pb-10 pt-6">
+          <div className="mx-auto grid w-full max-w-[760px] gap-7 px-6 pb-10 pt-8">
             {items.map((it) => (it.kind === 'user' ? <UserMessage key={it.id} item={it} /> : <AssistantMessage key={it.id} item={it} currency={currency} />))}
           </div>
         )}
       </div>
 
-      <div className="relative z-10 mx-auto w-full max-w-[800px] px-6 pb-4">
+      <div className="relative z-10 mx-auto w-full max-w-[800px] px-6 pb-5">
         <AnimatePresence>
           {showButton && !empty && (
             <motion.button
@@ -127,11 +120,31 @@ export function ChatView() {
             </motion.button>
           )}
         </AnimatePresence>
-        <Composer running={running} disabled={!hasKey} onSend={startChat} onStop={() => conversation && stopConversation(conversation.id)} />
-        <p className="mt-2 text-center text-[11px] text-subtle">
-          Assistenten kan tage fejl. Ændringer følger dine forbrugsregler og kan fortrydes under Aktivitet.
-        </p>
+        <Composer
+          ref={composer}
+          running={running}
+          disabled={!hasKey}
+          onSend={(text, attachments) => startChat(text, attachments)}
+          onStop={() => conversation && stopConversation(conversation.id)}
+        />
       </div>
+
+      <AnimatePresence>
+        {dragging && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="pointer-events-none absolute inset-3 z-30 grid place-items-center rounded-3xl border-2 border-dashed border-brand/40 bg-brand-50/80 backdrop-blur-sm"
+          >
+            <div className="text-center">
+              <Upload className="mx-auto size-7 text-brand" />
+              <div className="mt-2 text-[15px] font-medium text-ink">Slip filerne for at vedhæfte dem</div>
+              <div className="text-[12.5px] text-muted">Billeder, PDF, CSV og tekstfiler</div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

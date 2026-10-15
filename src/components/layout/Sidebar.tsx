@@ -7,8 +7,6 @@ import {
   LayoutGrid,
   MessageSquare,
   MoreHorizontal,
-  PanelLeftClose,
-  PanelLeftOpen,
   Pencil,
   Plug,
   Search,
@@ -27,10 +25,8 @@ import { fmtUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useChat, type Conversation } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
-import { useSettings } from '@/stores/settings';
 import { useUi, type View } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
-import { Logo, LogoMark } from './Logo';
 
 const NAV: { view: View; label: string; icon: LucideIcon }[] = [
   { view: 'chat', label: 'Chat', icon: MessageSquare },
@@ -38,41 +34,26 @@ const NAV: { view: View; label: string; icon: LucideIcon }[] = [
   { view: 'activity', label: 'Aktivitet', icon: Activity },
 ];
 
-function NavButton({ item, compact }: { item: (typeof NAV)[number]; compact: boolean }) {
+function NavButton({ item }: { item: (typeof NAV)[number] }) {
   const view = useUi((s) => s.view);
   const go = useUi((s) => s.go);
   const pending = useChat((s) => Object.values(s.running).some(Boolean));
   const active = view === item.view;
-  const btn = (
+  return (
     <button
       type="button"
       onClick={() => go(item.view)}
-      aria-label={compact ? item.label : undefined}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'group relative flex h-9 w-full items-center rounded-[10px] text-[13.5px] font-medium transition-colors',
-        compact ? 'justify-center' : 'gap-2.5 px-3',
+        'group relative flex h-9 w-full items-center gap-2.5 rounded-[10px] px-3 text-[13.5px] font-medium transition-colors',
         active ? 'text-ink' : 'text-muted hover:bg-line-2 hover:text-ink',
       )}
     >
-      {active && (
-        <motion.span
-          layoutId="nav-active"
-          className="absolute inset-0 rounded-[10px] bg-line-2"
-          transition={{ type: 'spring', stiffness: 500, damping: 38 }}
-        />
-      )}
+      {active && <motion.span layoutId="nav-active" className="absolute inset-0 rounded-[10px] bg-line-2" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
       <item.icon className="relative size-[17px] shrink-0" strokeWidth={1.8} />
-      {!compact && <span className="relative">{item.label}</span>}
+      <span className="relative">{item.label}</span>
       {item.view === 'chat' && pending && <span className="absolute right-2.5 top-2.5 size-2 animate-pulse rounded-full bg-brand" />}
     </button>
-  );
-  return compact ? (
-    <Tooltip content={item.label} side="right">
-      {btn}
-    </Tooltip>
-  ) : (
-    btn
   );
 }
 
@@ -182,7 +163,7 @@ function initials(name: string | undefined) {
 }
 
 /** Account & settings menu in the bottom-left corner, styled like Claude's. */
-function AccountMenu({ compact }: { compact: boolean }) {
+function AccountMenu() {
   const { accounts, accountId, mode, set } = useConnection();
   const go = useUi((s) => s.go);
   const account = accounts.find((a) => a.id === accountId);
@@ -203,18 +184,13 @@ function AccountMenu({ compact }: { compact: boolean }) {
           <button
             type="button"
             aria-label="Konto og indstillinger"
-            className={cn(
-              'flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] text-left transition-colors hover:bg-line-2 data-[state=open]:bg-line-2',
-              compact ? 'justify-center p-1.5' : 'px-2 py-1.5',
-            )}
+            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left transition-colors hover:bg-line-2 data-[state=open]:bg-line-2"
           >
             {avatar}
-            {!compact && (
-              <span className="min-w-0 flex-1 truncate text-[13.5px]">
-                <span className="font-medium text-ink">{account?.name ?? 'Ingen konto'}</span>
-                <span className="text-muted"> · {plan}</span>
-              </span>
-            )}
+            <span className="min-w-0 flex-1 truncate text-[13.5px]">
+              <span className="font-medium text-ink">{account?.name ?? 'Ingen konto'}</span>
+              <span className="text-muted"> · {plan}</span>
+            </span>
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="top" align="start" sideOffset={6} className="w-[264px]">
@@ -262,8 +238,7 @@ function AccountMenu({ compact }: { compact: boolean }) {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {!compact && (
-        <Tooltip content="Indstillinger">
+      <Tooltip content="Indstillinger">
           <button
             type="button"
             onClick={() => go('settings')}
@@ -273,7 +248,6 @@ function AccountMenu({ compact }: { compact: boolean }) {
             <Settings className="size-4" />
           </button>
         </Tooltip>
-      )}
     </div>
   );
 }
@@ -301,15 +275,11 @@ function GroupedConversations({ list }: { list: Conversation[] }) {
 }
 
 export function Sidebar() {
-  const collapsed = useSettings((s) => s.appearance.sidebarCollapsed);
-  const setAppearance = useSettings((s) => s.setAppearance);
   const conversations = useChat((s) => s.conversations);
   const newConversation = useChat((s) => s.newConversation);
   const go = useUi((s) => s.go);
   const mode = useConnection((s) => s.mode);
   const [query, setQuery] = useState('');
-  const compact = collapsed;
-  const toggle = () => setAppearance({ sidebarCollapsed: !collapsed });
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -324,79 +294,45 @@ export function Sidebar() {
   };
 
   return (
-    <aside className={cn('relative z-20 flex h-full shrink-0 flex-col border-r border-line bg-surface transition-[width] duration-300', compact ? 'w-[68px]' : 'w-[260px]')}>
-      <div className={cn('flex h-14 shrink-0 items-center', compact ? 'justify-center' : 'justify-between pl-4 pr-3')}>
-        {compact ? (
-          <Tooltip content="Udvid menu" side="right">
-            <button type="button" onClick={toggle} aria-label="Udvid menu" className="group relative grid size-9 place-items-center rounded-lg hover:bg-line-2">
-              <LogoMark className="size-8 transition-opacity group-hover:opacity-0" />
-              <PanelLeftOpen className="absolute size-[18px] text-ink-2 opacity-0 transition-opacity group-hover:opacity-100" />
-            </button>
-          </Tooltip>
-        ) : (
-          <>
-            <Logo />
-            <Tooltip content="Skjul menu">
-              <Button size="icon-xs" variant="ghost" onClick={toggle} aria-label="Skjul menu">
-                <PanelLeftClose />
-              </Button>
-            </Tooltip>
-          </>
-        )}
+    <div className="flex h-full w-[260px] flex-col">
+      <div className="px-3 pt-3">
+        <Button variant="secondary" className="h-9 w-full justify-start" onClick={startNew}>
+          <SquarePen /> Ny samtale
+          <span className="ml-auto text-[11px] font-normal text-subtle">Ctrl N</span>
+        </Button>
       </div>
 
-      <div className="px-3 pt-1">
-        {compact ? (
-          <Tooltip content="Ny samtale (Ctrl+N)" side="right">
-            <Button variant="secondary" size="icon" className="w-full" onClick={startNew} aria-label="Ny samtale">
-              <SquarePen />
-            </Button>
-          </Tooltip>
-        ) : (
-          <Button variant="secondary" className="h-9 w-full justify-start" onClick={startNew}>
-            <SquarePen /> Ny samtale
-            <span className="ml-auto text-[11px] font-normal text-subtle">Ctrl N</span>
-          </Button>
-        )}
-      </div>
-
-      <nav aria-label="Hovedmenu" className={cn('mt-4 grid gap-0.5', compact ? 'px-3' : 'px-3')}>
+      <nav aria-label="Hovedmenu" className="mt-3 grid gap-0.5 px-3">
         {NAV.map((item) => (
-          <NavButton key={item.view} item={item} compact={compact} />
+          <NavButton key={item.view} item={item} />
         ))}
       </nav>
 
-      {!compact ? (
-        <div className="mt-5 flex min-h-0 flex-1 flex-col px-3">
-          <div className="flex items-center justify-between px-2 pb-2">
-            <span className="text-[12px] font-medium text-subtle">Samtaler</span>
-          </div>
-          <div className="relative mb-2 px-1">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Søg i samtaler"
-              className="h-8 w-full rounded-lg bg-line-2 pl-8 pr-2 text-[12.5px] outline-none placeholder:text-subtle focus:bg-white focus:ring-1 focus:ring-brand/30"
-            />
-          </div>
-          <div className="-mx-1 flex-1 overflow-y-auto px-1 pb-2">
-            {filtered.length === 0 ? (
-              <p className="px-3 py-6 text-center text-[12.5px] leading-relaxed text-subtle">
-                {query ? 'Ingen samtaler matcher.' : 'Dine samtaler med assistenten vises her.'}
-              </p>
-            ) : (
-              <GroupedConversations list={filtered} />
-            )}
-          </div>
+      <div className="mt-5 flex min-h-0 flex-1 flex-col px-3">
+        <div className="flex items-center justify-between px-2 pb-2">
+          <span className="text-[12px] font-medium text-subtle">Samtaler</span>
         </div>
-      ) : (
-        <div className="flex-1" />
-      )}
+        <div className="relative mb-2 px-1">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Søg i samtaler"
+            className="h-8 w-full rounded-lg bg-line-2 pl-8 pr-2 text-[12.5px] outline-none placeholder:text-subtle focus:bg-white focus:ring-1 focus:ring-brand/30"
+          />
+        </div>
+        <div className="-mx-1 flex-1 overflow-y-auto px-1 pb-2">
+          {filtered.length === 0 ? (
+            <p className="px-3 py-6 text-center text-[12.5px] leading-relaxed text-subtle">{query ? 'Ingen samtaler matcher.' : 'Dine samtaler med assistenten vises her.'}</p>
+          ) : (
+            <GroupedConversations list={filtered} />
+          )}
+        </div>
+      </div>
 
       <div className="border-t border-line px-2 py-2">
-        <AccountMenu compact={compact} />
+        <AccountMenu />
       </div>
-    </aside>
+    </div>
   );
 }

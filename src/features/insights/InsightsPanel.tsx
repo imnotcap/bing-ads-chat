@@ -3,18 +3,18 @@
  * and each section (Nøgletal, Månedsbudget, …) can be folded on its own.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertTriangle, ArrowRight, ChevronDown, Info, LayoutGrid, PanelRightClose, RefreshCw, Sparkles, TrendingUp, Wallet, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CalendarDays, ChevronDown, Info, LayoutGrid, PanelRightClose, RefreshCw, Sparkles, TrendingUp, Wallet, type LucideIcon } from 'lucide-react';
 import { useMemo, type ReactNode } from 'react';
 import { ChartBlock } from '@/components/blocks/ChartBlock';
 import { ChangeBadge } from '@/components/blocks/ChangeBadge';
 import { CountUp, MiniOrb } from '@/components/reactbits';
 import { EASE } from '@/components/motion';
 import { Button } from '@/components/ui/button';
-import { Tooltip } from '@/components/ui/overlays';
+import { Select, Tooltip } from '@/components/ui/overlays';
 import { change } from '@/bing/metrics';
 import { useAccountTrend, useCampaigns, useSelectedRange, useSpendStatus } from '@/hooks/useAdsData';
 import { queryClient } from '@/lib/queryClient';
-import { DATE_PRESET_LABELS, fmtMoney, fmtNumber } from '@/lib/format';
+import { DATE_PRESET_LABELS, fmtMoney, fmtNumber, type DatePreset } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
@@ -84,6 +84,7 @@ function PanelContent() {
   const monthlyBudget = useSettings((s) => s.spend.monthlyBudget);
   const warnAt = useSettings((s) => s.spend.warnAtPct);
   const setAppearance = useSettings((s) => s.setAppearance);
+  const setDatePreset = useSettings((s) => s.setDatePreset);
   const go = useUi((s) => s.go);
   const alerts = useMemo(() => (campaigns.data ? computeAlerts(campaigns.data, range, currency) : []), [campaigns.data, range, currency]);
 
@@ -127,11 +128,19 @@ function PanelContent() {
               <MiniOrb size={34} />
               <div className="min-w-0">
                 <div className="truncate text-[14px] font-medium text-ink">{account?.name ?? 'Ingen konto'}</div>
-                <div className="text-[12px] text-muted">
-                  {DATE_PRESET_LABELS[range.preset]}
-                  {mode === 'demo' && ' · demo'}
-                </div>
+                <div className="text-[12px] text-muted">{mode === 'demo' ? 'Demo-konto' : 'Microsoft Advertising'}</div>
               </div>
+            </div>
+            <div className="relative mt-3 flex items-center justify-between gap-2 border-t border-brand/10 pt-2.5">
+              <span className="text-[12px] text-muted">Periode</span>
+              <Select<DatePreset>
+                triggerVariant="pill"
+                align="end"
+                aria-label="Periode"
+                value={range.preset}
+                onChange={setDatePreset}
+                options={(Object.keys(DATE_PRESET_LABELS) as DatePreset[]).map((p) => ({ value: p, label: DATE_PRESET_LABELS[p], icon: <CalendarDays className="size-3.5 text-muted" /> }))}
+              />
             </div>
           </div>
         </div>

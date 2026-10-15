@@ -10,6 +10,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getBackend } from '@/bing/backend';
 import { getSpendStatus, invalidateSpendCache } from '@/bing/spend';
+import { toContentBlocks, toMeta, type Attachment } from '@/lib/attachments';
 import { DATE_PRESET_LABELS, presetRange } from '@/lib/format';
 import { getSecret } from '@/lib/platform';
 import { queryClient } from '@/lib/queryClient';
@@ -116,8 +117,8 @@ export function stopConversation(convId: string) {
   controllers.get(convId)?.abort();
 }
 
-export async function sendMessage(convId: string, text: string): Promise<void> {
-  const trimmed = text.trim();
+export async function sendMessage(convId: string, text: string, attachments: Attachment[] = []): Promise<void> {
+  const trimmed = text.trim() || (attachments.length ? 'Se de vedhæftede filer.' : '');
   if (!trimmed || isRunning(convId)) return;
 
   const settings = useSettings.getState();
@@ -130,12 +131,12 @@ export async function sendMessage(convId: string, text: string): Promise<void> {
   const itemId = uid('a_');
   const first = conv(convId).items.length === 0;
   chat.patch(convId, (c) => ({
-    title: first ? trimmed.replace(/\s+/g, ' ').slice(0, 60) : c.title,
+    title: first ? (text.trim() || attachments[0]?.name || trimmed).replace(/\s+/g, ' ').slice(0, 60) : c.title,
     accountId: c.accountId ?? connection.accountId,
     mode: connection.mode,
     items: [
       ...c.items,
-      { kind: 'user', id: userItemId, ts: Date.now(), text: trimmed },
+      { kind: 'user', id: userItemId, ts: Date.now(), text: text.trim(), attachments: attachments.length ? attachments.map(toMeta) : undefined },
       { kind: 'assistant', id: itemId, ts: Date.now(), model, parts: [], status: 'streaming' },
     ],
   }));
@@ -158,8 +159,9 @@ export async function sendMessage(convId: string, text: string): Promise<void> {
     periodRange: period,
     rules: settings.spend,
   });
-  const content: Anthropic.Beta.BetaTextBlockParam[] = [];
+  const content: Anthropic.Beta.BetaContentBlockParam[] = [];
   if (context !== conv(convId).lastContext) content.push({ type: 'text', text: context });
+  content.push(...toContentBlocks(attachments));
   content.push({ type: 'text', text: trimmed });
   chat.patch(convId, (c) => ({ api: [...c.api, { role: 'user', content }], lastContext: context }));
 

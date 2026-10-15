@@ -1,10 +1,11 @@
 import { motion } from 'motion/react';
-import { AlertTriangle, Check, Copy, Info, OctagonX } from 'lucide-react';
+import { AlertTriangle, Check, Copy, FileText, Info, OctagonX } from 'lucide-react';
 import { memo, useState } from 'react';
 import { MiniOrb, ShinyText } from '@/components/reactbits';
 import { VisualBlock } from '@/components/blocks/VisualBlock';
 import { EASE } from '@/components/motion';
 import { modelInfo } from '@/ai/models';
+import { formatBytes } from '@/lib/attachments';
 import { fmtTime, fmtUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { AssistantItem, NoticePart, Part, ToolPart, UserItem } from '@/stores/chat';
@@ -19,14 +20,30 @@ export const UserMessage = memo(function UserMessage({ item }: { item: UserItem 
       initial={{ opacity: 0, y: 10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.35, ease: EASE }}
-      className="flex justify-end"
+      className="flex flex-col items-end gap-2"
     >
-      <div
-        className="max-w-[78%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-line-2 px-4 py-2.5 text-[15px] leading-relaxed text-ink"
-        data-selectable
-      >
-        {item.text}
-      </div>
+      {item.attachments && item.attachments.length > 0 && (
+        <div className="flex max-w-[78%] flex-wrap justify-end gap-2">
+          {item.attachments.map((a) =>
+            a.thumb ? (
+              <img key={a.id} src={a.thumb} alt={a.name} title={a.name} className="size-20 rounded-xl border border-line object-cover" />
+            ) : (
+              <span key={a.id} className="flex h-12 max-w-[220px] items-center gap-2 rounded-xl border border-line bg-surface px-3 text-[12.5px]" title={a.name}>
+                <FileText className={cn('size-4 shrink-0', a.kind === 'pdf' ? 'text-negative' : 'text-brand')} />
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-ink">{a.name}</span>
+                  <span className="block text-[11px] text-muted">{formatBytes(a.size)}</span>
+                </span>
+              </span>
+            ),
+          )}
+        </div>
+      )}
+      {item.text && (
+        <div className="max-w-[78%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-line-2 px-4 py-2.5 text-[15px] leading-relaxed text-ink" data-selectable>
+          {item.text}
+        </div>
+      )}
     </motion.div>
   );
 });

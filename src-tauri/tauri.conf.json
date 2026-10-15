@@ -22,19 +22,28 @@
         "minHeight": 680,
         "center": true,
         "backgroundColor": "#F6F7FB",
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "decorations": false,
+        "shadow": true
       }
     ],
     "security": {
       "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src ipc: http://ipc.localhost 'self' data: blob: https://api.anthropic.com; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
       "devCsp": "default-src 'self' http://localhost:1430; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' http://localhost:1430; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http://localhost:1430; font-src 'self' data: http://localhost:1430; connect-src ipc: http://ipc.localhost ws://localhost:1430 http://localhost:1430 data: blob: https://api.anthropic.com; object-src 'none'",
-      "dangerousDisableAssetCspModification": ["style-src"],
-      "capabilities": ["default"]
+      "dangerousDisableAssetCspModification": [
+        "style-src"
+      ],
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "publisher": "Bing Ads Chat",
     "copyright": "© Bing Ads Chat",
     "category": "Business",
@@ -48,13 +57,19 @@
       "icons/icon.icns"
     ],
     "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["Danish"],
+        "languages": [
+          "Danish"
+        ],
         "displayLanguageSelector": false
       },
-      "wix": { "language": "da-DK" }
+      "wix": {
+        "language": "da-DK"
+      }
     }
   }
 }

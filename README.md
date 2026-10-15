@@ -32,8 +32,13 @@ klik **Flere oplysninger → Kør alligevel**.
 - **Godkendelseskort** for ændringer: før → efter, begrundelse, hvilke forbrugsregler der gælder, Godkend/Afvis (med
   kommentar til assistenten) og **Fortryd** bagefter.
 - Slash-kommandoer (`/overblik`, `/spild`, `/budget`, `/fordeling`, `/annonce`, `/søgeord`, `/rapport`, `/forbrug`,
-  `/ændringer`), forslag på startskærmen, periode- og modelvælger i chatfeltet.
-- Samtalehistorik med søgning, omdøb og slet. Genveje: `Ctrl+N` ny samtale, `Ctrl+K` fokus på chatfeltet, `Ctrl+,` indstillinger.
+  `/ændringer`), forslag på startskærmen og modelvælger i chatfeltet.
+- **Vedhæft filer** med **+** (filer, billeder, mapper, udklipsholder), træk-og-slip eller Ctrl+V: billeder, PDF, CSV og
+  tekstfiler sendes til Claude (fx skærmbilleder af rapporter eller CSV-eksporter fra Google Ads).
+- Startskærm med animeret **GradientASCII**-horisont og **Orb** (React Bits).
+- **Topbar** som i Claude desktop: menu, skjul/vis sidebar (Ctrl+B), tilbage/frem (Alt+←/→), samtaletitel med
+  menu (omdøb/slet), indsigt (Ctrl+I) og vinduesknapper. Sidebaren kan foldes helt væk.
+- Samtalehistorik med søgning, omdøb og slet. Genveje: `Ctrl+N` ny samtale, `Ctrl+K` fokus på chatfeltet, `Ctrl+B` sidebar, `Ctrl+I` indsigt, `Ctrl+,` indstillinger, `Alt+←/→` tilbage/frem.
 
 **Assistentens værktøjer (Microsoft Advertising API v13)**
 
