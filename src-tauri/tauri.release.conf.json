@@ -5,7 +5,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkyMkMxNUZEODQ1OEYwNTMKUldSVDhGaUUvUlVza21ucUxsamNvODA2Zmx1WmlSbnlBeFVaTTJxQ2Noc20vZ1ExVlNaeE5QNzMK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY0MTg1MDUwRkRGQzFCM0UKUldRK0cvejlVRkFZWk1HRHdQSlBDNkFqNGNjbkZrZ3dPNXhSTjg4dm5PdUU4OEJDUUVGNm5xb2gK",
       "endpoints": [
         "https://bing-ads-chat.SET-BY-CI.workers.dev/updates/latest.json"
       ],

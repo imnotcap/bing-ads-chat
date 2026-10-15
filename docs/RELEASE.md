@@ -31,7 +31,7 @@ GitHub → repoet **bing-ads-chat** → Settings → Secrets and variables → A
 
 | Secret | Indhold |
 | --- | --- |
-| `TAURI_SIGNING_PRIVATE_KEY` | Hele indholdet af `%USERPROFILE%\.inventarland\updater.key` (samme nøgle som Inventarland – den offentlige del står i `tauri.release.conf.json`) |
+| `TAURI_SIGNING_PRIVATE_KEY` | Hele indholdet af Bing Ads Chats egen signeringsnøgle `updater.key` (uden adgangskode – den offentlige del står i `src-tauri/tauri.release.conf.json`). Gem filen i din password manager |
 | `CLOUDFLARE_API_TOKEN` | API-token til **din nye Cloudflare-konto**: log ind på dash.cloudflare.com → My Profile → API Tokens → Create Token → skabelonen **Edit Cloudflare Workers** → vælg din konto under *Account Resources* → Continue → Create Token, og kopiér tokenet |
 
 Kør derefter workflowet igen (Actions → Build Windows app → **Run workflow**) eller push en ændring.
@@ -47,7 +47,8 @@ alle nye versioner automatisk i appen.
 
 * **Ikke kodesigneret:** Windows viser "Windows beskyttede din pc" ved første installation
   (Flere oplysninger → Kør alligevel). Opdateringer inde i appen er signeret med updater-nøglen.
-* **Delt nøgle med Inventarland:** den samme updater-nøgle signerer begge apps. Mistes eller lækkes den,
-  gælder det begge – tag backup af `updater.key`, og del den aldrig.
+* **Signeringsnøglen:** Bing Ads Chat har sin egen `updater.key` (ikke Inventarlands). Mistes den, kan
+  installerede apps ikke længere opdatere sig selv (alle skal installere én gang manuelt med en ny nøgle).
+  Tag backup, og del den aldrig.
 * Download-siden er offentlig (installeren indeholder ingen nøgler – de gemmes i Windows Credential Manager).
   Vil du begrænse den, kan Cloudflare Access sættes på Workeren, men så kan appen ikke hente opdateringer.

@@ -6,7 +6,7 @@
 # number (scripts/set-version.mjs), so each release is newer than the last.
 #
 # Repository secrets (Settings → Secrets and variables → Actions):
-#   TAURI_SIGNING_PRIVATE_KEY  – the updater signing key (signs the updates)
+#   TAURI_SIGNING_PRIVATE_KEY  – Bing Ads Chat's own updater signing key (no password)
 #   CLOUDFLARE_API_TOKEN       – API token for YOUR Cloudflare account ("Edit Cloudflare Workers"
 #                                template). The account and its workers.dev address are found
 #                                from the token (scripts/resolve-site.mjs).
