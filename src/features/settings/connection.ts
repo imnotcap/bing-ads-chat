@@ -1,6 +1,7 @@
 /** Connecting and disconnecting Claude and Microsoft Advertising. */
 import Anthropic from '@anthropic-ai/sdk';
 import { createLiveBackend, resetBackendCache } from '@/bing/backend';
+import { effectiveClientId, effectiveDeveloperToken } from '@/bing/credentials';
 import { signInInteractive } from '@/bing/oauth';
 import { DEMO_ACCOUNTS } from '@/bing/demo/seed';
 import { deleteSecret, getSecret, setSecret } from '@/lib/platform';
@@ -43,7 +44,7 @@ export async function saveMicrosoftSettings(opts: { developerToken?: string; cli
     if (opts.clientSecret.trim()) await setSecret('ms_client_secret', opts.clientSecret.trim());
     else await deleteSecret('ms_client_secret');
   }
-  const has = !!(await getSecret('ms_developer_token'));
+  const has = !!(await effectiveDeveloperToken());
   useConnection.getState().set({ msClientId: opts.clientId.trim(), msTenant: opts.tenant.trim() || 'common', hasDeveloperToken: has });
 }
 
@@ -69,11 +70,12 @@ async function activateLive() {
 }
 
 export async function signInMicrosoft(): Promise<{ name: string; accounts: number }> {
-  const { msClientId, msTenant } = useConnection.getState();
-  if (!msClientId) throw new Error('Indtast først Application (client) ID.');
-  if (!(await getSecret('ms_developer_token'))) throw new Error('Indtast først dit developer token.');
+  const { msTenant } = useConnection.getState();
+  const clientId = effectiveClientId();
+  if (!clientId) throw new Error('Indtast først Application (client) ID.');
+  if (!(await effectiveDeveloperToken())) throw new Error('Indtast først dit developer token.');
   const clientSecret = await getSecret('ms_client_secret');
-  const tokens = await signInInteractive({ clientId: msClientId, tenant: msTenant, clientSecret });
+  const tokens = await signInInteractive({ clientId, tenant: msTenant || 'common', clientSecret });
   if (!tokens.refresh_token) throw new Error('Microsoft returnerede intet refresh token. Tjek at app-registreringen tillader "offline_access".');
   await setSecret('ms_refresh_token', tokens.refresh_token);
   return activateLive();

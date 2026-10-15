@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { effectiveDeveloperToken } from '@/bing/credentials';
 import { DEMO_ACCOUNTS } from '@/bing/demo/seed';
 import { getBackend } from '@/bing/backend';
 import { getSecret } from '@/lib/platform';
@@ -18,7 +19,7 @@ export function useBootstrap(): { ready: boolean; error: string | null } {
       const [anthropic, refresh, dev] = await Promise.all([
         getSecret('anthropic_api_key').catch(() => null),
         getSecret('ms_refresh_token').catch(() => null),
-        getSecret('ms_developer_token').catch(() => null),
+        effectiveDeveloperToken(),
       ]);
       if (cancelled) return;
       const set = useConnection.getState().set;

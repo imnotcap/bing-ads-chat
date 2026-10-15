@@ -20,6 +20,8 @@ interface UiState {
   renaming: boolean;
   /** The "Slet samtalen?" dialog is open. */
   confirmDelete: boolean;
+  /** The "Log ind med Microsoft" dialog is open. */
+  signInOpen: boolean;
   history: NavEntry[];
   historyIndex: number;
   /** Navigate to a view – 'settings' opens the settings dialog (optionally on a tab). */
@@ -28,6 +30,7 @@ interface UiState {
   setDraft: (draft: string | null) => void;
   setRenaming: (renaming: boolean) => void;
   setConfirmDelete: (confirmDelete: boolean) => void;
+  setSignInOpen: (signInOpen: boolean) => void;
   /** Records a navigation step (called by useNavigationHistory). */
   record: (entry: NavEntry) => void;
   move: (delta: -1 | 1) => NavEntry | null;
@@ -40,6 +43,7 @@ export const useUi = create<UiState>()((set, get) => ({
   draft: null,
   renaming: false,
   confirmDelete: false,
+  signInOpen: false,
   history: [],
   historyIndex: -1,
   go: (view, tab) =>
@@ -48,6 +52,7 @@ export const useUi = create<UiState>()((set, get) => ({
   setDraft: (draft) => set({ draft }),
   setRenaming: (renaming) => set({ renaming }),
   setConfirmDelete: (confirmDelete) => set({ confirmDelete }),
+  setSignInOpen: (signInOpen) => set({ signInOpen }),
   record: (entry) =>
     set((s) => {
       const current = s.history[s.historyIndex];

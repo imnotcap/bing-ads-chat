@@ -1,4 +1,5 @@
 import { getSecret, setSecret } from '@/lib/platform';
+import { effectiveClientId, effectiveDeveloperToken } from './credentials';
 import { useConnection } from '@/stores/connection';
 import { DemoBackend } from './demo/backend';
 import { LiveBackend } from './live';
@@ -8,7 +9,8 @@ let cached: { key: string; backend: AdsBackend } | null = null;
 
 /** Builds a LiveBackend from the stored credentials (refresh token, developer token). */
 export async function createLiveBackend(clientId: string, tenant: string): Promise<LiveBackend> {
-  const developerToken = await getSecret('ms_developer_token');
+  const developerToken = await effectiveDeveloperToken();
+  clientId = effectiveClientId(clientId);
   if (!developerToken) throw new Error('Mangler Microsoft Advertising developer token. Indtast det under Indstillinger → Forbindelser.');
   if (!clientId) throw new Error('Mangler Application (client) ID. Indtast det under Indstillinger → Forbindelser.');
   const clientSecret = await getSecret('ms_client_secret');

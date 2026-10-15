@@ -8,7 +8,7 @@ import {
   MessageSquare,
   MoreHorizontal,
   Pencil,
-  Plug,
+  LogOut,
   Search,
   Settings,
   Sparkles,
@@ -27,6 +27,9 @@ import { useChat, type Conversation } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
 import { useUi, type View } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
+import { disconnectMicrosoft, switchToDemo } from '@/features/settings/connection';
+import { MicrosoftLogo } from '@/features/settings/SignInDialog';
+import { toast } from 'sonner';
 
 const NAV: { view: View; label: string; icon: LucideIcon }[] = [
   { view: 'chat', label: 'Chat', icon: MessageSquare },
@@ -228,13 +231,20 @@ function AccountMenu() {
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {mode === 'demo' ? (
-            <DropdownMenuItem onSelect={() => go('settings', 'connections')}>
-              <Plug /> Forbind Microsoft Advertising
+            <DropdownMenuItem onSelect={() => useUi.getState().setSignInOpen(true)}>
+              <MicrosoftLogo /> <span className="flex-1">Log ind med Microsoft</span>
             </DropdownMenuItem>
           ) : (
-            <DropdownMenuItem onSelect={() => set({ mode: 'demo', accounts: [], accountId: null })}>
-              <FlaskConical /> Skift til demo-konto
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem onSelect={switchToDemo}>
+                <FlaskConical /> Skift til demo-data
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => void disconnectMicrosoft().then(() => toast('Du er logget ud af Microsoft Advertising', { description: 'Appen viser nu demo-data.' }))}
+              >
+                <LogOut /> Log ud af Microsoft
+              </DropdownMenuItem>
+            </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>

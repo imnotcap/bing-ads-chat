@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/controls';
 import { Field, Input } from '@/components/ui/input';
+import { BUILTIN_MS, hasBuiltinMicrosoft } from '@/bing/credentials';
 import { openExternal } from '@/lib/platform';
 import { cn, errorMessage } from '@/lib/utils';
 import { useConnection } from '@/stores/connection';
@@ -142,15 +143,26 @@ export function MicrosoftConnectForm({ compact = false, onDone }: { compact?: bo
           </Button>
         </div>
       )}
+      {!(compact && hasBuiltinMicrosoft) && (
       <div className={cn('grid gap-4', !compact && 'md:grid-cols-2')}>
         <Field
           label="Developer token"
           htmlFor="ms-dev"
-          hint={c.hasDeveloperToken ? 'Gemt – udfyld kun for at erstatte.' : 'Findes i Microsoft Advertising under Værktøjer → Developer Portal.'}
+          hint={
+            BUILTIN_MS.developerToken
+              ? 'Indbygget i appen – udfyld kun for at bruge dit eget.'
+              : c.hasDeveloperToken
+                ? 'Gemt – udfyld kun for at erstatte.'
+                : 'Findes i Microsoft Advertising under Værktøjer → Developer Portal.'
+          }
         >
           <SecretInput id="ms-dev" value={developerToken} onChange={setDeveloperToken} placeholder={c.hasDeveloperToken ? '•••••••••••• (gemt)' : 'fx 1A2B3C4D5E6F7G8H'} />
         </Field>
-        <Field label="Application (client) ID" htmlFor="ms-client" hint="Fra din app-registrering i Microsoft Entra ID.">
+        <Field
+          label="Application (client) ID"
+          htmlFor="ms-client"
+          hint={BUILTIN_MS.clientId ? 'Indbygget i appen – udfyld kun for at bruge din egen app-registrering.' : 'Fra din app-registrering i Microsoft Entra ID.'}
+        >
           <Input id="ms-client" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" className="font-mono text-[13px]" />
         </Field>
         {!compact && (
@@ -164,8 +176,13 @@ export function MicrosoftConnectForm({ compact = false, onDone }: { compact?: bo
           </>
         )}
       </div>
+      )}
       <div className="flex flex-wrap gap-2">
-        <Button variant="gradient" disabled={busy || !clientId.trim() || (!developerToken.trim() && !c.hasDeveloperToken)} onClick={() => run(signInMicrosoft)}>
+        <Button
+          variant="gradient"
+          disabled={busy || (!clientId.trim() && !BUILTIN_MS.clientId) || (!developerToken.trim() && !c.hasDeveloperToken)}
+          onClick={() => run(signInMicrosoft)}
+        >
           {busy ? <Loader2 className="animate-spin" /> : <LogIn />} Log ind med Microsoft
         </Button>
         {c.hasMsRefreshToken && c.mode !== 'live' && (

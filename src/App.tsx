@@ -15,6 +15,7 @@ import { InsightsPanel } from '@/features/insights/InsightsPanel';
 import { Onboarding } from '@/features/onboarding/Onboarding';
 import { SettingsDialog } from '@/features/settings/SettingsDialog';
 import { UpdateDialog } from '@/components/layout/UpdatePrompt';
+import { SignInDialog } from '@/features/settings/SignInDialog';
 import { useAutoUpdate } from '@/hooks/useAutoUpdate';
 import { useBootstrap } from '@/hooks/useBootstrap';
 import { useBudgetWatch } from '@/hooks/useBudgetWatch';
@@ -117,6 +118,7 @@ function Shell() {
       </div>
       <SettingsDialog />
       <UpdateDialog />
+      <SignInDialog />
       <AnimatePresence>{!onboarded && <Onboarding key="onboarding" />}</AnimatePresence>
     </div>
   );

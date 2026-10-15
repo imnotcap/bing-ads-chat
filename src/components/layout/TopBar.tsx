@@ -432,7 +432,13 @@ export function TopBar() {
 
       <div className="ml-3 flex min-w-0 items-center gap-2">
         {view === 'chat' ? <ConversationTitle /> : <span className="px-2 text-[13px] font-medium text-ink">{PAGE_TITLES[view]}</span>}
-        {mode === 'demo' && <Badge tone="brand">Demo-konto</Badge>}
+        {mode === 'demo' && (
+          <Tooltip content="Du ser demo-data – klik for at logge ind med din rigtige konto" side="bottom">
+            <button type="button" onClick={() => useUi.getState().setSignInOpen(true)} className="rounded-full transition-opacity hover:opacity-80">
+              <Badge tone="brand">Demo-konto · Log ind</Badge>
+            </button>
+          </Tooltip>
+        )}
       </div>
 
       <div data-tauri-drag-region className="h-full min-w-6 flex-1" />
