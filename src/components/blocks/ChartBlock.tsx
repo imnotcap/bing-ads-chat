@@ -4,7 +4,7 @@ import type { ValueFormat, VisualColumn } from '@/ai/visuals';
 import { fmtCompact } from '@/lib/format';
 import { formatValue } from './format';
 
-export const SERIES_COLORS = ['#4f6bf5', '#14b8a6', '#8b5cf6', '#f59e0b'];
+export const SERIES_COLORS = ['#6d5cf6', '#14b8a6', '#8b5cf6', '#f59e0b'];
 
 function ChartTooltip({
   active,
@@ -65,20 +65,20 @@ export function ChartBlock({
   };
   const axes = (
     <>
-      <CartesianGrid vertical={false} stroke="#eef0f6" />
+      <CartesianGrid vertical={false} stroke="#f0f0f4" />
       <XAxis
         dataKey={xKey}
         tickLine={false}
         axisLine={false}
-        tick={{ fontSize: 11, fill: '#8b90a6' }}
+        tick={{ fontSize: 11, fill: '#8a8a96' }}
         tickFormatter={(v) => formatValue(v, xFormat, currency)}
         minTickGap={24}
       />
-      <YAxis yAxisId="a" tickLine={false} axisLine={false} width={46} tick={{ fontSize: 11, fill: '#8b90a6' }} tickFormatter={(v: number) => fmtCompact(v)} />
+      <YAxis yAxisId="a" tickLine={false} axisLine={false} width={46} tick={{ fontSize: 11, fill: '#8a8a96' }} tickFormatter={(v: number) => fmtCompact(v)} />
       {dual && (
-        <YAxis yAxisId="b" orientation="right" tickLine={false} axisLine={false} width={40} tick={{ fontSize: 11, fill: '#8b90a6' }} tickFormatter={(v: number) => fmtCompact(v)} />
+        <YAxis yAxisId="b" orientation="right" tickLine={false} axisLine={false} width={40} tick={{ fontSize: 11, fill: '#8a8a96' }} tickFormatter={(v: number) => fmtCompact(v)} />
       )}
-      <Tooltip cursor={{ stroke: '#d8dcf0', fill: 'rgb(79 107 245 / 0.05)' }} content={<ChartTooltip series={series} currency={currency} xFormat={xFormat} />} />
+      <Tooltip cursor={{ stroke: '#dedee6', fill: 'rgb(79 107 245 / 0.05)' }} content={<ChartTooltip series={series} currency={currency} xFormat={xFormat} />} />
     </>
   );
   const axisFor = (i: number) => (dual && i === 1 ? 'b' : 'a');

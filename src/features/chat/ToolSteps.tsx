@@ -78,7 +78,7 @@ export function ToolSteps({ parts, currency }: { parts: ToolPart[]; currency: st
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: EASE }}
-      className="grid gap-0.5 rounded-2xl border border-line/80 bg-white/60 p-1 backdrop-blur"
+      className="grid gap-0.5 rounded-xl border border-line bg-surface p-1"
     >
       {parts.map((p) => (
         <Step key={p.id} part={p} currency={currency} />

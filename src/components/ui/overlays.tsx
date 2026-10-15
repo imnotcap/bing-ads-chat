@@ -48,7 +48,7 @@ export function DropdownMenuContent({
               exit={{ opacity: 0, y: -4, scale: 0.98, filter: 'blur(2px)', transition: { duration: 0.12 } }}
               transition={{ duration: 0.22, ease: EASE }}
               className={cn(
-                'z-50 min-w-[220px] origin-[var(--radix-dropdown-menu-content-transform-origin)] overflow-hidden rounded-2xl border border-black/[0.06] bg-white/95 p-1.5 shadow-pop backdrop-blur-xl',
+                'z-50 min-w-[220px] origin-[var(--radix-dropdown-menu-content-transform-origin)] overflow-hidden rounded-xl border border-line bg-white/95 p-1 shadow-pop backdrop-blur-xl',
                 className,
               )}
             >
@@ -65,7 +65,7 @@ export function DropdownMenuItem({ className, inset, ...props }: React.Component
   return (
     <Menu.Item
       className={cn(
-        'relative flex cursor-pointer select-none items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] text-ink-2 outline-none transition-colors data-[disabled]:pointer-events-none data-[highlighted]:bg-brand-50 data-[highlighted]:text-ink data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:text-muted',
+        'relative flex cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13.5px] text-ink-2 outline-none transition-colors data-[disabled]:pointer-events-none data-[highlighted]:bg-line-2 data-[highlighted]:text-ink data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:text-muted',
         inset && 'pl-9',
         className,
       )}
@@ -123,8 +123,8 @@ export function Select<T extends string>({
           className={cn(
             'group inline-flex items-center gap-2 text-left text-sm text-ink outline-none transition-[border-color,box-shadow,background-color]',
             triggerVariant === 'field'
-              ? 'h-10 w-full justify-between rounded-xl border border-line bg-surface px-3.5 shadow-[0_1px_2px_rgb(16_24_64/0.03)] hover:border-black/10 focus-visible:border-brand/50 focus-visible:ring-4 focus-visible:ring-brand/10 data-[state=open]:border-brand/40 data-[state=open]:ring-4 data-[state=open]:ring-brand/10'
-              : 'h-8 rounded-full bg-white/70 px-3 text-[13px] font-medium text-ink-2 ring-1 ring-black/[0.06] backdrop-blur hover:bg-white hover:text-ink data-[state=open]:bg-white data-[state=open]:text-ink',
+              ? 'h-10 w-full justify-between rounded-xl border border-line bg-surface px-3.5 shadow-[0_1px_2px_rgb(18_18_22/0.03)] hover:border-black/10 focus-visible:border-brand/50 focus-visible:ring-4 focus-visible:ring-brand/10 data-[state=open]:border-brand/40 data-[state=open]:ring-4 data-[state=open]:ring-brand/10'
+              : 'h-8 rounded-lg px-2.5 text-[12.5px] font-medium text-muted hover:bg-line-2 hover:text-ink data-[state=open]:bg-line-2 data-[state=open]:text-ink',
             className,
           )}
         >
@@ -177,7 +177,7 @@ export function Dialog({
           <DialogPrimitive.Portal forceMount>
             <DialogPrimitive.Overlay asChild forceMount>
               <motion.div
-                className="fixed inset-0 z-50 bg-[#0f1222]/25 backdrop-blur-[3px]"
+                className="fixed inset-0 z-50 bg-[#121216]/25 backdrop-blur-[3px]"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -233,7 +233,7 @@ export function Tooltip({ content, children, side = 'top' }: { content: React.Re
         <TooltipPrimitive.Content
           side={side}
           sideOffset={8}
-          className="z-[60] max-w-xs rounded-lg bg-[#0f1222] px-2.5 py-1.5 text-[12px] font-medium text-white shadow-pop data-[state=delayed-open]:animate-[fade-in_120ms_ease-out]"
+          className="z-[60] max-w-xs rounded-lg bg-[#121216] px-2.5 py-1.5 text-[12px] font-medium text-white shadow-pop data-[state=delayed-open]:animate-[fade-in_120ms_ease-out]"
         >
           {content}
         </TooltipPrimitive.Content>

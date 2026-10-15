@@ -249,7 +249,7 @@ export function ApprovalModePicker({ value, onChange }: { value: ApprovalMode; o
             onClick={() => onChange(o.value)}
             className={cn(
               'relative flex flex-col rounded-2xl border p-4 text-left transition-[border-color,box-shadow,background-color]',
-              active ? 'border-brand/40 bg-brand-50/50 shadow-[0_0_0_4px_rgb(79_107_245/0.08)]' : 'border-line bg-surface hover:border-black/10',
+              active ? 'border-brand/40 bg-brand-50/50 shadow-[0_0_0_4px_rgb(109_92_246/0.08)]' : 'border-line bg-surface hover:border-black/10',
             )}
           >
             <div className="flex w-full items-center gap-2">

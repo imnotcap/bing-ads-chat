@@ -111,7 +111,7 @@ export function ElasticSlider({
             onChange(Math.min(max, Math.max(min, Math.round(next / step) * step)));
           }}
           className={cn(
-            'absolute top-1/2 size-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-brand shadow-[0_2px_8px_rgb(79_107_245/0.45)] transition-transform',
+            'absolute top-1/2 size-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-brand shadow-[0_2px_8px_rgb(109_92_246/0.45)] transition-transform',
             dragging && 'scale-110',
           )}
           style={{ left: `${pct}%` }}

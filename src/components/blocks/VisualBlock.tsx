@@ -15,7 +15,7 @@ export function VisualBlock({ visual, currency }: { visual: VisualSpec; currency
             <div className="mt-2 flex flex-wrap gap-3 px-2 text-[12px] text-muted">
               {visual.series.map((s, i) => (
                 <span key={s.key} className="inline-flex items-center gap-1.5">
-                  <span className="size-2 rounded-full" style={{ background: ['#4f6bf5', '#14b8a6', '#8b5cf6', '#f59e0b'][i % 4] }} />
+                  <span className="size-2 rounded-full" style={{ background: ['#6d5cf6', '#14b8a6', '#8b5cf6', '#f59e0b'][i % 4] }} />
                   {s.label}
                 </span>
               ))}

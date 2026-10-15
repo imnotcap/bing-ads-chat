@@ -22,7 +22,7 @@ export const UserMessage = memo(function UserMessage({ item }: { item: UserItem 
       className="flex justify-end"
     >
       <div
-        className="max-w-[78%] whitespace-pre-wrap rounded-[22px] rounded-br-md bg-[linear-gradient(135deg,#5a74f7,#6d5cf6)] px-4 py-2.5 text-[15px] leading-relaxed text-white shadow-[0_8px_24px_-12px_rgb(91_92_246/0.7)]"
+        className="max-w-[78%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-line-2 px-4 py-2.5 text-[15px] leading-relaxed text-ink"
         data-selectable
       >
         {item.text}
@@ -92,7 +92,7 @@ export const AssistantMessage = memo(function AssistantMessage({ item, currency 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, ease: EASE }} className="group flex gap-3.5">
       <div className="pt-0.5">
-        <MiniOrb size={30} active={live} />
+        <MiniOrb size={26} active={live} />
       </div>
       <div className="grid min-w-0 flex-1 gap-3">
         {groups.map((g, i) =>

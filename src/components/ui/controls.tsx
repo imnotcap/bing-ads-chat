@@ -12,7 +12,7 @@ export function Switch({ className, ...props }: React.ComponentProps<typeof Swit
       )}
       {...props}
     >
-      <SwitchPrimitive.Thumb className="pointer-events-none block size-5 rounded-full bg-white shadow-[0_2px_6px_rgb(16_24_64/0.2)] transition-transform data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0" />
+      <SwitchPrimitive.Thumb className="pointer-events-none block size-5 rounded-full bg-white shadow-[0_2px_6px_rgb(18_18_22/0.2)] transition-transform data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0" />
     </SwitchPrimitive.Root>
   );
 }
@@ -80,7 +80,7 @@ export function Segmented<T extends string>({
             {active && (
               <motion.span
                 layoutId={layoutId}
-                className="absolute inset-0 rounded-lg bg-surface shadow-[0_1px_3px_rgb(16_24_64/0.1)]"
+                className="absolute inset-0 rounded-lg bg-surface shadow-[0_1px_3px_rgb(18_18_22/0.1)]"
                 transition={{ type: 'spring', stiffness: 500, damping: 38 }}
               />
             )}
@@ -105,5 +105,5 @@ export function Badge({ className, tone = 'neutral', ...props }: React.HTMLAttri
 }
 
 export function Kbd({ children }: { children: React.ReactNode }) {
-  return <kbd className="rounded-md border border-line bg-surface px-1.5 py-0.5 font-sans text-[11px] text-muted shadow-[0_1px_0_rgb(16_24_64/0.06)]">{children}</kbd>;
+  return <kbd className="rounded-md border border-line bg-surface px-1.5 py-0.5 font-sans text-[11px] text-muted shadow-[0_1px_0_rgb(18_18_22/0.06)]">{children}</kbd>;
 }

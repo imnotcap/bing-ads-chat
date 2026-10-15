@@ -66,7 +66,7 @@ export function GradientText({ children, className }: { children: ReactNode; cla
     <motion.span
       className={cn('inline-block bg-clip-text text-transparent', className)}
       style={{
-        backgroundImage: 'linear-gradient(100deg, #4f6bf5, #8b5cf6, #14b8a6, #4f6bf5)',
+        backgroundImage: 'linear-gradient(100deg, #6d5cf6, #8b5cf6, #14b8a6, #6d5cf6)',
         backgroundSize: '300% 100%',
       }}
       animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}

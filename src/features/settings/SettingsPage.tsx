@@ -39,7 +39,7 @@ function Card({ title, description, children, className, action }: { title: stri
     <section className={cn('card p-6', className)}>
       <div className="mb-5 flex items-start gap-4">
         <div className="flex-1">
-          <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
+          <h2 className="text-[16px] font-medium tracking-[-0.01em] text-ink">{title}</h2>
           {description && <p className="mt-1 text-[13px] leading-relaxed text-muted">{description}</p>}
         </div>
         {action}
@@ -291,7 +291,7 @@ function AiTab() {
                 onClick={() => setAi({ model: m.id })}
                 className={cn(
                   'flex flex-col rounded-2xl border p-4 text-left transition-[border-color,box-shadow]',
-                  active ? 'border-brand/40 bg-brand-50/50 shadow-[0_0_0_4px_rgb(79_107_245/0.08)]' : 'border-line hover:border-black/10',
+                  active ? 'border-brand/40 bg-brand-50/50 shadow-[0_0_0_4px_rgb(109_92_246/0.08)]' : 'border-line hover:border-black/10',
                 )}
               >
                 <div className="flex items-center gap-2">
@@ -469,9 +469,9 @@ function AppearanceTab() {
         />
       </Field>
       <div className="mt-3">
-        <SwitchRow label="Aurora-baggrund" description="Bløde, langsomt bevægende farver bag chatten." checked={a.auroraBackground} onCheckedChange={(auroraBackground) => set({ auroraBackground })} />
+        <SwitchRow label="Animeret baggrund" description="Bløde, langsomt bevægende farver bag chatten (Aurora)." checked={a.auroraBackground} onCheckedChange={(auroraBackground) => set({ auroraBackground })} />
         <SwitchRow label="Klik-gnister" description="Små gnister ved hvert klik." checked={a.clickSpark} onCheckedChange={(clickSpark) => set({ clickSpark })} />
-        <SwitchRow label="Indsigtspanel ved chatten" description="Nøgletal, budget og opmærksomhedspunkter i højre side." checked={a.insightsPanel} onCheckedChange={(insightsPanel) => set({ insightsPanel })} />
+        <SwitchRow label="Vis indsigtsvindue ved chatten" description="Nøgletal, budget og opmærksomhedspunkter i højre side. Kan også foldes sammen direkte i chatten." checked={a.insightsPanel} onCheckedChange={(insightsPanel) => set({ insightsPanel })} />
         <SwitchRow label="Kompakt menu" checked={a.sidebarCollapsed} onCheckedChange={(sidebarCollapsed) => set({ sidebarCollapsed })} />
       </div>
     </Card>
@@ -579,7 +579,7 @@ export function SettingsPage() {
   return (
     <motion.div {...pageTransition} className="flex h-full min-w-0 flex-1 overflow-hidden">
       <nav aria-label="Indstillinger" className="w-[250px] shrink-0 px-4 pt-7">
-        <h1 className="px-3 pb-4 text-[24px] font-semibold tracking-[-0.02em] text-ink">Indstillinger</h1>
+        <h1 className="px-3 pb-4 text-[26px] font-medium tracking-[-0.03em] text-ink">Indstillinger</h1>
         <div className="grid gap-0.5">
           {TABS.map((t) => {
             const active = t.id === tab;
@@ -590,7 +590,7 @@ export function SettingsPage() {
                 onClick={() => go('settings', t.id)}
                 className={cn('relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors', active ? 'text-ink' : 'text-ink-2 hover:bg-white/60')}
               >
-                {active && <motion.span layoutId="settings-tab" className="absolute inset-0 rounded-xl bg-white shadow-[0_1px_3px_rgb(16_24_64/0.08)]" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
+                {active && <motion.span layoutId="settings-tab" className="absolute inset-0 rounded-xl bg-line-2" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
                 <t.icon className={cn('relative size-4', active ? 'text-brand' : 'text-muted')} />
                 <span className="relative">
                   <span className="block text-[13.5px] font-medium">{t.label}</span>
@@ -600,7 +600,7 @@ export function SettingsPage() {
             );
           })}
         </div>
-        <div className="mt-6 flex items-center gap-2 rounded-xl bg-white/60 px-3 py-2.5 text-[12px] text-muted">
+        <div className="mt-6 flex items-center gap-2 rounded-xl border border-line px-3 py-2.5 text-[12px] text-muted">
           <ShieldCheck className="size-4 shrink-0 text-positive" />
           Nøgler gemmes i Windows Credential Manager – aldrig i klartekst.
         </div>

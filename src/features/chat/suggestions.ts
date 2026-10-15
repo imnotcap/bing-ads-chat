@@ -8,9 +8,9 @@ export interface Suggestion {
 }
 
 export const SUGGESTIONS: Suggestion[] = [
-  { icon: BarChart3, title: 'Overblik over kontoen', prompt: 'Giv mig et overblik over kontoens performance i den valgte periode – hvad går godt, og hvad skal jeg holde øje med?', tone: 'brand' },
-  { icon: Search, title: 'Find spildte klik', prompt: 'Find søgetermer der koster penge uden at konvertere, og foreslå negative søgeord.', tone: 'violet' },
-  { icon: Wallet, title: 'Budget-flaskehalse', prompt: 'Hvilke kampagner er begrænset af budget, og hvor ville ekstra budget give mest afkast?', tone: 'teal' },
+  { icon: BarChart3, title: 'Giv mig et overblik over kontoen og hvad jeg skal holde øje med', prompt: 'Giv mig et overblik over kontoens performance i den valgte periode – hvad går godt, og hvad skal jeg holde øje med?', tone: 'brand' },
+  { icon: Search, title: 'Find søgetermer der koster penge uden at konvertere', prompt: 'Find søgetermer der koster penge uden at konvertere, og foreslå negative søgeord.', tone: 'violet' },
+  { icon: Wallet, title: 'Hvilke kampagner er begrænset af budget?', prompt: 'Hvilke kampagner er begrænset af budget, og hvor ville ekstra budget give mest afkast?', tone: 'teal' },
   { icon: Scale, title: 'Fordel budgettet bedre', prompt: 'Hvordan bør jeg fordele mit budget mellem kampagnerne for at få flest konverteringer til en fornuftig CPA? Vis det med en graf.', tone: 'amber' },
   { icon: PenLine, title: 'Skriv nye annoncer', prompt: 'Gennemgå annoncerne i den kampagne med mest forbrug, og skriv en ny responsiv søgeannonce, der kan teste mod den bedste.', tone: 'violet' },
   { icon: Lightbulb, title: 'Nye søgeord', prompt: 'Find nye relevante søgeord med god volumen til mine bedste kampagner.', tone: 'teal' },

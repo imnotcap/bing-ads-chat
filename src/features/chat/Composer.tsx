@@ -96,8 +96,8 @@ export function Composer({ running, onSend, onStop, disabled }: { running: boole
 
       <div
         className={cn(
-          'rounded-[26px] border border-black/[0.06] bg-white/85 p-2 shadow-[0_18px_50px_-24px_rgb(31_41_95/0.35),0_2px_6px_rgb(16_24_64/0.04)] backdrop-blur-xl transition-[box-shadow,border-color]',
-          'focus-within:border-brand/30 focus-within:shadow-[0_18px_50px_-20px_rgb(79_107_245/0.45),0_0_0_4px_rgb(79_107_245/0.08)]',
+          'rounded-2xl border border-brand/20 bg-white/90 p-2 shadow-[0_10px_36px_-16px_rgb(109_92_246/0.35)] backdrop-blur-xl transition-[box-shadow,border-color]',
+          'focus-within:border-brand/40 focus-within:shadow-[0_12px_40px_-14px_rgb(109_92_246/0.5),0_0_0_4px_rgb(109_92_246/0.07)]',
         )}
       >
         <textarea
@@ -127,8 +127,8 @@ export function Composer({ running, onSend, onStop, disabled }: { running: boole
               submit();
             }
           }}
-          placeholder={disabled ? 'Tilføj din Claude API-nøgle under Indstillinger for at chatte …' : 'Spørg om din konto, eller bed mig ændre noget …   (skriv / for genveje)'}
-          className="block max-h-[220px] w-full resize-none bg-transparent px-3 pb-1 pt-2.5 text-[15px] leading-relaxed text-ink outline-none placeholder:text-subtle"
+          placeholder={disabled ? 'Tilføj din Claude API-nøgle under Indstillinger for at chatte …' : 'Spørg om hvad som helst, eller bed mig ændre noget …'}
+          className="block max-h-[220px] w-full resize-none bg-transparent px-2.5 pb-1 pt-2 text-[15px] leading-relaxed text-ink outline-none placeholder:text-subtle"
           aria-label="Besked til assistenten"
         />
         <div className="flex items-center gap-1.5 px-1 pt-1">
@@ -147,7 +147,7 @@ export function Composer({ running, onSend, onStop, disabled }: { running: boole
             contentClassName="w-[300px]"
             options={MODELS.map((m) => ({ value: m.id, label: m.label, description: m.description, icon: <Sparkles className="size-3.5 text-violet" /> }))}
           />
-          <span className="ml-auto hidden pr-2 text-[11.5px] text-subtle md:inline">Enter sender · Shift+Enter ny linje</span>
+          <span className="ml-auto hidden pr-2 text-[11px] text-subtle md:inline">Enter sender · / genveje</span>
           <Magnet strength={6} padding={16} disabled={running}>
             {running ? (
               <motion.button
@@ -165,10 +165,10 @@ export function Composer({ running, onSend, onStop, disabled }: { running: boole
                 onClick={submit}
                 disabled={!text.trim() || disabled}
                 whileTap={{ scale: 0.9 }}
-                className="grid size-10 place-items-center rounded-full bg-[linear-gradient(135deg,#4f6bf5,#8b5cf6)] text-white shadow-[0_8px_20px_-8px_rgb(91_92_246/0.8)] transition-[opacity,filter] hover:brightness-110 disabled:opacity-35 disabled:shadow-none"
+                className="grid size-9 place-items-center rounded-[10px] bg-ink text-white transition-[opacity,background-color] hover:bg-brand disabled:bg-line disabled:text-subtle"
                 aria-label="Send"
               >
-                <ArrowUp className="size-[18px]" strokeWidth={2.4} />
+                <ArrowUp className="size-4" strokeWidth={2.4} />
               </motion.button>
             )}
           </Magnet>

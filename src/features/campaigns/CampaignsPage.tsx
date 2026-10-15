@@ -95,7 +95,7 @@ export function CampaignsPage() {
     <motion.div {...pageTransition} className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       <header className="flex shrink-0 flex-wrap items-center gap-3 px-8 pb-4 pt-7">
         <div className="mr-auto">
-          <h1 className="text-[24px] font-semibold tracking-[-0.02em] text-ink">Kampagner</h1>
+          <h1 className="text-[26px] font-medium tracking-[-0.03em] text-ink">Kampagner</h1>
           <p className="text-[13px] text-muted">
             {account?.name} · {DATE_PRESET_LABELS[range.preset]}
           </p>
@@ -168,7 +168,7 @@ export function CampaignsPage() {
                 <thead>
                   <tr className="text-left text-[11.5px] font-semibold text-muted">
                     {['Kampagne', 'Aktiv', 'Dagsbudget', 'Budstrategi', 'Forbrug', 'Klik', 'CTR', 'Konv.', 'CPA', 'ROAS', ''].map((h, i) => (
-                      <th key={h || i} className={cn('whitespace-nowrap border-b border-line bg-[#f8f9fc] px-3 py-2.5 first:pl-4', i >= 4 && i <= 9 && 'text-right')}>
+                      <th key={h || i} className={cn('whitespace-nowrap border-b border-line bg-[#fafafb] px-3 py-2.5 first:pl-4', i >= 4 && i <= 9 && 'text-right')}>
                         {h}
                       </th>
                     ))}
@@ -237,16 +237,16 @@ export function CampaignsPage() {
                 </tbody>
                 <tfoot>
                   <tr className="text-[12.5px] font-semibold text-ink">
-                    <td className="bg-[#f8f9fc] px-3 py-2.5" colSpan={4}>
+                    <td className="bg-[#fafafb] px-3 py-2.5" colSpan={4}>
                       I alt · {rows.length} kampagner
                     </td>
-                    <td className="bg-[#f8f9fc] px-3 py-2.5 text-right tabular">{fmtMoney(totals.spend, currency)}</td>
-                    <td className="bg-[#f8f9fc] px-3 py-2.5 text-right tabular">{fmtNumber(totals.clicks)}</td>
-                    <td className="bg-[#f8f9fc] px-3 py-2.5 text-right tabular">{fmtPercent(totals.ctr)}</td>
-                    <td className="bg-[#f8f9fc] px-3 py-2.5 text-right tabular">{fmtNumber(totals.conversions, 1)}</td>
-                    <td className="bg-[#f8f9fc] px-3 py-2.5 text-right tabular">{fmtMoney(totals.cpa, currency)}</td>
-                    <td className="bg-[#f8f9fc] px-3 py-2.5 text-right tabular">{totals.roas ? `${fmtNumber(totals.roas, 2)}x` : '–'}</td>
-                    <td className="bg-[#f8f9fc]" />
+                    <td className="bg-[#fafafb] px-3 py-2.5 text-right tabular">{fmtMoney(totals.spend, currency)}</td>
+                    <td className="bg-[#fafafb] px-3 py-2.5 text-right tabular">{fmtNumber(totals.clicks)}</td>
+                    <td className="bg-[#fafafb] px-3 py-2.5 text-right tabular">{fmtPercent(totals.ctr)}</td>
+                    <td className="bg-[#fafafb] px-3 py-2.5 text-right tabular">{fmtNumber(totals.conversions, 1)}</td>
+                    <td className="bg-[#fafafb] px-3 py-2.5 text-right tabular">{fmtMoney(totals.cpa, currency)}</td>
+                    <td className="bg-[#fafafb] px-3 py-2.5 text-right tabular">{totals.roas ? `${fmtNumber(totals.roas, 2)}x` : '–'}</td>
+                    <td className="bg-[#fafafb]" />
                   </tr>
                 </tfoot>
               </table>

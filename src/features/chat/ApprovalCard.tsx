@@ -49,25 +49,15 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
       initial={{ opacity: 0, y: 8, scale: 0.99 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.35, ease: EASE }}
-      className={cn('relative overflow-hidden rounded-2xl border bg-surface shadow-card', waiting ? 'border-transparent' : 'border-line')}
+      className={cn('relative overflow-hidden rounded-2xl border bg-surface transition-[border-color,box-shadow]', waiting ? 'border-brand/35 shadow-glow' : 'border-line')}
     >
-      {waiting && (
-        // Animated gradient border while the card waits for a decision.
-        <motion.div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 rounded-2xl p-[1.5px] [mask:linear-gradient(#000_0_0)_content-box_exclude,linear-gradient(#000_0_0)]"
-          style={{ background: 'conic-gradient(from var(--a), #4f6bf5, #8b5cf6, #14b8a6, #f59e0b, #4f6bf5)' }}
-          animate={{ ['--a' as string]: ['0deg', '360deg'] }}
-          transition={{ duration: 4, ease: 'linear', repeat: Infinity }}
-        />
-      )}
       <div className="flex items-start gap-3 px-4 pb-3 pt-4">
-        <span className={cn('mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl', part.status === 'blocked' ? 'bg-negative-bg text-negative' : 'bg-brand-50 text-brand')}>
+        <span className={cn('mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg', part.status === 'blocked' ? 'bg-negative-bg text-negative' : 'bg-brand-50 text-brand')}>
           {part.status === 'blocked' ? <ShieldAlert className="size-4" /> : <ShieldCheck className="size-4" />}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h4 className="text-[14.5px] font-semibold text-ink">{plan.title}</h4>
+            <h4 className="text-[14.5px] font-medium text-ink">{plan.title}</h4>
             <Badge tone={s.tone}>
               <s.icon className={cn('size-3', (part.status === 'running' || part.status === 'streaming') && 'animate-spin')} />
               {s.label}
@@ -80,7 +70,7 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
       <div className="mx-4 overflow-hidden rounded-xl border border-line">
         <table className="w-full text-[13px]" data-selectable>
           <thead>
-            <tr className="bg-[#f8f9fc] text-left text-[11.5px] font-semibold text-muted">
+            <tr className="bg-[#fafafb] text-left text-[11.5px] font-semibold text-muted">
               <th className="px-3 py-1.5">Ændring</th>
               {hasBefore && <th className="px-3 py-1.5">Før</th>}
               <th className="px-3 py-1.5">{hasBefore ? 'Efter' : 'Værdi'}</th>
@@ -100,7 +90,7 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
             ))}
           </tbody>
         </table>
-        {plan.changes.length > 40 && <div className="border-t border-line bg-[#f8f9fc] px-3 py-1 text-[11.5px] text-muted">+ {plan.changes.length - 40} flere</div>}
+        {plan.changes.length > 40 && <div className="border-t border-line bg-[#fafafb] px-3 py-1 text-[11.5px] text-muted">+ {plan.changes.length - 40} flere</div>}
       </div>
 
       <div className="grid gap-1.5 px-4 pt-3 text-[12.5px]">
@@ -142,7 +132,7 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
         {waiting ? (
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="positive" onClick={() => answerApproval(part.id, { approved: true })}>
-              <Check /> Godkend og udfør
+              <Check /> Godkend
             </Button>
             <Button
               size="sm"

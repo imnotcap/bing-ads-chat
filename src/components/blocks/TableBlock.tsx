@@ -45,7 +45,7 @@ export function TableBlock({
                   <th
                     key={c.key}
                     className={cn(
-                      'cursor-pointer select-none whitespace-nowrap border-b border-line bg-[#f8f9fc] px-3 font-semibold text-muted transition-colors hover:text-ink',
+                      'cursor-pointer select-none whitespace-nowrap border-b border-line bg-[#fafafb] px-3 font-semibold text-muted transition-colors hover:text-ink',
                       dense ? 'py-1.5 text-[11px]' : 'py-2 text-[11.5px]',
                       numeric ? 'text-right' : 'text-left',
                     )}
@@ -85,7 +85,7 @@ export function TableBlock({
         </table>
       </div>
       {total !== undefined && total > rows.length && (
-        <div className="border-t border-line bg-[#f8f9fc] px-3 py-1.5 text-[11.5px] text-muted">
+        <div className="border-t border-line bg-[#fafafb] px-3 py-1.5 text-[11.5px] text-muted">
           Viser {rows.length} af {total} rækker
         </div>
       )}

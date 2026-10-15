@@ -57,12 +57,12 @@ export function evaluateGuardrails(plan: ChangePlan, rules: SpendRules, ctx: Spe
   }
   if (rules.maxCpcBid !== null) {
     const over = (plan.newBids ?? []).filter((b) => b > rules.maxCpcBid!);
-    if (over.length) block.push(`Bud på ${money(Math.max(...over))} overstiger det maksimale CPC-bud på ${money(rules.maxCpcBid)}.`);
+    if (over.length) block.push(`Bud på ${money(Math.max(...over))} overstiger det maksimale CPC-bud på ${money(rules.maxCpcBid)}`);
   }
   if (rules.maxTotalDailyBudget !== null && plan.dailyBudgetDelta > 0 && ctx.totalActiveDailyBudget !== null) {
     const after = ctx.totalActiveDailyBudget + plan.dailyBudgetDelta;
     if (after > rules.maxTotalDailyBudget) {
-      block.push(`Samlet dagsbudget ville blive ${money(after)}, hvilket overstiger loftet på ${money(rules.maxTotalDailyBudget)}.`);
+      block.push(`Samlet dagsbudget ville blive ${money(after)}, hvilket overstiger loftet på ${money(rules.maxTotalDailyBudget)}`);
     }
   }
 
@@ -77,7 +77,7 @@ export function evaluateGuardrails(plan: ChangePlan, rules: SpendRules, ctx: Spe
   if (rules.monthlyBudget !== null && plan.dailyBudgetDelta > 0 && ctx.totalActiveDailyBudget !== null && ctx.monthToDateSpend !== null) {
     const projected = ctx.monthToDateSpend + (ctx.totalActiveDailyBudget + plan.dailyBudgetDelta) * ctx.daysLeftInMonth;
     if (projected > rules.monthlyBudget) {
-      approve.push(`Prognosen for måneden bliver op til ${money(projected)} – over månedsbudgettet på ${money(rules.monthlyBudget)}.`);
+      approve.push(`Prognosen for måneden bliver op til ${money(projected)} – over månedsbudgettet på ${money(rules.monthlyBudget)}`);
     }
   }
 

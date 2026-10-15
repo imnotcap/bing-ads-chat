@@ -54,9 +54,9 @@ function Shell() {
   useShortcuts();
 
   return (
-    <div className="flex h-full bg-canvas">
+    <div className="flex h-full bg-surface">
       <Sidebar />
-      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-l-[28px] bg-[#fbfbfe] shadow-[-1px_0_0_rgb(16_24_64/0.04),-12px_0_40px_-20px_rgb(16_24_64/0.12)]">
+      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#fbfbfc]">
         {error && (
           <button
             type="button"
@@ -73,7 +73,7 @@ function Shell() {
             {view === 'chat' && (
               <div key="chat" className="flex min-w-0 flex-1">
                 <ChatView />
-                <AnimatePresence>{insights && <InsightsPanel key="insights" />}</AnimatePresence>
+                <InsightsPanel open={insights} />
               </div>
             )}
             {view === 'campaigns' && <CampaignsPage key="campaigns" />}

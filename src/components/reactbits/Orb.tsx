@@ -59,7 +59,7 @@ export interface OrbProps {
   className?: string;
 }
 
-export function Orb({ size = 160, active = false, colors = ['#5b7cff', '#a26bff', '#38d6c2'], className }: OrbProps) {
+export function Orb({ size = 160, active = false, colors = ['#6d5cf6', '#a26bff', '#38d6c2'], className }: OrbProps) {
   const ref = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotionConfig();
   const [webgl] = useState(supportsWebGL);
@@ -158,7 +158,7 @@ export function MiniOrb({ size = 28, active = false, className }: { size?: numbe
     >
       <span
         className={cn('absolute -inset-1/4 rounded-full', active && 'animate-[spin_2.4s_linear_infinite]')}
-        style={{ background: 'conic-gradient(from 210deg, #5b7cff, #a26bff, #38d6c2, #5b7cff)' }}
+        style={{ background: 'conic-gradient(from 210deg, #6d5cf6, #a78bfa, #f0abfc, #8b7bff, #6d5cf6)' }}
       />
       <span className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_35%_30%,rgba(255,255,255,0.95),rgba(255,255,255,0.15)_55%,transparent_70%)]" />
     </span>

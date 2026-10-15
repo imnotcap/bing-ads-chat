@@ -4,8 +4,22 @@ En lokal **Windows-desktopapp**, hvor du styrer din **Microsoft Advertising (Bin
 AI-assistent (Claude). Assistenten kan analysere, rapportere og ændre kontoen – men altid inden for de
 **forbrugsregler**, du selv sætter, og med **godkendelse** og **fortryd** på ændringerne.
 
-Bygget i samme stil og med samme teknologi som Inventarland-dashboardet: **Tauri 2** (native Windows-vindue) +
+Bygget med samme teknologi som Inventarland-dashboardet: **Tauri 2** (native Windows-vindue) +
 **React 19 / TypeScript / Tailwind 4**, animationer med **motion** og komponenter i **React Bits**-stil.
+Designet er enkelt og lyst med fonten **Funnel Sans** (bundlet i appen, virker offline), en rolig lavendel-accent og
+et sammenfoldeligt **indsigtsvindue** i højre side.
+
+## Hent appen (Windows)
+
+Hvert push bygges automatisk af GitHub Actions på en Windows-maskine. Den nyeste build ligger under
+[Releases → "Seneste build"](https://github.com/imnotcap/bing-ads-chat/releases/tag/build-latest):
+
+- **Bing-Ads-Chat-Setup.exe** – installerer appen med startmenu-genvej (anbefalet).
+- **Bing-Ads-Chat-portable.exe** – kører direkte uden installation.
+- **Bing-Ads-Chat.msi** – til udrulning.
+
+Appen er ikke kodesigneret endnu, så Windows SmartScreen kan vise "Windows beskyttede din pc" →
+klik **Flere oplysninger → Kør alligevel**.
 
 ![Chat](docs/chat.png)
 
@@ -41,8 +55,9 @@ Bygget i samme stil og med samme teknologi som Inventarland-dashboardet: **Tauri
 - **Nødstop**: pause alle kampagner med ét klik (kan fortrydes).
 
 **Øvrigt**
-- Indsigtspanel ved chatten: nøgletal, trend, månedsbudget og automatiske *opmærksomhedspunkter* (budgetbegrænsede
-  kampagner, høj CPA, forbrug uden konverteringer …) – klik for at få assistenten til at analysere dem.
+- Sammenfoldeligt indsigtsvindue ved chatten med sektioner, der hver kan foldes ud og sammen: nøgletal, trend,
+  månedsbudget og automatiske *opmærksomhedspunkter* (budgetbegrænsede kampagner, høj CPA, forbrug uden
+  konverteringer …) – klik for at få assistenten til at analysere dem.
 - Kampagneside med inline-redigering af budget og status og "Spørg AI" pr. kampagne.
 - Aktivitetslog over alle ændringer (assistent, dig, budgetvagt) med fortryd.
 - AI-indstillinger: model (Opus 5.5 anbefalet, Sonnet 5.5, Haiku 5.5, Fable 5.1), indsats, vis tankegang,

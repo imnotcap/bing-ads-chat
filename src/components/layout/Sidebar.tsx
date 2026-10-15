@@ -21,9 +21,8 @@ import {
 import { useMemo, useState } from 'react';
 import { AnimatedList } from '@/components/reactbits';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/controls';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
-import { fmtRelative, fmtUsd } from '@/lib/format';
+import { fmtUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useChat, type Conversation } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
@@ -51,19 +50,19 @@ function NavButton({ item, compact }: { item: (typeof NAV)[number]; compact: boo
       aria-label={compact ? item.label : undefined}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'group relative flex h-10 w-full items-center rounded-xl text-[14px] font-medium transition-colors',
-        compact ? 'justify-center' : 'gap-3 px-3.5',
-        active ? 'text-brand' : 'text-ink-2 hover:bg-white/70 hover:text-ink',
+        'group relative flex h-9 w-full items-center rounded-[10px] text-[13.5px] font-medium transition-colors',
+        compact ? 'justify-center' : 'gap-2.5 px-3',
+        active ? 'text-ink' : 'text-muted hover:bg-line-2 hover:text-ink',
       )}
     >
       {active && (
         <motion.span
           layoutId="nav-active"
-          className="absolute inset-0 rounded-xl bg-white shadow-[0_1px_3px_rgb(16_24_64/0.08)]"
+          className="absolute inset-0 rounded-[10px] bg-line-2"
           transition={{ type: 'spring', stiffness: 500, damping: 38 }}
         />
       )}
-      <item.icon className="relative size-[18px] shrink-0" strokeWidth={1.9} />
+      <item.icon className="relative size-[17px] shrink-0" strokeWidth={1.8} />
       {!compact && <span className="relative">{item.label}</span>}
       {item.view === 'chat' && pending && <span className="absolute right-2.5 top-2.5 size-2 animate-pulse rounded-full bg-brand" />}
     </button>
@@ -92,8 +91,8 @@ function ConversationRow({ c }: { c: Conversation }) {
   return (
     <div
       className={cn(
-        'group relative flex items-center rounded-xl transition-colors',
-        active ? 'bg-white shadow-[0_1px_3px_rgb(16_24_64/0.07)]' : 'hover:bg-white/60',
+        'group relative flex items-center rounded-[10px] transition-colors',
+        active ? 'bg-line-2' : 'hover:bg-line-2/60',
       )}
     >
       {editing ? (
@@ -121,15 +120,11 @@ function ConversationRow({ c }: { c: Conversation }) {
             select(c.id);
             go('chat');
           }}
-          className="flex min-w-0 flex-1 flex-col items-start px-3 py-2 text-left"
+          className="flex min-w-0 flex-1 flex-col items-start px-3 py-1.5 text-left"
         >
-          <span className={cn('w-full truncate text-[13px]', active ? 'font-semibold text-ink' : 'text-ink-2')}>
+          <span className={cn('w-full truncate text-[13px]', active ? 'font-medium text-ink' : 'text-ink-2')}>
             {running && <span className="mr-1.5 inline-block size-1.5 -translate-y-px animate-pulse rounded-full bg-brand" />}
             {c.title}
-          </span>
-          <span className="text-[11px] text-subtle">
-            {fmtRelative(c.updatedAt)}
-            {c.mode === 'demo' && ' · demo'}
           </span>
         </button>
       )}
@@ -192,12 +187,12 @@ function AccountSwitcher({ compact }: { compact: boolean }) {
         <button
           type="button"
           className={cn(
-            'flex w-full items-center gap-2.5 rounded-2xl border border-black/[0.05] bg-white/80 text-left shadow-[0_1px_2px_rgb(16_24_64/0.04)] transition-colors hover:bg-white',
+            'flex w-full items-center gap-2.5 rounded-xl border border-line bg-surface text-left transition-colors hover:bg-line-2/60',
             compact ? 'justify-center p-2' : 'p-2.5',
           )}
           aria-label="Skift konto"
         >
-          <span className={cn('grid size-8 shrink-0 place-items-center rounded-xl', mode === 'demo' ? 'bg-violet-50 text-violet' : 'bg-teal-50 text-teal')}>
+          <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', mode === 'demo' ? 'bg-brand-50 text-brand' : 'bg-teal-50 text-teal')}>
             {mode === 'demo' ? <FlaskConical className="size-4" /> : <Building2 className="size-4" />}
           </span>
           {!compact && (
@@ -241,6 +236,28 @@ function AccountSwitcher({ compact }: { compact: boolean }) {
   );
 }
 
+/** Conversations grouped like a chat app: I dag, De seneste 7 dage, Ældre. */
+function GroupedConversations({ list }: { list: Conversation[] }) {
+  const startOfToday = new Date().setHours(0, 0, 0, 0);
+  const groups: [string, Conversation[]][] = [
+    ['I dag', list.filter((c) => c.updatedAt >= startOfToday)],
+    ['De seneste 7 dage', list.filter((c) => c.updatedAt < startOfToday && c.updatedAt >= startOfToday - 6 * 86_400_000)],
+    ['Ældre', list.filter((c) => c.updatedAt < startOfToday - 6 * 86_400_000)],
+  ];
+  return (
+    <>
+      {groups
+        .filter(([, items]) => items.length)
+        .map(([label, items]) => (
+          <div key={label} className="mb-3">
+            <div className="px-3 pb-1 text-[11.5px] text-subtle">{label}</div>
+            <AnimatedList items={items} getKey={(c) => c.id} itemClassName="mb-px" renderItem={(c) => <ConversationRow c={c} />} />
+          </div>
+        ))}
+    </>
+  );
+}
+
 export function Sidebar() {
   const collapsed = useSettings((s) => s.appearance.sidebarCollapsed);
   const setAppearance = useSettings((s) => s.setAppearance);
@@ -264,22 +281,22 @@ export function Sidebar() {
   };
 
   return (
-    <aside className={cn('relative z-20 flex h-full shrink-0 flex-col bg-[#eff1f7]/70 transition-[width] duration-300', compact ? 'w-[76px]' : 'w-[284px]')}>
-      <div className={cn('flex items-center pb-4 pt-5', compact ? 'justify-center' : 'justify-between px-5')}>
+    <aside className={cn('relative z-20 flex h-full shrink-0 flex-col border-r border-line bg-surface transition-[width] duration-300', compact ? 'w-[68px]' : 'w-[260px]')}>
+      <div className={cn('flex items-center pb-4 pt-5', compact ? 'justify-center' : 'justify-between px-4')}>
         {compact ? <LogoMark /> : <Logo />}
       </div>
 
-      <div className={cn(compact ? 'px-3' : 'px-4')}>
+      <div className={cn(compact ? 'px-3' : 'px-3')}>
         {compact ? (
           <Tooltip content="Ny samtale (Ctrl+N)" side="right">
-            <Button variant="gradient" size="icon" className="w-full" onClick={startNew} aria-label="Ny samtale">
+            <Button variant="secondary" size="icon" className="w-full" onClick={startNew} aria-label="Ny samtale">
               <SquarePen />
             </Button>
           </Tooltip>
         ) : (
-          <Button variant="gradient" className="w-full justify-start" onClick={startNew}>
+          <Button variant="secondary" className="h-9 w-full justify-start" onClick={startNew}>
             <SquarePen /> Ny samtale
-            <span className="ml-auto rounded-md bg-white/20 px-1.5 py-0.5 text-[10.5px] font-medium">Ctrl N</span>
+            <span className="ml-auto text-[11px] font-normal text-subtle">Ctrl N</span>
           </Button>
         )}
       </div>
@@ -293,8 +310,7 @@ export function Sidebar() {
       {!compact ? (
         <div className="mt-5 flex min-h-0 flex-1 flex-col px-3">
           <div className="flex items-center justify-between px-2 pb-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-subtle">Samtaler</span>
-            {conversations.length > 0 && <Badge>{conversations.length}</Badge>}
+            <span className="text-[12px] font-medium text-subtle">Samtaler</span>
           </div>
           <div className="relative mb-2 px-1">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
@@ -302,7 +318,7 @@ export function Sidebar() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Søg i samtaler"
-              className="h-8 w-full rounded-lg bg-white/60 pl-8 pr-2 text-[12.5px] outline-none ring-1 ring-black/[0.04] placeholder:text-subtle focus:bg-white focus:ring-brand/30"
+              className="h-8 w-full rounded-lg bg-line-2 pl-8 pr-2 text-[12.5px] outline-none placeholder:text-subtle focus:bg-white focus:ring-1 focus:ring-brand/30"
             />
           </div>
           <div className="-mx-1 flex-1 overflow-y-auto px-1 pb-2">
@@ -311,7 +327,7 @@ export function Sidebar() {
                 {query ? 'Ingen samtaler matcher.' : 'Dine samtaler med assistenten vises her.'}
               </p>
             ) : (
-              <AnimatedList items={filtered} getKey={(c) => c.id} itemClassName="mb-0.5" renderItem={(c) => <ConversationRow c={c} />} />
+              <GroupedConversations list={filtered} />
             )}
           </div>
         </div>
@@ -319,7 +335,7 @@ export function Sidebar() {
         <div className="flex-1" />
       )}
 
-      <div className={cn('grid gap-2 pb-4 pt-2', compact ? 'px-3' : 'px-4')}>
+      <div className={cn('grid gap-1.5 border-t border-line pb-3 pt-3', compact ? 'px-3' : 'px-3')}>
         <AccountSwitcher compact={compact} />
         <button
           type="button"

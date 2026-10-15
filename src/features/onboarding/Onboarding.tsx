@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { ArrowLeft, ArrowRight, BarChart3, FlaskConical, MessageSquareText, Plug, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
-import { Aurora, BlurText, GradientText, Orb, Stepper } from '@/components/reactbits';
+import { BlurText, GradientText, MiniOrb, Stepper } from '@/components/reactbits';
 import { EASE } from '@/components/motion';
 import { Button } from '@/components/ui/button';
 import { Field, NumberInput } from '@/components/ui/input';
@@ -39,12 +39,12 @@ export function Onboarding() {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, transition: { duration: 0.4 } }}
     >
-      <Aurora className="h-[70vh] [mask-image:linear-gradient(to_bottom,black,transparent)]" intensity={0.7} />
+      <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(700px 420px at 100% 0%, rgb(139 123 255 / 0.18), transparent 70%), radial-gradient(600px 380px at 0% 100%, rgb(109 92 246 / 0.07), transparent 70%)' }} />
       <motion.div
         initial={{ opacity: 0, y: 24, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.6, ease: EASE, delay: 0.1 }}
-        className="relative w-full max-w-[820px] rounded-[32px] border border-white/80 bg-white/80 p-8 shadow-pop backdrop-blur-2xl"
+        className="relative w-full max-w-[820px] rounded-3xl border border-line bg-white p-8 shadow-pop"
       >
         <Stepper
           step={step}
@@ -56,11 +56,11 @@ export function Onboarding() {
                 <ArrowLeft /> Tilbage
               </Button>
               {step < 3 ? (
-                <Button variant="gradient" onClick={() => setStep((s) => s + 1)}>
+                <Button onClick={() => setStep((s) => s + 1)}>
                   {step === 1 && !hasKey ? 'Spring over' : step === 2 && path === 'live' && mode !== 'live' ? 'Fortsæt med demo indtil videre' : 'Fortsæt'} <ArrowRight />
                 </Button>
               ) : (
-                <Button variant="gradient" onClick={finish}>
+                <Button onClick={finish}>
                   Kom i gang <ArrowRight />
                 </Button>
               )}
@@ -70,17 +70,17 @@ export function Onboarding() {
           {/* 1 – Welcome */}
           <div className="grid items-center gap-8 md:grid-cols-[180px_1fr]">
             <div className="flex justify-center">
-              <Orb size={170} />
+              <MiniOrb size={120} />
             </div>
             <div>
-              <BlurText as="h1" text="Velkommen til Bing Ads Chat" className="text-[30px] font-semibold tracking-[-0.025em] text-ink" />
+              <BlurText as="h1" text="Velkommen til Bing Ads Chat" className="text-[32px] font-medium tracking-[-0.03em] text-ink" />
               <p className="mt-2 text-[15px] leading-relaxed text-muted">
                 Din <GradientText className="font-semibold">AI-specialist</GradientText> i Microsoft Advertising – den læser, analyserer og ændrer din konto via chat.
               </p>
               <div className="mt-5 grid gap-3">
                 {FEATURES.map((f, i) => (
                   <motion.div key={f.title} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5 + i * 0.1, ease: EASE }} className="flex gap-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand">
                       <f.icon className="size-4" />
                     </span>
                     <span>
@@ -103,7 +103,7 @@ export function Onboarding() {
                     onClick={() => setPath(o.v)}
                     className={cn(
                       'flex flex-col rounded-2xl border p-3.5 text-left transition-[border-color,box-shadow]',
-                      path === o.v ? 'border-brand/40 bg-brand-50/60 shadow-[0_0_0_4px_rgb(79_107_245/0.08)]' : 'border-line bg-white hover:border-black/10',
+                      path === o.v ? 'border-brand/40 bg-brand-50/60 shadow-[0_0_0_4px_rgb(109_92_246/0.08)]' : 'border-line bg-white hover:border-black/10',
                     )}
                   >
                     <o.icon className={cn('size-4', path === o.v ? 'text-brand' : 'text-muted')} />

@@ -46,8 +46,8 @@ export function Stepper({
                 <motion.span
                   className="grid size-8 place-items-center rounded-full text-[13px] font-semibold"
                   animate={{
-                    backgroundColor: done || active ? '#4f6bf5' : '#eef0f6',
-                    color: done || active ? '#ffffff' : '#6b7088',
+                    backgroundColor: done || active ? '#121216' : '#f0f0f4',
+                    color: done || active ? '#ffffff' : '#70707c',
                     scale: active ? 1.08 : 1,
                   }}
                   transition={{ duration: 0.3 }}
@@ -58,7 +58,7 @@ export function Stepper({
               </button>
               {i < steps.length - 1 && (
                 <div className="relative h-[2px] flex-1 overflow-hidden rounded-full bg-line">
-                  <motion.div className="absolute inset-y-0 left-0 bg-brand" initial={false} animate={{ width: done ? '100%' : '0%' }} transition={{ duration: 0.4, ease: EASE }} />
+                  <motion.div className="absolute inset-y-0 left-0 bg-ink" initial={false} animate={{ width: done ? '100%' : '0%' }} transition={{ duration: 0.4, ease: EASE }} />
                 </div>
               )}
             </div>

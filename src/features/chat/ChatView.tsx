@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowDown, PanelRight, PanelRightClose, SquarePen } from 'lucide-react';
+import { ArrowDown, PanelRight, SquarePen } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sendMessage, stopConversation } from '@/ai/agent';
 import { Aurora } from '@/components/reactbits';
@@ -67,40 +67,52 @@ export function ChatView() {
 
   return (
     <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-      {aurora && <Aurora className="h-[460px] [mask-image:linear-gradient(to_bottom,black_30%,transparent)]" intensity={empty ? 0.6 : 0.32} />}
+      {/* Soft static light from the top-right corner; the animated aurora is opt-in (Udseende). */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 transition-opacity duration-700"
+        style={{
+          opacity: empty ? 1 : 0.55,
+          background:
+            'radial-gradient(600px 380px at 100% 0%, rgb(139 123 255 / 0.16), transparent 70%), radial-gradient(500px 300px at 0% 100%, rgb(109 92 246 / 0.05), transparent 70%)',
+        }}
+      />
+      {aurora && <Aurora className="h-[420px] [mask-image:linear-gradient(to_bottom,black_30%,transparent)]" intensity={empty ? 0.45 : 0.25} />}
 
-      <header className="relative z-10 flex h-16 shrink-0 items-center gap-3 px-6">
+      <header className="relative z-10 flex h-14 shrink-0 items-center gap-2 border-b border-line/70 px-5">
         <div className="min-w-0 flex-1">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div key={conversation?.id ?? 'new'} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="flex items-center gap-2.5">
-              <h2 className="truncate text-[15px] font-semibold text-ink">{empty ? 'Ny samtale' : conversation?.title}</h2>
+              <h2 className="truncate text-[14px] font-medium text-ink">{empty ? 'Ny samtale' : conversation?.title}</h2>
               {mode === 'demo' && <Badge tone="violet">Demo-konto</Badge>}
             </motion.div>
           </AnimatePresence>
         </div>
         {!empty && (
-          <Button size="sm" variant="secondary" onClick={() => newConversation(useConnection.getState().accountId, mode)}>
+          <Button size="sm" variant="ghost" onClick={() => newConversation(useConnection.getState().accountId, mode)}>
             <SquarePen /> Ny samtale
           </Button>
         )}
-        <Tooltip content={insights ? 'Skjul indsigtspanel' : 'Vis indsigtspanel'}>
-          <Button size="icon-sm" variant="ghost" onClick={() => setAppearance({ insightsPanel: !insights })} aria-label="Indsigtspanel">
-            {insights ? <PanelRightClose /> : <PanelRight />}
-          </Button>
-        </Tooltip>
+        {!insights && (
+          <Tooltip content="Vis indsigt">
+            <Button size="sm" variant="secondary" onClick={() => setAppearance({ insightsPanel: true })} aria-label="Vis indsigt">
+              <PanelRight /> Indsigt
+            </Button>
+          </Tooltip>
+        )}
       </header>
 
       <div ref={ref} onScroll={onScroll} className="relative z-0 flex-1 overflow-y-auto">
         {empty ? (
           <EmptyState onPick={startChat} running={running} />
         ) : (
-          <div className="mx-auto grid w-full max-w-[800px] gap-7 px-6 pb-10 pt-4">
+          <div className="mx-auto grid w-full max-w-[760px] gap-7 px-6 pb-10 pt-6">
             {items.map((it) => (it.kind === 'user' ? <UserMessage key={it.id} item={it} /> : <AssistantMessage key={it.id} item={it} currency={currency} />))}
           </div>
         )}
       </div>
 
-      <div className="relative z-10 mx-auto w-full max-w-[840px] px-6 pb-5">
+      <div className="relative z-10 mx-auto w-full max-w-[800px] px-6 pb-4">
         <AnimatePresence>
           {showButton && !empty && (
             <motion.button
@@ -116,7 +128,7 @@ export function ChatView() {
           )}
         </AnimatePresence>
         <Composer running={running} disabled={!hasKey} onSend={startChat} onStop={() => conversation && stopConversation(conversation.id)} />
-        <p className="mt-2 text-center text-[11.5px] text-subtle">
+        <p className="mt-2 text-center text-[11px] text-subtle">
           Assistenten kan tage fejl. Ændringer følger dine forbrugsregler og kan fortrydes under Aktivitet.
         </p>
       </div>

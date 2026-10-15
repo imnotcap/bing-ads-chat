@@ -54,6 +54,8 @@ export interface Appearance {
   auroraBackground: boolean;
   clickSpark: boolean;
   insightsPanel: boolean;
+  /** Which sections of the insights panel are expanded. */
+  insightSections: Record<string, boolean>;
   sidebarCollapsed: boolean;
 }
 
@@ -102,7 +104,14 @@ export const useSettings = create<SettingsState>()(
         toneOfVoice: '',
         instructions: '',
       },
-      appearance: { animations: 'system', auroraBackground: true, clickSpark: true, insightsPanel: true, sidebarCollapsed: false },
+      appearance: {
+        animations: 'system',
+        auroraBackground: false,
+        clickSpark: false,
+        insightsPanel: true,
+        insightSections: { kpis: true, budget: true, alerts: true, campaigns: false },
+        sidebarCollapsed: false,
+      },
       datePreset: 'last30',
       onboarded: false,
       setSpend: (patch) => set((s) => ({ spend: { ...s.spend, ...patch } })),
@@ -114,7 +123,13 @@ export const useSettings = create<SettingsState>()(
     }),
     {
       name: 'bac.settings',
-      version: 1,
+      version: 2,
+      // v2: simpler design – animated background and click sparks are opt-in.
+      migrate: (persisted, version) => {
+        const p = (persisted ?? {}) as Partial<SettingsState>;
+        if (version < 2 && p.appearance) p.appearance = { ...p.appearance, auroraBackground: false, clickSpark: false };
+        return p as SettingsState;
+      },
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<SettingsState>;
         return {

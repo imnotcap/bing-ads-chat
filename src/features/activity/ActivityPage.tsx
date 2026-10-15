@@ -131,7 +131,7 @@ export function ActivityPage() {
     <motion.div {...pageTransition} className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       <header className="flex shrink-0 flex-wrap items-center gap-3 px-8 pb-4 pt-7">
         <div className="mr-auto">
-          <h1 className="text-[24px] font-semibold tracking-[-0.02em] text-ink">Aktivitet</h1>
+          <h1 className="text-[26px] font-medium tracking-[-0.03em] text-ink">Aktivitet</h1>
           <p className="text-[13px] text-muted">Alle ændringer foretaget gennem appen – af dig, assistenten eller budgetvagten.</p>
         </div>
         <Segmented
