@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Installér Bing Ads Chat</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="window">
+      <div class="titlebar" data-tauri-drag-region>
+        <div class="brand" data-tauri-drag-region><img src="logo.png" alt="" /> Bing Ads Chat</div>
+        <button class="close" id="close" aria-label="Luk">
+          <svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+        </button>
+      </div>
+
+      <div class="glow" aria-hidden="true"></div>
+      <pre class="ascii" aria-hidden="true" id="ascii"></pre>
+
+      <main>
+        <div class="orb" id="orb" aria-hidden="true"><span></span><i></i></div>
+
+        <section class="screen active" id="welcome">
+          <h1 id="welcome-title">Installér Bing Ads Chat</h1>
+          <p class="lead">Din AI-assistent til Microsoft Advertising – analyser, ændringer med godkendelse og et dashboard over kontoen.</p>
+          <div class="chips">
+            <span>Opdaterer sig selv</span><span>Ingen administrator&shy;rettigheder</span><span>Data bliver på din pc</span>
+          </div>
+          <button class="primary" id="install">Installér</button>
+          <div class="meta" id="version"></div>
+        </section>
+
+        <section class="screen" id="progress">
+          <h1>Installerer …</h1>
+          <p class="lead" id="step">Pakker ud</p>
+          <div class="bar"><div class="fill" id="fill"></div></div>
+          <div class="meta" id="pct">0 %</div>
+        </section>
+
+        <section class="screen" id="done">
+          <div class="check" aria-hidden="true">
+            <svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24" /><path d="M15 27l7 7 15-16" /></svg>
+          </div>
+          <h1>Bing Ads Chat er klar</h1>
+          <p class="lead">Du finder appen i Start-menuen. Nye versioner installeres automatisk inde i appen.</p>
+          <div class="row">
+            <button class="primary" id="launch">Åbn Bing Ads Chat</button>
+            <button class="ghost" id="finish">Luk</button>
+          </div>
+        </section>
+
+        <section class="screen" id="error">
+          <h1>Installationen stoppede</h1>
+          <p class="lead" id="error-text"></p>
+          <div class="row">
+            <button class="primary" id="retry">Prøv igen</button>
+            <button class="ghost" id="error-close">Luk</button>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>

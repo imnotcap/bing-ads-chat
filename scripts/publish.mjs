@@ -62,9 +62,11 @@ const feed = {
 };
 writeFileSync(join(updates, 'latest.json'), `${JSON.stringify(feed, null, 2)}\n`);
 
-// Download page.
-copyFileSync(join(bundleDir, setup), join(pub, 'Bing-Ads-Chat-Setup.exe'));
-const sizeMb = (statSync(join(bundleDir, setup)).size / 1048576).toFixed(1).replace('.', ',');
+// Download page: the themed installer (installer/) when built, the classic NSIS one as fallback.
+const themed = files.find((f) => f === 'Bing-Ads-Chat-Installer.exe');
+copyFileSync(join(bundleDir, themed ?? setup), join(pub, 'Bing-Ads-Chat-Setup.exe'));
+copyFileSync(join(bundleDir, setup), join(pub, 'Bing-Ads-Chat-Setup-klassisk.exe'));
+const sizeMb = (statSync(join(bundleDir, themed ?? setup)).size / 1048576).toFixed(1).replace('.', ',');
 writeFileSync(join(pub, 'version.json'), `${JSON.stringify({ version, date: pubDate, notes, sizeMb }, null, 2)}\n`);
 
 if (deploy) {

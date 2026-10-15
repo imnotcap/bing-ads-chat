@@ -51,7 +51,9 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: 'src-tauri -> target'
+          workspaces: |
+            src-tauri -> target
+            installer -> ../src-tauri/target
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -96,11 +98,21 @@ jobs:
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # The themed installer (installer/): its own window around the NSIS installer.
+      - name: Build themed installer
+        shell: bash
+        run: |
+          export BAC_SETUP_PAYLOAD="$(cygpath -w "$(ls "$PWD"/src-tauri/target/release/bundle/nsis/*-setup.exe)")"
+          export BAC_VERSION="${{ steps.version.outputs.version }}"
+          CARGO_TARGET_DIR=src-tauri/target cargo build --release --manifest-path installer/Cargo.toml
+
       - name: Collect files
         shell: bash
         run: |
           mkdir -p out release
-          cp src-tauri/target/release/bundle/nsis/*-setup.exe out/Bing-Ads-Chat-Setup.exe
+          cp src-tauri/target/release/bing-ads-chat-setup.exe out/Bing-Ads-Chat-Setup.exe
+          cp src-tauri/target/release/bing-ads-chat-setup.exe release/Bing-Ads-Chat-Installer.exe
+          cp src-tauri/target/release/bundle/nsis/*-setup.exe out/Bing-Ads-Chat-Setup-klassisk.exe
           cp src-tauri/target/release/bundle/msi/*.msi out/Bing-Ads-Chat.msi
           cp src-tauri/target/release/BingAdsChat.exe out/Bing-Ads-Chat-portable.exe
           # Installer + updater signature for the Cloudflare release.
