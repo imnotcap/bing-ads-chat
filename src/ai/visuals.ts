@@ -28,7 +28,16 @@ export type VisualSpec =
       series: VisualColumn[];
       data: Record<string, string | number | null>[];
     }
-  | { type: 'table'; title?: string; columns: VisualColumn[]; rows: Record<string, string | number | null>[] };
+  | { type: 'table'; title?: string; columns: VisualColumn[]; rows: Record<string, string | number | null>[] }
+  | { type: 'suggestions'; question: string; items: SuggestionItem[] };
+
+/** A follow-up the user can pick with one click. */
+export interface SuggestionItem {
+  label: string;
+  prompt: string;
+  /** Shown as a full-width primary button. */
+  primary?: boolean;
+}
 
 /** Compact table shown when a tool card is expanded. */
 export interface ToolPreview {

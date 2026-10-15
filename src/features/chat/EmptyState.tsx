@@ -10,8 +10,8 @@ import { SUGGESTIONS } from './suggestions';
 /** Three conversation starters – the rest are available as slash commands. */
 const STARTERS = [SUGGESTIONS[0]!, SUGGESTIONS[1]!, SUGGESTIONS[2]!];
 
-/** Theme version of the GradientASCII palette: indigo horizon, white sky, lavender sun. */
-const ASCII_COLORS = ['#4a3ad6', '#fbfbfc', '#d8d0ff', '#8b7bff'];
+/** Theme version of the GradientASCII palette – soft lavender that melts into the white page. */
+const ASCII_COLORS = ['#a99dff', '#fbfbfc', '#efecff', '#c9c0ff'];
 
 export function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
   const account = useCurrentAccount();
@@ -24,14 +24,18 @@ export function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
       {/* Hero: ASCII horizon with the orb as its sun. */}
       <div className="relative h-[300px] w-full shrink-0">
         <GradientASCII
-          className="absolute inset-0 [mask-image:linear-gradient(to_bottom,black_45%,transparent_96%)]"
+          className="absolute inset-0 [mask-image:radial-gradient(ellipse_62%_78%_at_50%_42%,black_25%,transparent_78%)]"
           colors={ASCII_COLORS}
           shape="horizon"
           characters=" =+xX0S8#@"
           cellSize={18}
-          density={0.8}
+          density={0.55}
+          glyphOpacity={0.35}
+          gradientOpacity={0.55}
+          grain={0.03}
+          flicker={0.15}
           lightMode
-          inkColor="#5a48e8"
+          inkColor="#b4a9ff"
         />
         <div className="absolute inset-x-0 top-[34px] flex justify-center">
           <Orb

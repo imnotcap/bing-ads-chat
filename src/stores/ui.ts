@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type View = 'chat' | 'campaigns' | 'activity' | 'settings';
+export type View = 'chat' | 'campaigns' | 'activity';
 export type SettingsTab = 'connections' | 'spend' | 'ai' | 'business' | 'appearance' | 'data';
 
 /** One step in the back/forward history of the top bar. */
@@ -12,11 +12,15 @@ export interface NavEntry {
 interface UiState {
   view: View;
   settingsTab: SettingsTab;
+  /** Settings open as a dialog on top of the current view. */
+  settingsOpen: boolean;
   /** Text to put into the composer (e.g. "Spørg om denne kampagne"). */
   draft: string | null;
   history: NavEntry[];
   historyIndex: number;
-  go: (view: View, tab?: SettingsTab) => void;
+  /** Navigate to a view – 'settings' opens the settings dialog (optionally on a tab). */
+  go: (view: View | 'settings', tab?: SettingsTab) => void;
+  closeSettings: () => void;
   setDraft: (draft: string | null) => void;
   /** Records a navigation step (called by useNavigationHistory). */
   record: (entry: NavEntry) => void;
@@ -26,10 +30,13 @@ interface UiState {
 export const useUi = create<UiState>()((set, get) => ({
   view: 'chat',
   settingsTab: 'connections',
+  settingsOpen: false,
   draft: null,
   history: [],
   historyIndex: -1,
-  go: (view, tab) => set((s) => ({ view, settingsTab: tab ?? s.settingsTab })),
+  go: (view, tab) =>
+    set((s) => (view === 'settings' ? { settingsOpen: true, settingsTab: tab ?? s.settingsTab } : { view, settingsOpen: false })),
+  closeSettings: () => set({ settingsOpen: false }),
   setDraft: (draft) => set({ draft }),
   record: (entry) =>
     set((s) => {

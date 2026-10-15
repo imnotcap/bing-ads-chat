@@ -8,6 +8,8 @@ export interface ChangeLine {
   field: string;
   before?: string | number | null;
   after?: string | number | null;
+  /** The value can be corrected by the user on the approval card. */
+  edit?: { path: (string | number)[]; maxLength?: number };
 }
 
 /** Inverse operation that restores the previous state (when the change is reversible). */

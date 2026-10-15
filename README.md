@@ -29,13 +29,20 @@ klik **Flere oplysninger → Kør alligevel**.
 - Streamede svar med markdown, tabeller og en sammenklappelig "tankegang".
 - Værktøjstrin vises som en tidslinje, der kan foldes ud (fx *Henter kampagner · 8 kampagner* med datatabel).
 - Grafer, nøgletal og tabeller direkte i chatten (`show_chart`, `show_kpis`, `show_table`).
+- Svar i et fast, skimbart format: fed konklusion, korte sektioner, punktlister og den vigtigste anbefaling fremhævet.
+- **Forslag til næste skridt** efter hvert svar ("Skal jeg lave flere ændringer?") med det vigtigste forslag som
+  knap i fuld bredde – efter nye kampagner altid *Titel-optimér de nye kampagner*.
 - **Godkendelseskort** for ændringer: før → efter, begrundelse, hvilke forbrugsregler der gælder, Godkend/Afvis (med
-  kommentar til assistenten) og **Fortryd** bagefter.
+  kommentar til assistenten) og **Fortryd** bagefter. Navne, søgeord og annoncetekster kan rettes direkte i kortet før
+  godkendelse (med tegntæller), og nye navne kræver altid din godkendelse – også på autopilot.
 - Slash-kommandoer (`/overblik`, `/spild`, `/budget`, `/fordeling`, `/annonce`, `/søgeord`, `/rapport`, `/forbrug`,
-  `/ændringer`), forslag på startskærmen og modelvælger i chatfeltet.
+  `/ændringer`) og forslag på startskærmen.
+- Chatfelt som i Claude: **+** til venstre, mikrofon (diktering) og lille send-knap til højre, og under feltet
+  godkendelsestilstand (*Auto*), model + indsats og en ring med månedens AI-forbrug.
+- **Indstillinger som popup** med søgning og grupperet menu (Ctrl+,).
 - **Vedhæft filer** med **+** (filer, billeder, mapper, udklipsholder), træk-og-slip eller Ctrl+V: billeder, PDF, CSV og
   tekstfiler sendes til Claude (fx skærmbilleder af rapporter eller CSV-eksporter fra Google Ads).
-- Startskærm med animeret **GradientASCII**-horisont og **Orb** (React Bits).
+- Startskærm med en diskret, animeret **GradientASCII**-horisont og **Orb** (React Bits).
 - **Topbar** som i Claude desktop: menu, skjul/vis sidebar (Ctrl+B), tilbage/frem (Alt+←/→), samtaletitel med
   menu (omdøb/slet), indsigt (Ctrl+I) og vinduesknapper. Sidebaren kan foldes helt væk.
 - Samtalehistorik med søgning, omdøb og slet. Genveje: `Ctrl+N` ny samtale, `Ctrl+K` fokus på chatfeltet, `Ctrl+B` sidebar, `Ctrl+I` indsigt, `Ctrl+,` indstillinger, `Alt+←/→` tilbage/frem.

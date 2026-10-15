@@ -1,27 +1,17 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowDown, Upload } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { sendMessage, stopConversation } from '@/ai/agent';
+import { stopConversation } from '@/ai/agent';
 import { Aurora } from '@/components/reactbits';
-import type { Attachment } from '@/lib/attachments';
 import { useActiveConversation, useChat } from '@/stores/chat';
+import { startChat } from './startChat';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 import { Composer, type ComposerHandle } from './Composer';
 import { EmptyState } from './EmptyState';
 import { AssistantMessage, UserMessage } from './Messages';
 
-export function startChat(text: string, attachments: Attachment[] = []) {
-  const chat = useChat.getState();
-  const { accountId, mode } = useConnection.getState();
-  let id = chat.activeId;
-  const active = chat.conversations.find((c) => c.id === id);
-  // A conversation belongs to one account/mode – start a new one if those changed.
-  if (!active || (active.items.length > 0 && (active.accountId !== accountId || active.mode !== mode))) {
-    id = chat.newConversation(accountId, mode);
-  }
-  void sendMessage(id!, text, attachments);
-}
+export { startChat } from './startChat';
 
 /** Keeps the view pinned to the newest message unless the user scrolled up. */
 function useStickToBottom(dep: unknown) {
@@ -100,7 +90,9 @@ export function ChatView() {
           <EmptyState onPick={(p) => startChat(p)} />
         ) : (
           <div className="mx-auto grid w-full max-w-[760px] gap-7 px-6 pb-10 pt-8">
-            {items.map((it) => (it.kind === 'user' ? <UserMessage key={it.id} item={it} /> : <AssistantMessage key={it.id} item={it} currency={currency} />))}
+            {items.map((it, i) =>
+              it.kind === 'user' ? <UserMessage key={it.id} item={it} /> : <AssistantMessage key={it.id} item={it} currency={currency} isLast={i === items.length - 1} />,
+            )}
           </div>
         )}
       </div>

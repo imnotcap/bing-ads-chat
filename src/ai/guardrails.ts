@@ -67,6 +67,7 @@ export function evaluateGuardrails(plan: ChangePlan, rules: SpendRules, ctx: Spe
   }
 
   if (plan.kind === 'raw') approve.push('Direkte API-ændringer kræver altid godkendelse.');
+  if (plan.kind === 'update' && plan.changes.some((c) => c.edit && c.before !== undefined)) approve.push('Nye navne skal tjekkes af dig, før de gemmes.');
   if (rules.approvalMode === 'all') approve.push('Alle ændringer kræver din godkendelse (Forbrug → Godkendelse).');
   if (rules.approvalMode === 'spend' && (plan.increasesSpend || plan.kind === 'create' || plan.kind === 'delete')) {
     approve.push(plan.kind === 'delete' ? 'Sletning kræver godkendelse.' : 'Ændringen kan øge forbruget.');

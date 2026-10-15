@@ -19,6 +19,8 @@ const bidStrategySchema = z.object({
   maxCpc: z.number().positive().optional().describe('Optional bid cap (MaxClicks, MaxConversions, TargetCpa, TargetRoas).'),
 });
 
+const MATCH_LABELS: Record<string, string> = { Exact: 'eksakt', Phrase: 'udtryk', Broad: 'bred' };
+
 const BID_LABELS: Record<string, string> = {
   ManualCpc: 'Manuel CPC',
   EnhancedCpc: 'Forbedret CPC',
@@ -107,7 +109,7 @@ export const writeTools = [
           }
         }
         if (ch.name && ch.name !== c.name) {
-          lines.push({ entity: 'Kampagne', entityId: c.id, field: 'navn', before: c.name, after: ch.name });
+          lines.push({ entity: 'Kampagne', entityId: c.id, field: 'Kampagnenavn', before: c.name, after: ch.name, edit: { path: ['changes', input.changes.indexOf(ch), 'name'], maxLength: 128 } });
           inverse.name = c.name;
         }
         if (ch.bidStrategy) {
@@ -168,7 +170,7 @@ export const writeTools = [
         title: 'Ny kampagne',
         reason: input.reason,
         changes: [
-          { entity: 'Kampagne', field: 'navn', after: input.name },
+          { entity: 'Kampagne', field: 'Kampagnenavn', after: input.name, edit: { path: ['name'], maxLength: 128 } },
           { entity: 'Kampagne', field: 'type', after: input.type ?? 'Search' },
           { entity: 'Kampagne', field: 'dagsbudget', after: input.dailyBudget },
           { entity: 'Kampagne', field: 'budstrategi', after: bidLabel(input.bidStrategy) },
@@ -254,7 +256,7 @@ export const writeTools = [
           reason: input.reason,
           changes: [
             { entity: 'Annoncegruppe', field: 'kampagne', after: c.name },
-            { entity: 'Annoncegruppe', field: 'navn', after: input.name },
+            { entity: 'Annoncegruppe', field: 'Navn', after: input.name, edit: { path: ['name'], maxLength: 256 } },
             ...(input.cpcBid ? [{ entity: 'Annoncegruppe', field: 'CPC-bud', after: input.cpcBid }] : []),
           ],
           dailyBudgetDelta: 0,
@@ -306,7 +308,7 @@ export const writeTools = [
           if (!g.cpcBid || ch.cpcBid > g.cpcBid) increases = true;
         }
         if (ch.name && ch.name !== g.name) {
-          lines.push({ entity: 'Annoncegruppe', entityId: g.id, field: 'navn', before: g.name, after: ch.name });
+          lines.push({ entity: 'Annoncegruppe', entityId: g.id, field: 'Annoncegruppenavn', before: g.name, after: ch.name, edit: { path: ['changes', input.changes.indexOf(ch), 'name'], maxLength: 256 } });
           inv.name = g.name;
         }
         if (Object.keys(inv).length > 1) undo.push(inv);
@@ -355,7 +357,12 @@ export const writeTools = [
           kind: 'create',
           title: `Nye søgeord i ${g.name}`,
           reason: input.reason,
-          changes: input.keywords.map((k) => ({ entity: 'Søgeord', field: `${k.text} (${k.matchType})`, after: k.bid ?? 'gruppebud' })),
+          changes: input.keywords.map((k, i) => ({
+            entity: 'Søgeord',
+            field: `Søgeord · ${MATCH_LABELS[k.matchType]}${k.bid ? ` · bud ${k.bid}` : ''}`,
+            after: k.text,
+            edit: { path: ['keywords', i, 'text'], maxLength: 100 },
+          })),
           dailyBudgetDelta: 0,
           increasesSpend: isActive(c.status) && isActive(g.status),
           campaignIds: [c.id],
@@ -489,7 +496,12 @@ export const writeTools = [
           kind: 'update',
           title: `Negative søgeord på ${target}`,
           reason: input.reason,
-          changes: input.keywords.map((k) => ({ entity: 'Negativt søgeord', field: k.text, after: k.matchType === 'Exact' ? 'Eksakt' : 'Udtryk' })),
+          changes: input.keywords.map((k, i) => ({
+            entity: 'Negativt søgeord',
+            field: `Negativt søgeord · ${MATCH_LABELS[k.matchType]}`,
+            after: k.text,
+            edit: { path: ['keywords', i, 'text'], maxLength: 100 },
+          })),
           dailyBudgetDelta: 0,
           increasesSpend: false,
           campaignIds: [c.id],
@@ -528,8 +540,8 @@ export const writeTools = [
           title: `Ny annonce i ${g.name}`,
           reason: input.reason,
           changes: [
-            ...input.headlines.map((h, i) => ({ entity: 'Annonce', field: `Overskrift ${i + 1}`, after: h })),
-            ...input.descriptions.map((d, i) => ({ entity: 'Annonce', field: `Beskrivelse ${i + 1}`, after: d })),
+            ...input.headlines.map((h, i) => ({ entity: 'Annonce', field: `Overskrift ${i + 1}`, after: h, edit: { path: ['headlines', i], maxLength: 30 } })),
+            ...input.descriptions.map((d, i) => ({ entity: 'Annonce', field: `Beskrivelse ${i + 1}`, after: d, edit: { path: ['descriptions', i], maxLength: 90 } })),
             { entity: 'Annonce', field: 'Slut-URL', after: input.finalUrl },
             ...(input.path1 ? [{ entity: 'Annonce', field: 'Visningssti', after: [input.path1, input.path2].filter(Boolean).join('/') }] : []),
           ],

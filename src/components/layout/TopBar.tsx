@@ -41,7 +41,7 @@ import { Button } from '../ui/button';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '../ui/overlays';
 import { LogoMark } from './Logo';
 
-const PAGE_TITLES = { campaigns: 'Kampagner', activity: 'Aktivitet', settings: 'Indstillinger' } as const;
+const PAGE_TITLES = { campaigns: 'Kampagner', activity: 'Aktivitet' } as const;
 
 function IconButton({ label, onClick, disabled, children, shortcut }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode; shortcut?: string }) {
   return (

@@ -20,10 +20,11 @@ import { useChat, type ApiMessage, type AssistantItem, type Conversation, type P
 import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 import { monthTotal, useUsage } from '@/stores/usage';
-import { requestApproval } from './approvals';
+import { applyEdits, requestApproval } from './approvals';
 import { evaluateGuardrails, type SpendContext } from './guardrails';
 import { buildContextBlock, buildSystemPrompt } from './prompt';
-import { getTool, toolDefinitions, type ToolContext } from './tools';
+import { TERMINAL_TOOLS, getTool, toolDefinitions, type PlannedChange, type ToolContext } from './tools';
+import type { WriteTool } from './tools/context';
 import { totalActiveDailyBudget } from './tools/write';
 
 type ToolUse = Anthropic.Beta.BetaToolUseBlock;
@@ -181,6 +182,7 @@ export async function sendMessage(convId: string, text: string, attachments: Att
         ),
       }));
     } else {
+      console.error(err);
       fail(friendlyError(err));
     }
   } finally {
@@ -229,10 +231,12 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
     );
 
     const partIds = new Map<number, string>();
+    const deltas = createDeltaBuffer(convId, itemId);
     let message: Anthropic.Beta.BetaMessage;
     try {
       for await (const ev of stream) {
         if (ev.type === 'content_block_start') {
+          deltas.flush();
           const b = ev.content_block;
           if (b.type === 'text') {
             const id = uid('t_');
@@ -249,22 +253,20 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
         } else if (ev.type === 'content_block_delta') {
           const id = partIds.get(ev.index);
           if (!id) continue;
-          if (ev.delta.type === 'text_delta') {
-            const d = ev.delta.text;
-            updatePart(convId, itemId, id, (p) => (p.type === 'text' ? { ...p, text: p.text + d } : p));
-          } else if (ev.delta.type === 'thinking_delta') {
-            const d = ev.delta.thinking;
-            updatePart(convId, itemId, id, (p) => (p.type === 'thinking' ? { ...p, text: p.text + d } : p));
-          }
+          if (ev.delta.type === 'text_delta') deltas.push(id, ev.delta.text);
+          else if (ev.delta.type === 'thinking_delta') deltas.push(id, ev.delta.thinking);
         } else if (ev.type === 'content_block_stop') {
+          deltas.flush();
           const id = partIds.get(ev.index);
           if (id) updatePart(convId, itemId, id, (p) => (p.type === 'thinking' ? { ...p, endedAt: Date.now() } : p));
         }
       }
+      deltas.flush();
       message = await stream.finalMessage();
       jsonRetries = 0;
     } catch (err) {
-      if (signal.aborted || err instanceof Anthropic.APIError || jsonRetries++ >= 2) throw err;
+      deltas.flush();
+      if (signal.aborted || !(err instanceof Anthropic.AnthropicError) || err instanceof Anthropic.APIError || !/JSON/.test(err.message) || jsonRetries++ >= 2) throw err;
       // Eager input streaming: a tool input that is not valid JSON – re-issue the turn.
       updateAssistant(convId, itemId, (it) => ({ ...it, parts: it.parts.filter((p) => !(p.type === 'tool' && p.status === 'streaming')) }));
       continue;
@@ -302,6 +304,8 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
 
     const results = await executeTools(convId, itemId, toolUses, memo, signal);
     appendApi(convId, { role: 'user', content: results });
+    // Follow-up suggestions close the turn – no extra request needed.
+    if (toolUses.every((u) => TERMINAL_TOOLS.has(u.name))) return;
   }
 }
 
@@ -401,7 +405,7 @@ async function executeTools(
 
   // Changes: plan all, show approval cards together, then execute in order.
   const writes = parsed.filter((p) => p.tool?.kind === 'write' && p.input !== undefined);
-  const planned: { id: string; name: string; plan: Awaited<ReturnType<Extract<typeof writes[number]['tool'], { kind: 'write' }>['plan']>>; verdict: 'allow' | 'approve' | 'block' }[] = [];
+  const planned: { id: string; name: string; tool: WriteTool; input: unknown; plan: PlannedChange; verdict: 'allow' | 'approve' | 'block' }[] = [];
   for (const p of writes) {
     const tool = p.tool!;
     if (tool.kind !== 'write') continue;
@@ -409,7 +413,7 @@ async function executeTools(
     try {
       const change = await tool.plan(p.input, ctx);
       if (!change.plan) {
-        planned.push({ id: p.use.id, name: tool.name, plan: change, verdict: 'allow' });
+        planned.push({ id: p.use.id, name: tool.name, tool, input: p.input, plan: change, verdict: 'allow' });
         continue;
       }
       const decision = evaluateGuardrails(change.plan, ctx.rules, await spendContext(ctx));
@@ -418,7 +422,7 @@ async function executeTools(
         decision,
         status: decision.verdict === 'approve' ? 'awaiting_approval' : decision.verdict === 'block' ? 'blocked' : 'running',
       });
-      planned.push({ id: p.use.id, name: tool.name, plan: change, verdict: decision.verdict });
+      planned.push({ id: p.use.id, name: tool.name, tool, input: p.input, plan: change, verdict: decision.verdict });
       if (decision.verdict === 'block') {
         const entry = useActivity.getState().add({
           source: 'assistant',
@@ -448,7 +452,9 @@ async function executeTools(
 
   for (const item of planned) {
     if (item.verdict === 'block') continue;
-    const plan = item.plan.plan;
+    let plan = item.plan.plan;
+    let change = item.plan;
+    let userEdits: { field: string; value: string }[] = [];
     if (item.verdict === 'approve') {
       const answer = await approvals.get(item.id)!;
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -473,11 +479,26 @@ async function executeTools(
         );
         continue;
       }
+      if (answer.edits?.length) {
+        // The user corrected values on the card: apply them, validate and re-plan.
+        const edited = applyEdits(item.input, answer.edits);
+        const check = item.tool.schema.safeParse(edited);
+        if (!check.success) {
+          const detail = check.error.issues.map((i) => i.message).join('; ');
+          results.set(item.id, err(item.id, `The user's edits were invalid (${detail}) – nothing was changed.`));
+          updateTool(convId, itemId, item.id, { status: 'error', error: `Ugyldig rettelse: ${detail}`, endedAt: Date.now() });
+          continue;
+        }
+        change = await item.tool.plan(check.data, ctx);
+        plan = change.plan;
+        userEdits = answer.edits.map((e) => ({ field: e.path.join('.'), value: e.value }));
+        updateTool(convId, itemId, item.id, { plan: plan ?? undefined, input: check.data });
+      }
       updateTool(convId, itemId, item.id, { status: 'running' });
     }
     try {
-      const exec = await item.plan.execute();
-      results.set(item.id, ok(item.id, exec.result));
+      const exec = await change.execute();
+      results.set(item.id, ok(item.id, userEdits.length ? { ...(exec.result as object), userEditedBeforeApproval: userEdits } : exec.result));
       let activityId: string | undefined;
       if (plan) {
         activityId = useActivity.getState().add({
@@ -515,6 +536,37 @@ async function executeTools(
   }
 
   return uses.map((u) => results.get(u.id) ?? err(u.id, 'No result'));
+}
+
+/**
+ * Collects streamed text/thinking deltas and writes them to the chat store at most
+ * every 40 ms. Writing every token re-renders the whole chat (and any open menu)
+ * dozens of times per frame, which is slow and can trip React's nested-update limit.
+ */
+function createDeltaBuffer(convId: string, itemId: string) {
+  const pending = new Map<string, string>();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const flush = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    if (!pending.size) return;
+    const batch = new Map(pending);
+    pending.clear();
+    updateAssistant(convId, itemId, (it) => ({
+      ...it,
+      parts: it.parts.map((p) => {
+        const d = batch.get(p.id);
+        return d && (p.type === 'text' || p.type === 'thinking') ? { ...p, text: p.text + d } : p;
+      }),
+    }));
+  };
+  return {
+    push(id: string, text: string) {
+      pending.set(id, (pending.get(id) ?? '') + text);
+      timer ??= setTimeout(flush, 40);
+    },
+    flush,
+  };
 }
 
 /* ----------------------------------- undo ----------------------------------- */

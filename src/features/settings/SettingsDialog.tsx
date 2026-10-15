@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Bot, Building2, Database, Download, OctagonPause, Palette, Plug, ShieldCheck, Wallet, type LucideIcon } from 'lucide-react';
+import { Bot, Building2, Database, Download, OctagonPause, Palette, Plug, Search, ShieldCheck, Wallet, X, type LucideIcon } from 'lucide-react';
+import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { EFFORT_LABELS, MODELS, modelInfo, type Effort } from '@/ai/models';
@@ -7,7 +8,7 @@ import { getBackend } from '@/bing/backend';
 import { DemoBackend } from '@/bing/demo/backend';
 import { invalidateSpendCache } from '@/bing/spend';
 import { ElasticSlider } from '@/components/reactbits';
-import { EASE, pageTransition } from '@/components/motion';
+import { EASE } from '@/components/motion';
 import { Button } from '@/components/ui/button';
 import { Badge, Segmented, Switch, SwitchRow } from '@/components/ui/controls';
 import { Field, Input, NumberInput, Textarea } from '@/components/ui/input';
@@ -25,21 +26,30 @@ import { monthTotal, useUsage } from '@/stores/usage';
 import { switchToDemo } from './connection';
 import { ApprovalModePicker, ClaudeKeyForm, MicrosoftConnectForm, MicrosoftSetupGuide } from './forms';
 
-const TABS: { id: SettingsTab; label: string; icon: LucideIcon; description: string }[] = [
-  { id: 'connections', label: 'Forbindelser', icon: Plug, description: 'Claude og Microsoft Advertising' },
-  { id: 'spend', label: 'Forbrug', icon: Wallet, description: 'Budgetter, grænser og godkendelse' },
-  { id: 'ai', label: 'AI-assistent', icon: Bot, description: 'Model, tænkning og AI-forbrug' },
-  { id: 'business', label: 'Virksomhed', icon: Building2, description: 'Kontekst til bedre råd' },
-  { id: 'appearance', label: 'Udseende', icon: Palette, description: 'Animationer og layout' },
-  { id: 'data', label: 'Data', icon: Database, description: 'Eksport og nulstilling' },
+interface TabDef {
+  id: SettingsTab;
+  label: string;
+  icon: LucideIcon;
+  group: string;
+  /** Extra words that make the tab show up in the search. */
+  keywords: string;
+}
+
+const TABS: TabDef[] = [
+  { id: 'connections', label: 'Forbindelser', icon: Plug, group: 'Konto', keywords: 'claude api nøgle microsoft advertising bing login developer token client id tenant demo' },
+  { id: 'business', label: 'Virksomhed', icon: Building2, group: 'Konto', keywords: 'profil mål cpa roas dækningsgrad tone of voice instruktioner website' },
+  { id: 'spend', label: 'Forbrug', icon: Wallet, group: 'Assistent', keywords: 'budget månedsbudget grænser godkendelse autopilot nødstop beskyttede kampagner cpc bud budgetvagt' },
+  { id: 'ai', label: 'AI-assistent', icon: Bot, group: 'Assistent', keywords: 'model opus sonnet haiku fable effort tænkning forbrug pris tokens cache' },
+  { id: 'appearance', label: 'Udseende', icon: Palette, group: 'App', keywords: 'animationer baggrund aurora gnister indsigt sidebar tema' },
+  { id: 'data', label: 'Data', icon: Database, group: 'App', keywords: 'eksport nulstil slet samtaler demo' },
 ];
 
 function Card({ title, description, children, className, action }: { title: string; description?: React.ReactNode; children: React.ReactNode; className?: string; action?: React.ReactNode }) {
   return (
-    <section className={cn('card p-6', className)}>
-      <div className="mb-5 flex items-start gap-4">
+    <section className={cn('border-b border-line py-7 first:pt-1 last:border-0', className)}>
+      <div className="mb-4 flex items-start gap-4">
         <div className="flex-1">
-          <h2 className="text-[16px] font-medium tracking-[-0.01em] text-ink">{title}</h2>
+          <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
           {description && <p className="mt-1 text-[13px] leading-relaxed text-muted">{description}</p>}
         </div>
         {action}
@@ -572,53 +582,123 @@ function DataTab() {
   );
 }
 
-export function SettingsPage() {
+function TabContent({ id }: { id: SettingsTab }) {
+  switch (id) {
+    case 'connections':
+      return <ConnectionsTab />;
+    case 'spend':
+      return <SpendTab />;
+    case 'ai':
+      return <AiTab />;
+    case 'business':
+      return <BusinessTab />;
+    case 'appearance':
+      return <AppearanceTab />;
+    case 'data':
+      return <DataTab />;
+  }
+}
+
+/** Settings as a large dialog with a searchable navigation – like the Claude desktop app. */
+export function SettingsDialog() {
+  const open = useUi((s) => s.settingsOpen);
   const tab = useUi((s) => s.settingsTab);
   const go = useUi((s) => s.go);
+  const close = useUi((s) => s.closeSettings);
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const visible = TABS.filter((t) => !q || `${t.label} ${t.group} ${t.keywords}`.toLowerCase().includes(q));
+  const groups = [...new Set(visible.map((t) => t.group))];
   const current = TABS.find((t) => t.id === tab) ?? TABS[0]!;
+
   return (
-    <motion.div {...pageTransition} className="flex h-full min-w-0 flex-1 overflow-hidden">
-      <nav aria-label="Indstillinger" className="w-[250px] shrink-0 px-4 pt-7">
-        <h1 className="px-3 pb-4 text-[26px] font-medium tracking-[-0.03em] text-ink">Indstillinger</h1>
-        <div className="grid gap-0.5">
-          {TABS.map((t) => {
-            const active = t.id === tab;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => go('settings', t.id)}
-                className={cn('relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors', active ? 'text-ink' : 'text-ink-2 hover:bg-white/60')}
+    <DialogPrimitive.Root open={open} onOpenChange={(o) => !o && close()}>
+      <AnimatePresence>
+        {open && (
+          <DialogPrimitive.Portal forceMount>
+            <DialogPrimitive.Overlay asChild forceMount>
+              <motion.div
+                className="fixed inset-0 z-50 bg-[#121216]/30 backdrop-blur-[2px]"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+              />
+            </DialogPrimitive.Overlay>
+            <DialogPrimitive.Content asChild forceMount aria-describedby={undefined}>
+              <motion.div
+                className="fixed left-1/2 top-1/2 z-50 flex h-[min(880px,calc(100vh-56px))] w-[min(1240px,calc(100vw-48px))] overflow-hidden rounded-2xl border border-line bg-surface shadow-pop outline-none"
+                initial={{ opacity: 0, scale: 0.97, x: '-50%', y: '-48%' }}
+                animate={{ opacity: 1, scale: 1, x: '-50%', y: '-50%' }}
+                exit={{ opacity: 0, scale: 0.98, x: '-50%', y: '-49%', transition: { duration: 0.15 } }}
+                transition={{ duration: 0.28, ease: EASE }}
               >
-                {active && <motion.span layoutId="settings-tab" className="absolute inset-0 rounded-xl bg-line-2" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
-                <t.icon className={cn('relative size-4', active ? 'text-brand' : 'text-muted')} />
-                <span className="relative">
-                  <span className="block text-[13.5px] font-medium">{t.label}</span>
-                  <span className="block text-[11.5px] text-muted">{t.description}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="mt-6 flex items-center gap-2 rounded-xl border border-line px-3 py-2.5 text-[12px] text-muted">
-          <ShieldCheck className="size-4 shrink-0 text-positive" />
-          Nøgler gemmes i Windows Credential Manager – aldrig i klartekst.
-        </div>
-      </nav>
-      <div className="flex-1 overflow-y-auto px-8 pb-12 pt-7">
-        <div className="mx-auto max-w-[920px]">
-          <AnimatePresence mode="wait">
-            <motion.div key={current.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.25, ease: EASE }}>
-              {current.id === 'connections' && <ConnectionsTab />}
-              {current.id === 'spend' && <SpendTab />}
-              {current.id === 'ai' && <AiTab />}
-              {current.id === 'business' && <BusinessTab />}
-              {current.id === 'appearance' && <AppearanceTab />}
-              {current.id === 'data' && <DataTab />}
-            </motion.div>
-          </AnimatePresence>
-        </div>
-      </div>
-    </motion.div>
+                <DialogPrimitive.Title className="sr-only">Indstillinger</DialogPrimitive.Title>
+                <nav aria-label="Indstillinger" className="flex w-[264px] shrink-0 flex-col border-r border-line bg-canvas/60">
+                  <div className="p-3">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle" />
+                      <input
+                        autoFocus
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Søg"
+                        className="h-9 w-full rounded-[10px] border border-line bg-surface pl-9 pr-3 text-[13.5px] outline-none placeholder:text-subtle focus:border-brand/40 focus:ring-4 focus:ring-brand/10"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto px-3 pb-4">
+                    {groups.map((g) => (
+                      <div key={g} className="mb-4">
+                        <div className="px-2.5 pb-1.5 pt-1 text-[12px] text-muted">{g}</div>
+                        {visible
+                          .filter((t) => t.group === g)
+                          .map((t) => {
+                            const active = t.id === current.id;
+                            return (
+                              <button
+                                key={t.id}
+                                type="button"
+                                onClick={() => go('settings', t.id)}
+                                className={cn(
+                                  'relative flex h-9 w-full items-center gap-3 rounded-[10px] px-2.5 text-left text-[14px] transition-colors',
+                                  active ? 'font-medium text-ink' : 'text-ink-2 hover:bg-line-2/70',
+                                )}
+                              >
+                                {active && <motion.span layoutId="settings-nav" className="absolute inset-0 rounded-[10px] bg-line-2" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
+                                <t.icon className={cn('relative size-[17px]', active ? 'text-ink' : 'text-muted')} strokeWidth={1.8} />
+                                <span className="relative">{t.label}</span>
+                              </button>
+                            );
+                          })}
+                      </div>
+                    ))}
+                    {visible.length === 0 && <p className="px-2.5 py-4 text-[13px] text-muted">Ingen indstillinger matcher “{query}”.</p>}
+                  </div>
+                  <div className="m-3 mt-0 flex items-start gap-2 rounded-xl border border-line bg-surface px-3 py-2.5 text-[12px] leading-snug text-muted">
+                    <ShieldCheck className="mt-px size-4 shrink-0 text-positive" />
+                    Nøgler gemmes i Windows Credential Manager.
+                  </div>
+                </nav>
+
+                <div className="relative flex min-w-0 flex-1 flex-col">
+                  <DialogPrimitive.Close className="absolute right-4 top-4 z-10 grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-line-2 hover:text-ink" aria-label="Luk">
+                    <X className="size-[18px]" />
+                  </DialogPrimitive.Close>
+                  <div className="flex-1 overflow-y-auto px-10 pb-12 pt-7">
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.div key={current.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.2, ease: EASE }}>
+                        <h1 className="mb-2 pr-10 text-[20px] font-semibold tracking-[-0.02em] text-ink">{current.label}</h1>
+                        <TabContent id={current.id} />
+                      </motion.div>
+                    </AnimatePresence>
+                  </div>
+                </div>
+              </motion.div>
+            </DialogPrimitive.Content>
+          </DialogPrimitive.Portal>
+        )}
+      </AnimatePresence>
+    </DialogPrimitive.Root>
   );
 }

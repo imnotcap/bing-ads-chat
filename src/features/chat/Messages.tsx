@@ -1,16 +1,19 @@
 import { motion } from 'motion/react';
-import { AlertTriangle, Check, Copy, FileText, Info, OctagonX } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Check, Copy, FileText, Info, OctagonX, Sparkles } from 'lucide-react';
 import { memo, useState } from 'react';
 import { MiniOrb, ShinyText } from '@/components/reactbits';
 import { VisualBlock } from '@/components/blocks/VisualBlock';
 import { EASE } from '@/components/motion';
 import { modelInfo } from '@/ai/models';
+import { TERMINAL_TOOLS } from '@/ai/tools';
+import type { SuggestionItem } from '@/ai/visuals';
 import { formatBytes } from '@/lib/attachments';
 import { fmtTime, fmtUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { AssistantItem, NoticePart, Part, ToolPart, UserItem } from '@/stores/chat';
 import { ApprovalCard } from './ApprovalCard';
 import { Markdown } from './Markdown';
+import { startChat } from './startChat';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolSteps } from './ToolSteps';
 
@@ -69,6 +72,8 @@ type Group = { kind: 'steps'; parts: ToolPart[] } | { kind: 'part'; part: Part }
 function groupParts(parts: Part[]): Group[] {
   const out: Group[] = [];
   for (const p of parts) {
+    // The follow-up tool is rendered as its suggestions block, not as a step.
+    if (p.type === 'tool' && TERMINAL_TOOLS.has(p.name)) continue;
     const isStep = p.type === 'tool' && !p.plan;
     const last = out[out.length - 1];
     if (isStep && last?.kind === 'steps') last.parts.push(p as ToolPart);
@@ -96,7 +101,59 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export const AssistantMessage = memo(function AssistantMessage({ item, currency }: { item: AssistantItem; currency: string }) {
+function Suggestions({ question, items, active }: { question: string; items: SuggestionItem[]; active: boolean }) {
+  const [picked, setPicked] = useState<string | null>(null);
+  const primary = items.filter((i) => i.primary).slice(0, 1);
+  const rest = items.filter((i) => !primary.includes(i));
+  const pick = (s: SuggestionItem) => {
+    if (!active || picked) return;
+    setPicked(s.label);
+    startChat(s.prompt);
+  };
+  const disabled = !active || !!picked;
+  return (
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, ease: EASE }} className="grid gap-2.5 pt-1">
+      <div className="text-[14px] font-medium text-ink">{question}</div>
+      {primary.map((s) => (
+        <button
+          key={s.label}
+          type="button"
+          disabled={disabled}
+          onClick={() => pick(s)}
+          className={cn(
+            'group flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[14px] font-medium transition-[background-color,box-shadow,opacity]',
+            disabled ? 'bg-line-2 text-muted' : 'bg-ink text-white shadow-[0_8px_24px_-12px_rgb(18_18_22/0.5)] hover:bg-brand',
+            picked === s.label && 'bg-brand-50 text-brand',
+          )}
+        >
+          <Sparkles className="size-4 shrink-0" />
+          <span className="flex-1">{s.label}</span>
+          <ArrowRight className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
+        </button>
+      ))}
+      {rest.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {rest.map((s) => (
+            <button
+              key={s.label}
+              type="button"
+              disabled={disabled}
+              onClick={() => pick(s)}
+              className={cn(
+                'rounded-full border px-3.5 py-1.5 text-[13px] transition-colors',
+                picked === s.label ? 'border-brand/40 bg-brand-50 text-brand' : disabled ? 'border-line text-subtle' : 'border-line bg-surface text-ink-2 hover:border-brand/40 hover:text-ink',
+              )}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+export const AssistantMessage = memo(function AssistantMessage({ item, currency, isLast }: { item: AssistantItem; currency: string; isLast: boolean }) {
   const live = item.status === 'streaming';
   const groups = groupParts(item.parts);
   const text = item.parts
@@ -125,6 +182,8 @@ export const AssistantMessage = memo(function AssistantMessage({ item, currency 
             <ThinkingBlock key={g.part.id} part={g.part} live={live} />
           ) : g.part.type === 'tool' ? (
             <ApprovalCard key={g.part.id} part={g.part} currency={currency} />
+          ) : g.part.type === 'visual' && g.part.visual.type === 'suggestions' ? (
+            <Suggestions key={g.part.id} question={g.part.visual.question} items={g.part.visual.items} active={isLast && !live} />
           ) : g.part.type === 'visual' ? (
             <motion.div key={g.part.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE }}>
               <VisualBlock visual={g.part.visual} currency={currency} />

@@ -33,6 +33,32 @@ const STATUS = {
   streaming: { label: 'Forbereder …', tone: 'brand' as const, icon: Loader2 },
 };
 
+/** Inline editor for a proposed value (titles, ad copy, keywords) with a character counter. */
+function EditableValue({ value, original, maxLength, onChange }: { value: string; original: string; maxLength?: number; onChange: (v: string) => void }) {
+  const len = value.trim().length;
+  const over = maxLength !== undefined && len > maxLength;
+  const dirty = value.trim() !== original;
+  return (
+    <div className="relative">
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        spellCheck
+        className={cn(
+          'h-8 w-full rounded-lg border bg-surface px-2.5 pr-12 text-[13px] font-medium text-ink outline-none transition-[border-color,box-shadow]',
+          over ? 'border-negative/60 ring-2 ring-negative/10' : dirty ? 'border-brand/50 ring-2 ring-brand/10' : 'border-line hover:border-black/15 focus:border-brand/50 focus:ring-2 focus:ring-brand/10',
+        )}
+        aria-label="Ret værdi"
+      />
+      {maxLength !== undefined && (
+        <span className={cn('pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[11px] tabular', over ? 'text-negative' : 'text-subtle')}>
+          {len}/{maxLength}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function ApprovalCard({ part, currency }: { part: ToolPart; currency: string }) {
   const plan = part.plan!;
   const [note, setNote] = useState('');
@@ -42,6 +68,19 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
   const s = STATUS[part.status];
   const hasBefore = plan.changes.some((c) => c.before !== undefined);
   const budgetDelta = plan.dailyBudgetDelta;
+  const [edits, setEdits] = useState<Record<number, string>>({});
+  const editable = waiting && plan.changes.some((c) => c.edit);
+  const changed = Object.entries(edits).filter(([i, v]) => v.trim() !== String(plan.changes[Number(i)]?.after ?? ''));
+  const editCount = changed.length;
+  const invalid = Object.entries(edits).some(([i, v]) => {
+    const max = plan.changes[Number(i)]?.edit?.maxLength;
+    return !v.trim() || (max !== undefined && v.trim().length > max);
+  });
+  const approve = () =>
+    answerApproval(part.id, {
+      approved: true,
+      edits: changed.map(([i, v]) => ({ path: plan.changes[Number(i)]!.edit!.path, value: v.trim() })),
+    });
 
   return (
     <motion.div
@@ -83,9 +122,20 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
                   {c.field}
                 </td>
                 {hasBefore && <td className="px-3 py-1.5 text-muted line-through decoration-black/20">{cell(c.before, currency)}</td>}
-                <td className="max-w-[320px] truncate px-3 py-1.5 font-medium text-ink" title={typeof c.after === 'string' ? c.after : undefined}>
-                  {cell(c.after, currency)}
-                </td>
+                {waiting && c.edit ? (
+                  <td className="px-2 py-1">
+                    <EditableValue
+                      value={edits[i] ?? String(c.after ?? '')}
+                      original={String(c.after ?? '')}
+                      maxLength={c.edit.maxLength}
+                      onChange={(v) => setEdits((e) => ({ ...e, [i]: v }))}
+                    />
+                  </td>
+                ) : (
+                  <td className="max-w-[320px] truncate px-3 py-1.5 font-medium text-ink" title={typeof c.after === 'string' ? c.after : undefined}>
+                    {cell(c.after, currency)}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -131,8 +181,8 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
         </AnimatePresence>
         {waiting ? (
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="positive" onClick={() => answerApproval(part.id, { approved: true })}>
-              <Check /> Godkend
+            <Button size="sm" variant="positive" disabled={invalid} onClick={approve}>
+              <Check /> {editCount ? `Godkend med ${editCount} rettelse${editCount === 1 ? '' : 'r'}` : 'Godkend'}
             </Button>
             <Button
               size="sm"
@@ -141,7 +191,9 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
             >
               <X /> {showNote ? 'Afvis' : 'Afvis …'}
             </Button>
-            <span className="ml-auto text-[11.5px] text-subtle">Ændringen sendes først, når du godkender.</span>
+            <span className="ml-auto text-[11.5px] text-subtle">
+              {editable ? 'Du kan rette værdierne, før du godkender.' : 'Ændringen sendes først, når du godkender.'}
+            </span>
           </div>
         ) : (
           part.status === 'done' &&

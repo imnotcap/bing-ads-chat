@@ -6,7 +6,32 @@ const format = z.enum(['money', 'number', 'decimal', 'percent', 'ratio', 'text',
 const column = z.object({ key: z.string(), label: z.string(), format });
 const cell = z.union([z.string(), z.number(), z.null()]);
 
+/** Display tools after which the assistant's turn ends (no follow-up request needed). */
+export const TERMINAL_TOOLS = new Set(['suggest_next_steps']);
+
 export const displayTools = [
+  defineRead({
+    name: 'suggest_next_steps',
+    kind: 'display',
+    description: `End your reply with this tool: it shows the user a short question and one-click buttons for the next steps (they are sent as the user's next message). Call it as the very LAST thing in a reply, alone, after your text – never write text after it and do not repeat the question in your text.
+Give 2–4 concrete, specific suggestions based on what you just did or found (e.g. apply a recommendation, dig deeper, a related optimisation). Mark the single most valuable one as primary (shown as a full-width button). Labels are short Danish imperatives (max ~50 characters); prompt is the full Danish instruction sent to you when clicked.
+After creating campaigns, the primary suggestion must be to title-optimise the new campaigns ("Titel-optimér de nye kampagner").`,
+    schema: z.object({
+      question: z.string().max(140).describe('Short Danish question, e.g. "Skal jeg lave flere ændringer?"'),
+      suggestions: z
+        .array(z.object({ label: z.string().max(60), prompt: z.string().max(600), primary: z.boolean().optional() }))
+        .min(1)
+        .max(4),
+    }),
+    label: () => 'Foreslår næste skridt',
+    async run(input) {
+      return {
+        result: 'Shown to the user. Your turn is over – the user will pick a suggestion or write a reply.',
+        summary: input.question,
+        visual: { type: 'suggestions', question: input.question, items: input.suggestions },
+      };
+    },
+  }),
   defineRead({
     name: 'show_kpis',
     kind: 'display',

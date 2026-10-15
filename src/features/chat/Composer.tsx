@@ -1,16 +1,15 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, ClipboardPaste, FileText, FolderOpen, ImageIcon, Loader2, Paperclip, Plus, Sparkles, Square, X } from 'lucide-react';
+import { ClipboardPaste, CornerDownLeft, FileText, FolderOpen, ImageIcon, Loader2, Mic, Paperclip, Plus, Square, X } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { MODELS, type ModelId } from '@/ai/models';
-import { Magnet } from '@/components/reactbits';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Select, Tooltip } from '@/components/ui/overlays';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { EASE } from '@/components/motion';
 import { ACCEPT_ALL, MAX_ATTACHMENTS, classify, formatBytes, readAttachment, type Attachment } from '@/lib/attachments';
 import { cn, errorMessage } from '@/lib/utils';
-import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
+import { ComposerFooter } from './ComposerFooter';
 import { SLASH_COMMANDS } from './suggestions';
+import { useDictation } from './useDictation';
 
 export interface ComposerHandle {
   addFiles: (files: File[]) => void;
@@ -65,8 +64,7 @@ export const Composer = forwardRef<
   const folderInput = useRef<HTMLInputElement>(null);
   const draft = useUi((s) => s.draft);
   const setDraft = useUi((s) => s.setDraft);
-  const model = useSettings((s) => s.ai.model);
-  const setAi = useSettings((s) => s.setAi);
+  const dictation = useDictation((t) => setText((cur) => (cur && !/\s$/.test(cur) ? `${cur} ${t}` : cur + t)), () => ref.current?.focus());
 
   useEffect(() => {
     folderInput.current?.setAttribute('webkitdirectory', '');
@@ -206,8 +204,9 @@ export const Composer = forwardRef<
 
       <div
         className={cn(
-          'rounded-2xl border border-brand/20 bg-white/90 p-2 shadow-[0_10px_36px_-16px_rgb(109_92_246/0.35)] backdrop-blur-xl transition-[box-shadow,border-color]',
+          'rounded-2xl border border-brand/20 bg-white/90 p-1.5 shadow-[0_10px_36px_-16px_rgb(109_92_246/0.35)] backdrop-blur-xl transition-[box-shadow,border-color]',
           'focus-within:border-brand/40 focus-within:shadow-[0_12px_40px_-14px_rgb(109_92_246/0.5),0_0_0_4px_rgb(109_92_246/0.07)]',
+          dictation.listening && 'border-brand/50',
         )}
       >
         <AnimatePresence initial={false}>
@@ -234,45 +233,7 @@ export const Composer = forwardRef<
             </motion.div>
           )}
         </AnimatePresence>
-        <textarea
-          ref={ref}
-          value={text}
-          rows={1}
-          disabled={disabled}
-          onChange={(e) => setText(e.target.value)}
-          onPaste={(e) => {
-            const files = [...e.clipboardData.files];
-            if (files.length) {
-              e.preventDefault();
-              void addFiles(files);
-            }
-          }}
-          onKeyDown={(e) => {
-            if (slash.length) {
-              if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                return setActive((a) => (a + 1) % slash.length);
-              }
-              if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                return setActive((a) => (a - 1 + slash.length) % slash.length);
-              }
-              if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault();
-                return pick(active);
-              }
-              if (e.key === 'Escape') return setText('');
-            }
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          placeholder={disabled ? 'Tilføj din Claude API-nøgle under Indstillinger for at chatte …' : 'Spørg om hvad som helst, eller bed mig ændre noget …'}
-          className="block max-h-[220px] w-full resize-none bg-transparent px-2.5 pb-1 pt-2 text-[15px] leading-relaxed text-ink outline-none placeholder:text-subtle"
-          aria-label="Besked til assistenten"
-        />
-        <div className="flex items-center gap-1 px-1 pt-1">
+        <div className="flex items-end gap-1">
           <DropdownMenu>
             <Tooltip content="Vedhæft filer, billeder eller mapper">
               <DropdownMenuTrigger asChild>
@@ -280,7 +241,7 @@ export const Composer = forwardRef<
                   type="button"
                   disabled={disabled}
                   aria-label="Vedhæft"
-                  className="grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-line-2 hover:text-ink disabled:opacity-40 data-[state=open]:bg-line-2 data-[state=open]:text-ink"
+                  className="grid size-9 shrink-0 place-items-center rounded-[10px] text-muted transition-colors hover:bg-line-2 hover:text-ink disabled:opacity-40 data-[state=open]:bg-line-2 data-[state=open]:text-ink"
                 >
                   <Plus className="size-[18px] transition-transform duration-200 [[data-state=open]>&]:rotate-45" />
                 </button>
@@ -303,35 +264,89 @@ export const Composer = forwardRef<
               <DropdownMenuLabel className="normal-case tracking-normal">Du kan også trække filer ind i chatten</DropdownMenuLabel>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Select<ModelId>
-            triggerVariant="pill"
-            aria-label="Model"
-            value={model}
-            onChange={(m) => setAi({ model: m })}
-            contentClassName="w-[300px]"
-            options={MODELS.map((m) => ({ value: m.id, label: m.label, description: m.description, icon: <Sparkles className="size-3.5 text-violet" /> }))}
+
+          <textarea
+            ref={ref}
+            value={text}
+            rows={1}
+            disabled={disabled}
+            onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              const files = [...e.clipboardData.files];
+              if (files.length) {
+                e.preventDefault();
+                void addFiles(files);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (slash.length) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  return setActive((a) => (a + 1) % slash.length);
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  return setActive((a) => (a - 1 + slash.length) % slash.length);
+                }
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault();
+                  return pick(active);
+                }
+                if (e.key === 'Escape') return setText('');
+              }
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder={disabled ? 'Tilføj din Claude API-nøgle under Indstillinger for at chatte …' : dictation.listening ? 'Lytter … tal nu' : 'Spørg om hvad som helst, eller bed mig ændre noget …'}
+            className="block max-h-[220px] min-h-9 flex-1 resize-none bg-transparent px-1.5 py-[7px] text-[15px] leading-[22px] text-ink outline-none placeholder:text-subtle"
+            aria-label="Besked til assistenten"
           />
-          <span className="ml-auto" />
-          <Magnet strength={6} padding={16} disabled={running}>
-            {running ? (
-              <motion.button type="button" onClick={onStop} whileTap={{ scale: 0.92 }} className="grid size-9 place-items-center rounded-[10px] bg-ink text-white" aria-label="Stop">
-                <Square className="size-3.5 fill-current" />
+
+          {running ? (
+            <Tooltip content="Stop">
+              <motion.button type="button" onClick={onStop} whileTap={{ scale: 0.92 }} className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-ink text-white" aria-label="Stop">
+                <Square className="size-3 fill-current" />
               </motion.button>
-            ) : (
+            </Tooltip>
+          ) : (
+            <Tooltip content="Send (Enter)">
               <motion.button
                 type="button"
                 onClick={submit}
                 disabled={!canSend}
                 whileTap={{ scale: 0.9 }}
-                className="grid size-9 place-items-center rounded-[10px] bg-ink text-white transition-[opacity,background-color] hover:bg-brand disabled:bg-line disabled:text-subtle"
+                className={cn(
+                  'grid size-9 shrink-0 place-items-center rounded-[10px] transition-colors',
+                  canSend ? 'bg-ink text-white hover:bg-brand' : 'text-subtle',
+                )}
                 aria-label="Send"
               >
-                <ArrowUp className="size-4" strokeWidth={2.4} />
+                <CornerDownLeft className="size-[17px]" strokeWidth={2} />
               </motion.button>
-            )}
-          </Magnet>
+            </Tooltip>
+          )}
+          <Tooltip content={dictation.listening ? 'Stop diktering' : 'Diktér (tale til tekst)'}>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={dictation.toggle}
+              aria-label="Diktér"
+              aria-pressed={dictation.listening}
+              className={cn(
+                'relative grid size-9 shrink-0 place-items-center rounded-[10px] transition-colors disabled:opacity-40',
+                dictation.listening ? 'bg-brand-50 text-brand' : 'text-muted hover:bg-line-2 hover:text-ink',
+              )}
+            >
+              {dictation.listening && <span className="absolute inset-1 animate-ping rounded-[8px] bg-brand/15" />}
+              <Mic className="relative size-[17px]" />
+            </button>
+          </Tooltip>
         </div>
       </div>
+
+      <ComposerFooter />
     </div>
   );
 });

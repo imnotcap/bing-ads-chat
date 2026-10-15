@@ -2,6 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import type { AnyTool } from './context';
 import { displayTools } from './display';
+export { TERMINAL_TOOLS } from './display';
 import { readTools } from './read';
 import { writeTools } from './write';
 
