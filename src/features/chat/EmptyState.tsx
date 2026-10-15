@@ -49,6 +49,7 @@ export function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
             hue={312}
             size={0.53}
             glow={1.4}
+            halo={false}
             bleed={3}
             wobble={3}
             highlight={1.9}

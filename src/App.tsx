@@ -18,6 +18,7 @@ import { useBootstrap } from '@/hooks/useBootstrap';
 import { useBudgetWatch } from '@/hooks/useBudgetWatch';
 import { navigate, useNavigationHistory } from '@/hooks/useNavigationHistory';
 import { queryClient } from '@/lib/queryClient';
+import { ensureFrameless } from '@/lib/window';
 import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
 
@@ -63,6 +64,7 @@ function Shell() {
   const sidebarCollapsed = useSettings((s) => s.appearance.sidebarCollapsed);
   useBudgetWatch();
   useShortcuts();
+  useEffect(ensureFrameless, []);
   useNavigationHistory();
 
   return (

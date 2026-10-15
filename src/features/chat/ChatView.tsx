@@ -2,11 +2,9 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ArrowDown, Upload } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { stopConversation } from '@/ai/agent';
-import { Aurora } from '@/components/reactbits';
 import { useActiveConversation, useChat } from '@/stores/chat';
 import { startChat } from './startChat';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
-import { useSettings } from '@/stores/settings';
 import { Composer, type ComposerHandle } from './Composer';
 import { EmptyState } from './EmptyState';
 import { AssistantMessage, UserMessage } from './Messages';
@@ -41,7 +39,6 @@ export function ChatView() {
   const running = useChat((s) => (conversation ? !!s.running[conversation.id] : false));
   const account = useCurrentAccount();
   const hasKey = useConnection((s) => s.hasAnthropicKey);
-  const aurora = useSettings((s) => s.appearance.auroraBackground);
   const composer = useRef<ComposerHandle>(null);
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
@@ -75,7 +72,7 @@ export function ChatView() {
         if (hasKey) composer.current?.addFiles([...e.dataTransfer.files]);
       }}
     >
-      {/* Soft static light from the top-right corner; the animated aurora is opt-in (Udseende). */}
+      {/* Soft static light from the top-right corner. */}
       {!empty && (
         <div
           aria-hidden
@@ -83,7 +80,6 @@ export function ChatView() {
           style={{ background: 'radial-gradient(600px 380px at 100% 0%, rgb(139 123 255 / 0.14), transparent 70%)' }}
         />
       )}
-      {aurora && <Aurora className="h-[420px] [mask-image:linear-gradient(to_bottom,black_30%,transparent)]" intensity={empty ? 0.45 : 0.25} />}
 
       <div ref={ref} onScroll={onScroll} className="relative z-0 flex-1 overflow-y-auto">
         {empty ? (

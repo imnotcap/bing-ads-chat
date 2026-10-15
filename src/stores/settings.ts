@@ -51,7 +51,6 @@ export interface BusinessProfile {
 
 export interface Appearance {
   animations: 'system' | 'full' | 'reduced';
-  auroraBackground: boolean;
   clickSpark: boolean;
   insightsPanel: boolean;
   /** Which sections of the insights panel are expanded. */
@@ -105,8 +104,7 @@ export const useSettings = create<SettingsState>()(
         instructions: '',
       },
       appearance: {
-        animations: 'system',
-        auroraBackground: false,
+        animations: 'full',
         clickSpark: false,
         insightsPanel: true,
         insightSections: { kpis: true, budget: true, alerts: true, campaigns: false },
@@ -123,11 +121,17 @@ export const useSettings = create<SettingsState>()(
     }),
     {
       name: 'bac.settings',
-      version: 2,
-      // v2: simpler design – animated background and click sparks are opt-in.
+      version: 3,
+      // v2: simpler design – click sparks are opt-in.
+      // v3: the aurora background is gone, and animations no longer follow Windows by
+      //     default (with Windows' animation effects off the orb and ASCII stood still).
       migrate: (persisted, version) => {
         const p = (persisted ?? {}) as Partial<SettingsState>;
-        if (version < 2 && p.appearance) p.appearance = { ...p.appearance, auroraBackground: false, clickSpark: false };
+        if (version < 2 && p.appearance) p.appearance = { ...p.appearance, clickSpark: false };
+        if (version < 3 && p.appearance) {
+          const { auroraBackground: _removed, ...appearance } = p.appearance as SettingsState['appearance'] & { auroraBackground?: boolean };
+          p.appearance = { ...appearance, animations: appearance.animations === 'reduced' ? 'reduced' : 'full' };
+        }
         return p as SettingsState;
       },
       merge: (persisted, current) => {

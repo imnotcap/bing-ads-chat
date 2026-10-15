@@ -1,7 +1,7 @@
+mod exports;
 mod oauth;
 mod secrets;
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -19,13 +19,32 @@ pub fn run() {
                     let _ = w.set_focus();
                 }
             }))
-            .plugin(tauri_plugin_window_state::Builder::new().build());
+            // Remember size and position – but never the window decorations: the app draws
+            // its own title bar, and an old saved state must not bring Windows' back.
+            .plugin(
+                tauri_plugin_window_state::Builder::new()
+                    .with_state_flags(
+                        tauri_plugin_window_state::StateFlags::all()
+                            - tauri_plugin_window_state::StateFlags::DECORATIONS
+                            - tauri_plugin_window_state::StateFlags::VISIBLE,
+                    )
+                    .build(),
+            );
     }
 
     builder
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            // The custom title bar replaces Windows' own – make sure it stays hidden.
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.set_decorations(false);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
+            exports::export_save,
+            exports::export_open_folder,
             secrets::secret_get,
             secrets::secret_set,
             secrets::secret_delete,

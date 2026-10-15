@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { costUsd, type TokenUsage } from '@/ai/models';
-import { monthKey } from '@/lib/format';
+import { monthKey, today } from '@/lib/format';
 
 export interface UsageBucket {
   requests: number;
@@ -17,6 +17,8 @@ const EMPTY: UsageBucket = { requests: 0, inputTokens: 0, outputTokens: 0, cache
 interface UsageState {
   /** month (YYYY-MM) → model → bucket */
   months: Record<string, Record<string, UsageBucket>>;
+  /** day (YYYY-MM-DD) → cost in USD, last ~2 months. */
+  days: Record<string, number>;
   record: (model: string, usage: TokenUsage) => number;
   reset: () => void;
 }
@@ -25,6 +27,7 @@ export const useUsage = create<UsageState>()(
   persist(
     (set) => ({
       months: {},
+      days: {},
       record: (model, usage) => {
         const cost = costUsd(model, usage);
         const m = monthKey();
@@ -39,13 +42,20 @@ export const useUsage = create<UsageState>()(
             cacheWriteTokens: b.cacheWriteTokens + (usage.cache_creation_input_tokens ?? 0),
             costUsd: b.costUsd + cost,
           };
-          return { months: { ...s.months, [m]: month } };
+          const d = today();
+          const days = Object.fromEntries(Object.entries({ ...s.days, [d]: (s.days[d] ?? 0) + cost }).sort().slice(-62));
+          return { months: { ...s.months, [m]: month }, days };
         });
         return cost;
       },
-      reset: () => set({ months: {} }),
+      reset: () => set({ months: {}, days: {} }),
     }),
-    { name: 'bac.usage', version: 1 },
+    {
+      name: 'bac.usage',
+      version: 2,
+      // v2: daily totals for the usage popover.
+      migrate: (persisted) => ({ days: {}, ...(persisted as object) }) as UsageState,
+    },
   ),
 );
 

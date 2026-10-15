@@ -38,13 +38,17 @@ klik **Flere oplysninger → Kør alligevel**.
 - Slash-kommandoer (`/overblik`, `/spild`, `/budget`, `/fordeling`, `/annonce`, `/søgeord`, `/rapport`, `/forbrug`,
   `/ændringer`) og forslag på startskærmen.
 - Chatfelt som i Claude: **+** til venstre, mikrofon (diktering) og lille send-knap til højre, og under feltet
-  godkendelsestilstand (*Auto*), model + indsats og en ring med månedens AI-forbrug.
+  godkendelsestilstand (*Auto*), model + indsats og en ring med AI-forbruget – klik på den for et
+  *Brug*-vindue med forbrug i dag og denne måned i forhold til dit loft.
 - **Indstillinger som popup** med søgning og grupperet menu (Ctrl+,).
 - **Vedhæft filer** med **+** (filer, billeder, mapper, udklipsholder), træk-og-slip eller Ctrl+V: billeder, PDF, CSV og
   tekstfiler sendes til Claude (fx skærmbilleder af rapporter eller CSV-eksporter fra Google Ads).
 - Startskærm med en diskret, animeret **GradientASCII**-horisont og **Orb** (React Bits).
-- **Topbar** som i Claude desktop: menu, skjul/vis sidebar (Ctrl+B), tilbage/frem (Alt+←/→), samtaletitel med
-  menu (omdøb/slet), indsigt (Ctrl+I) og vinduesknapper. Sidebaren kan foldes helt væk.
+- **Topbaren er vinduets titellinje** (som i Claude desktop – Windows' egen er skjult): træk for at flytte,
+  dobbeltklik for at maksimere, menu, skjul/vis sidebar (Ctrl+B), tilbage/frem (Alt+←/→), samtaletitel med
+  menu (omdøb/slet) og vinduesknapper. Til højre: indsigt (Ctrl+I), eksportér samtalen som Markdown
+  (gemmes i *Overførsler › Bing Ads Chat*), filer i samtalen, del/kopiér og flere handlinger.
+  Sidebaren kan foldes helt væk.
 - Samtalehistorik med søgning, omdøb og slet. Genveje: `Ctrl+N` ny samtale, `Ctrl+K` fokus på chatfeltet, `Ctrl+B` sidebar, `Ctrl+I` indsigt, `Ctrl+,` indstillinger, `Alt+←/→` tilbage/frem.
 
 **Assistentens værktøjer (Microsoft Advertising API v13)**
@@ -128,7 +132,7 @@ fornys automatisk.
 src/
   ai/            agent-løkke (streaming + værktøjer), systemprompt, forbrugsregler (guardrails), værktøjer, modelpriser
   bing/          Microsoft Advertising: OAuth, REST v13-klient, live-backend, rapporter, demo-konto
-  components/    reactbits/ (Aurora, Orb, BlurText, SpotlightCard, ClickSpark, CountUp, ElasticSlider, Stepper …),
+  components/    reactbits/ (Orb, GradientASCII, BlurText, SpotlightCard, ClickSpark, CountUp, ElasticSlider, Stepper …),
                  ui/ (knapper, felter, dropdowns, dialoger), blocks/ (KPI'er, grafer, tabeller), layout/
   features/      chat, insights, campaigns, activity, settings, onboarding
   stores/        zustand: indstillinger, forbindelse, samtaler (IndexedDB), aktivitetslog, AI-forbrug

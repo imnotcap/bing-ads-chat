@@ -40,7 +40,7 @@ const TABS: TabDef[] = [
   { id: 'business', label: 'Virksomhed', icon: Building2, group: 'Konto', keywords: 'profil mål cpa roas dækningsgrad tone of voice instruktioner website' },
   { id: 'spend', label: 'Forbrug', icon: Wallet, group: 'Assistent', keywords: 'budget månedsbudget grænser godkendelse autopilot nødstop beskyttede kampagner cpc bud budgetvagt' },
   { id: 'ai', label: 'AI-assistent', icon: Bot, group: 'Assistent', keywords: 'model opus sonnet haiku fable effort tænkning forbrug pris tokens cache' },
-  { id: 'appearance', label: 'Udseende', icon: Palette, group: 'App', keywords: 'animationer baggrund aurora gnister indsigt sidebar tema' },
+  { id: 'appearance', label: 'Udseende', icon: Palette, group: 'App', keywords: 'animationer gnister indsigt sidebar tema' },
   { id: 'data', label: 'Data', icon: Database, group: 'App', keywords: 'eksport nulstil slet samtaler demo' },
 ];
 
@@ -472,17 +472,16 @@ function AppearanceTab() {
           value={a.animations}
           onChange={(animations) => set({ animations })}
           options={[
-            { value: 'system', label: 'Følg Windows' },
             { value: 'full', label: 'Altid' },
+            { value: 'system', label: 'Følg Windows' },
             { value: 'reduced', label: 'Reduceret' },
           ]}
         />
       </Field>
       <div className="mt-3">
-        <SwitchRow label="Animeret baggrund" description="Bløde, langsomt bevægende farver bag chatten (Aurora)." checked={a.auroraBackground} onCheckedChange={(auroraBackground) => set({ auroraBackground })} />
         <SwitchRow label="Klik-gnister" description="Små gnister ved hvert klik." checked={a.clickSpark} onCheckedChange={(clickSpark) => set({ clickSpark })} />
         <SwitchRow label="Vis indsigtsvindue ved chatten" description="Nøgletal, budget og opmærksomhedspunkter i højre side. Kan også foldes sammen direkte i chatten." checked={a.insightsPanel} onCheckedChange={(insightsPanel) => set({ insightsPanel })} />
-        <SwitchRow label="Kompakt menu" checked={a.sidebarCollapsed} onCheckedChange={(sidebarCollapsed) => set({ sidebarCollapsed })} />
+        <SwitchRow label="Skjul sidebar" checked={a.sidebarCollapsed} onCheckedChange={(sidebarCollapsed) => set({ sidebarCollapsed })} />
       </div>
     </Card>
   );

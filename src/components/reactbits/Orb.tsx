@@ -19,6 +19,8 @@ export interface OrbProps {
   /** Larger = bigger orb in the canvas. */
   size?: number;
   glow?: number;
+  /** Soft coloured bloom outside the ring (turn off for a clean edge on light backgrounds). */
+  halo?: boolean;
   bleed?: number;
   wobble?: number;
   highlight?: number;
@@ -66,6 +68,7 @@ uniform float uBgLum;
 uniform float uReveal;
 uniform vec2 uEcho;
 uniform float uOpacity;
+uniform float uHalo;
 out vec4 fragColor;
 ${SIMPLEX_NOISE}
 
@@ -113,7 +116,11 @@ void main() {
   // Bloom outside the ring.
   float dist = max(len - r0, 0.0);
   float bloom = 1.0 / (1.0 + (160.0 / glow) * dist * dist) * smoothstep(1.0 + 0.4 * glow, r0, len);
-  col += mix(colBase, uColor1, 0.5) * bloom * 0.35 * (1.0 - v2 * 0.5);
+  col += mix(colBase, uColor1, 0.5) * bloom * 0.35 * (1.0 - v2 * 0.5) * uHalo;
+
+  // Without the halo, everything outside the ring fades out fast – a clean edge instead
+  // of a purple disc on light backgrounds.
+  col *= mix(1.0, smoothstep(r0 + 0.07, r0 - 0.01, len), 1.0 - uHalo);
 
   // Click echo ring.
   float echo = uEcho.y * (1.0 - uEcho.x) * exp(-pow((len - r0 - uEcho.x * 0.6) * 12.0, 2.0));
@@ -151,6 +158,7 @@ export function Orb({
   backgroundColor = '#ffffff',
   size = 1,
   glow = 1,
+  halo = true,
   bleed = 1,
   wobble = 1,
   highlight = 1,
@@ -169,7 +177,7 @@ export function Orb({
 }: OrbProps) {
   const ref = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotionConfig();
-  const key = [colors.join(), hue, backgroundColor, size, glow, bleed, wobble, highlight, trail, speed, hoverIntensity, rotateOnHover, forceHoverState, followCursor, clickPulse, intro, opacity, paused].join('|');
+  const key = [colors.join(), hue, backgroundColor, size, glow, halo, bleed, wobble, highlight, trail, speed, hoverIntensity, rotateOnHover, forceHoverState, followCursor, clickPulse, intro, opacity, paused].join('|');
 
   useEffect(() => {
     const host = ref.current;
@@ -213,6 +221,7 @@ export function Orb({
     gl.uniform1f(u('uHoverIntensity'), Math.max(0, hoverIntensity));
     gl.uniform1f(u('uBgLum'), luminance(backgroundColor));
     gl.uniform1f(u('uOpacity'), Math.min(1, Math.max(0, opacity)));
+    gl.uniform1f(u('uHalo'), halo ? 1 : 0);
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const resize = () => {

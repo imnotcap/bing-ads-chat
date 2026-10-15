@@ -65,3 +65,22 @@ export async function startOAuthListener(): Promise<{ port: number; callback: Pr
   const port = await invoke<number>('oauth_listen');
   return { port, callback };
 }
+
+/**
+ * Saves an exported file. Desktop: "Downloads/Bing Ads Chat" (returns the path).
+ * Browser: a normal download (returns null).
+ */
+export async function saveExport(fileName: string, contents: string): Promise<string | null> {
+  if (isTauri) return invoke<string>('export_save', { fileName, contents });
+  const url = URL.createObjectURL(new Blob([contents], { type: 'text/markdown;charset=utf-8' }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: fileName });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return null;
+}
+
+/** Opens the exports folder in Explorer, optionally with one file selected. */
+export async function openExportsFolder(select?: string): Promise<void> {
+  if (!isTauri) throw new Error('Mappen kan kun åbnes fra desktop-appen.');
+  await invoke('export_open_folder', { select: select ?? null });
+}

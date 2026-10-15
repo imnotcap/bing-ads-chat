@@ -1,4 +1,3 @@
-export { Aurora } from './Aurora';
 export { Orb, MiniOrb } from './Orb';
 export { GradientASCII } from './GradientASCII';
 export { BlurText, ShinyText, GradientText, RotatingText } from './TextEffects';

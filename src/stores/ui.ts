@@ -16,12 +16,18 @@ interface UiState {
   settingsOpen: boolean;
   /** Text to put into the composer (e.g. "Spørg om denne kampagne"). */
   draft: string | null;
+  /** The top bar's conversation title is being edited inline. */
+  renaming: boolean;
+  /** The "Slet samtalen?" dialog is open. */
+  confirmDelete: boolean;
   history: NavEntry[];
   historyIndex: number;
   /** Navigate to a view – 'settings' opens the settings dialog (optionally on a tab). */
   go: (view: View | 'settings', tab?: SettingsTab) => void;
   closeSettings: () => void;
   setDraft: (draft: string | null) => void;
+  setRenaming: (renaming: boolean) => void;
+  setConfirmDelete: (confirmDelete: boolean) => void;
   /** Records a navigation step (called by useNavigationHistory). */
   record: (entry: NavEntry) => void;
   move: (delta: -1 | 1) => NavEntry | null;
@@ -32,12 +38,16 @@ export const useUi = create<UiState>()((set, get) => ({
   settingsTab: 'connections',
   settingsOpen: false,
   draft: null,
+  renaming: false,
+  confirmDelete: false,
   history: [],
   historyIndex: -1,
   go: (view, tab) =>
     set((s) => (view === 'settings' ? { settingsOpen: true, settingsTab: tab ?? s.settingsTab } : { view, settingsOpen: false })),
   closeSettings: () => set({ settingsOpen: false }),
   setDraft: (draft) => set({ draft }),
+  setRenaming: (renaming) => set({ renaming }),
+  setConfirmDelete: (confirmDelete) => set({ confirmDelete }),
   record: (entry) =>
     set((s) => {
       const current = s.history[s.historyIndex];

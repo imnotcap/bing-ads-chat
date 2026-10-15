@@ -50,6 +50,9 @@ function AttachmentChip({ a, onRemove }: { a: Attachment; onRemove: () => void }
   );
 }
 
+/** Dispatch on window to open the composer's file picker. */
+export const ATTACH_EVENT = 'bac:attach';
+
 export const Composer = forwardRef<
   ComposerHandle,
   { running: boolean; onSend: (text: string, attachments: Attachment[]) => void; onStop: () => void; disabled?: boolean }
@@ -117,6 +120,13 @@ export const Composer = forwardRef<
   };
 
   useImperativeHandle(handle, () => ({ addFiles: (files) => void addFiles(files) }));
+
+  // "Vedhæft filer …" in the top bar's Filer menu opens the same file picker.
+  useEffect(() => {
+    const open = () => fileInput.current?.click();
+    window.addEventListener(ATTACH_EVENT, open);
+    return () => window.removeEventListener(ATTACH_EVENT, open);
+  }, []);
 
   const pasteFromClipboard = async () => {
     try {

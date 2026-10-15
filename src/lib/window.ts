@@ -20,3 +20,8 @@ export function onWindowResized(cb: () => void): () => void {
   void w.onResized(cb).then((u) => (unlisten = u));
   return () => unlisten?.();
 }
+
+/** The top bar is the title bar: keep Windows' own hidden (older versions could bring it back). */
+export function ensureFrameless() {
+  void win()?.setDecorations(false).catch(() => {});
+}

@@ -13,10 +13,13 @@
     "core:window:allow-internal-toggle-maximize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-minimize",
+    "core:window:allow-set-decorations",
     "allow-secret-get",
     "allow-secret-set",
     "allow-secret-delete",
     "allow-oauth-listen",
+    "allow-export-save",
+    "allow-export-open-folder",
     "opener:default",
     {
       "identifier": "http:default",

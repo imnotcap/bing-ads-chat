@@ -8,6 +8,8 @@ fn main() {
             "secret_set",
             "secret_delete",
             "oauth_listen",
+            "export_save",
+            "export_open_folder",
         ]),
     ))
     .expect("failed to run tauri-build");

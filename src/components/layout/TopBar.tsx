@@ -5,6 +5,13 @@
  */
 import { getVersion } from '@tauri-apps/api/app';
 import {
+  ArrowDownToLine,
+  ClipboardCopy,
+  EllipsisVertical,
+  FileText,
+  FolderOpen,
+  Paperclip,
+  Share,
   ArrowLeft,
   ArrowRight,
   ChevronDown,
@@ -28,7 +35,11 @@ import {
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { navigate } from '@/hooks/useNavigationHistory';
-import { isTauri } from '@/lib/platform';
+import { ATTACH_EVENT } from '@/features/chat/Composer';
+import { assistantMarkdown, conversationMarkdown, exportFileName } from '@/features/chat/exportConversation';
+import { formatBytes } from '@/lib/attachments';
+import { isTauri, openExportsFolder, saveExport } from '@/lib/platform';
+import { errorMessage } from '@/lib/utils';
 import { queryClient } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
 import { closeWindow, isMaximized, minimizeWindow, onWindowResized, toggleMaximizeWindow } from '@/lib/window';
@@ -38,7 +49,7 @@ import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
 import { Badge } from '../ui/controls';
 import { Button } from '../ui/button';
-import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '../ui/overlays';
+import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '../ui/overlays';
 import { LogoMark } from './Logo';
 
 const PAGE_TITLES = { campaigns: 'Kampagner', activity: 'Aktivitet' } as const;
@@ -102,9 +113,15 @@ function ConversationTitle() {
   const conversation = useActiveConversation();
   const rename = useChat((s) => s.rename);
   const remove = useChat((s) => s.remove);
-  const [editing, setEditing] = useState(false);
+  const editing = useUi((s) => s.renaming);
+  const setEditing = useUi((s) => s.setRenaming);
   const [title, setTitle] = useState('');
-  const [confirm, setConfirm] = useState(false);
+  const confirm = useUi((s) => s.confirmDelete);
+  const setConfirm = useUi((s) => s.setConfirmDelete);
+  useEffect(() => {
+    if (editing && conversation) setTitle(conversation.title);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
   const label = conversation && conversation.items.length ? conversation.title : 'Ny samtale';
 
   if (editing && conversation) {
@@ -144,10 +161,7 @@ function ConversationTitle() {
           {conversation && conversation.items.length > 0 && (
             <>
               <DropdownMenuItem
-                onSelect={() => {
-                  setTitle(conversation.title);
-                  setEditing(true);
-                }}
+                onSelect={() => setEditing(true)}
               >
                 <Pencil /> Omdøb
               </DropdownMenuItem>
@@ -247,12 +261,153 @@ function AppMenu() {
   );
 }
 
+/* ------------------------------ conversation actions ------------------------------ */
+
+let lastExport: string | null = null;
+
+async function exportConversation() {
+  const c = useChat.getState().conversations.find((x) => x.id === useChat.getState().activeId);
+  if (!c || !c.items.length) return;
+  try {
+    const path = await saveExport(exportFileName(c), conversationMarkdown(c));
+    lastExport = path;
+    toast.success('Samtalen er eksporteret', {
+      description: path ? `Gemt i Overførsler › Bing Ads Chat` : 'Filen er hentet som Markdown.',
+      action: path ? { label: 'Vis i mappe', onClick: () => void openExportsFolder(path) } : undefined,
+    });
+  } catch (e) {
+    toast.error('Eksporten mislykkedes', { description: errorMessage(e) });
+  }
+}
+
+async function copyText(text: string, what: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(`${what} er kopieret`);
+  } catch (e) {
+    toast.error('Kunne ikke kopiere', { description: errorMessage(e) });
+  }
+}
+
+const menuButton =
+  'grid size-8 place-items-center rounded-lg text-muted outline-none transition-colors hover:bg-line-2 hover:text-ink disabled:pointer-events-none disabled:opacity-35 data-[state=open]:bg-line-2 data-[state=open]:text-ink';
+
+/** A top-bar icon that opens a dropdown (tooltip on hover). */
+function MenuIcon({ label, disabled, icon, children, width = 'w-[260px]' }: { label: string; disabled?: boolean; icon: React.ReactNode; children: React.ReactNode; width?: string }) {
+  return (
+    <DropdownMenu>
+      <Tooltip content={label} side="bottom">
+        <DropdownMenuTrigger asChild disabled={disabled}>
+          <button type="button" aria-label={label} className={menuButton}>
+            {icon}
+          </button>
+        </DropdownMenuTrigger>
+      </Tooltip>
+      <DropdownMenuContent align="end" className={width}>
+        {children}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Right side of the top bar in the chat: insights, export, files, share and more. */
+function ConversationActions() {
+  const conversation = useActiveConversation();
+  const insights = useSettings((s) => s.appearance.insightsPanel);
+  const setRenaming = useUi((s) => s.setRenaming);
+  const setConfirmDelete = useUi((s) => s.setConfirmDelete);
+  const hasItems = !!conversation?.items.length;
+  const attachments = (conversation?.items ?? []).flatMap((it) => (it.kind === 'user' ? (it.attachments ?? []) : []));
+  const lastReply = [...(conversation?.items ?? [])].reverse().find((it) => it.kind === 'assistant');
+
+  return (
+    <div className="flex items-center gap-0.5">
+      <Tooltip content={`${insights ? 'Skjul' : 'Vis'} indsigt (Ctrl+I)`} side="bottom">
+        <button
+          type="button"
+          aria-label={insights ? 'Skjul indsigt' : 'Vis indsigt'}
+          aria-pressed={insights}
+          onClick={toggleInsights}
+          className={cn(menuButton, insights && 'bg-line-2 text-ink')}
+        >
+          <PanelRight className="size-4" />
+        </button>
+      </Tooltip>
+
+      <IconButton label="Eksportér samtale" onClick={() => void exportConversation()} disabled={!hasItems}>
+        <ArrowDownToLine className="size-4" />
+      </IconButton>
+
+      <MenuIcon label="Filer" icon={<FolderOpen className="size-4" />}>
+        <DropdownMenuLabel>Filer i samtalen</DropdownMenuLabel>
+        {attachments.length ? (
+          attachments.slice(-8).map((a) => (
+            <div key={a.id} className="flex items-center gap-2.5 px-2.5 py-1.5 text-[13px] text-ink-2">
+              <FileText className="size-4 shrink-0 text-muted" />
+              <span className="min-w-0 flex-1 truncate">{a.name}</span>
+              <span className="shrink-0 text-[11.5px] text-subtle">{formatBytes(a.size)}</span>
+            </div>
+          ))
+        ) : (
+          <div className="px-2.5 pb-2 pt-0.5 text-[12.5px] text-subtle">Ingen vedhæftede filer endnu.</div>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => window.dispatchEvent(new Event(ATTACH_EVENT))}>
+          <Paperclip /> Vedhæft filer …
+        </DropdownMenuItem>
+        {isTauri && (
+          <DropdownMenuItem onSelect={() => void openExportsFolder(lastExport ?? undefined).catch((e) => toast.error(errorMessage(e)))}>
+            <FolderOpen /> Åbn mappen med eksporter
+          </DropdownMenuItem>
+        )}
+      </MenuIcon>
+
+      <MenuIcon label="Del" icon={<Share className="size-4" />} disabled={!hasItems}>
+        <DropdownMenuItem onSelect={() => conversation && void copyText(conversationMarkdown(conversation), 'Samtalen')}>
+          <ClipboardCopy /> Kopiér hele samtalen
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!lastReply} onSelect={() => lastReply?.kind === 'assistant' && void copyText(assistantMarkdown(lastReply), 'Svaret')}>
+          <Copy /> Kopiér seneste svar
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => void exportConversation()}>
+          <ArrowDownToLine /> Gem som Markdown-fil
+        </DropdownMenuItem>
+      </MenuIcon>
+
+      <MenuIcon label="Flere handlinger" icon={<EllipsisVertical className="size-4" />} width="w-[230px]">
+        <DropdownMenuItem onSelect={startNewConversation}>
+          <SquarePen /> <span className="flex-1">Ny samtale</span> <span className="text-[11px] text-subtle">Ctrl N</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!hasItems} onSelect={() => setRenaming(true)}>
+          <Pencil /> Omdøb samtale
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => {
+            void queryClient.invalidateQueries();
+            toast('Data opdateres …');
+          }}
+        >
+          <RefreshCw /> Opdatér data
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={!hasItems}
+          onSelect={() => setConfirmDelete(true)}
+          className="text-negative data-[highlighted]:bg-negative-bg data-[highlighted]:text-negative [&_svg]:!text-negative"
+        >
+          <Trash2 /> Slet samtale
+        </DropdownMenuItem>
+      </MenuIcon>
+    </div>
+  );
+}
+
 export function TopBar() {
   const view = useUi((s) => s.view);
   const canBack = useUi((s) => s.historyIndex > 0);
   const canForward = useUi((s) => s.historyIndex < s.history.length - 1);
   const sidebarCollapsed = useSettings((s) => s.appearance.sidebarCollapsed);
-  const insights = useSettings((s) => s.appearance.insightsPanel);
   const mode = useConnection((s) => s.mode);
 
   return (
@@ -281,11 +436,7 @@ export function TopBar() {
 
       <div data-tauri-drag-region className="h-full min-w-6 flex-1" />
 
-      {view === 'chat' && (
-        <IconButton label={insights ? 'Skjul indsigt' : 'Vis indsigt'} onClick={toggleInsights} shortcut="Ctrl+I">
-          <PanelRight className={cn('size-4', insights && 'text-brand')} />
-        </IconButton>
-      )}
+      {view === 'chat' && <ConversationActions />}
       {isTauri ? (
         <>
           <span className="mx-1.5 h-4 w-px bg-line" />
