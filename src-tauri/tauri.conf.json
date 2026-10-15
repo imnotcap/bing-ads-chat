@@ -65,7 +65,14 @@
         "languages": [
           "Danish"
         ],
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "installer/header.bmp",
+        "sidebarImage": "installer/sidebar.bmp",
+        "customLanguageFiles": {
+          "Danish": "installer/Danish.nsh"
+        },
+        "uninstallerHeaderImage": "installer/header.bmp"
       },
       "wix": {
         "language": "da-DK"
