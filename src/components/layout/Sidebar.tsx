@@ -3,19 +3,20 @@ import {
   Activity,
   Building2,
   Check,
-  ChevronsLeft,
-  ChevronsRight,
-  ChevronsUpDown,
   FlaskConical,
   LayoutGrid,
   MessageSquare,
   MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plug,
   Search,
   Settings,
+  Sparkles,
   SquarePen,
   Trash2,
+  Wallet,
   type LucideIcon,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -35,7 +36,6 @@ const NAV: { view: View; label: string; icon: LucideIcon }[] = [
   { view: 'chat', label: 'Chat', icon: MessageSquare },
   { view: 'campaigns', label: 'Kampagner', icon: LayoutGrid },
   { view: 'activity', label: 'Aktivitet', icon: Activity },
-  { view: 'settings', label: 'Indstillinger', icon: Settings },
 ];
 
 function NavButton({ item, compact }: { item: (typeof NAV)[number]; compact: boolean }) {
@@ -175,64 +175,106 @@ function ConversationRow({ c }: { c: Conversation }) {
   );
 }
 
-function AccountSwitcher({ compact }: { compact: boolean }) {
+function initials(name: string | undefined) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?';
+}
+
+/** Account & settings menu in the bottom-left corner, styled like Claude's. */
+function AccountMenu({ compact }: { compact: boolean }) {
   const { accounts, accountId, mode, set } = useConnection();
   const go = useUi((s) => s.go);
   const account = accounts.find((a) => a.id === accountId);
   const months = useUsage((s) => s.months);
   const usage = useMemo(() => monthTotal(months), [months]);
+  const plan = mode === 'demo' ? 'Demo' : 'Live';
+
+  const avatar = (
+    <span className={cn('grid size-7 shrink-0 place-items-center rounded-full text-[11px] font-semibold text-white', mode === 'demo' ? 'bg-brand' : 'bg-teal')}>
+      {initials(account?.name)}
+    </span>
+  );
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            'flex w-full items-center gap-2.5 rounded-xl border border-line bg-surface text-left transition-colors hover:bg-line-2/60',
-            compact ? 'justify-center p-2' : 'p-2.5',
-          )}
-          aria-label="Skift konto"
-        >
-          <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', mode === 'demo' ? 'bg-brand-50 text-brand' : 'bg-teal-50 text-teal')}>
-            {mode === 'demo' ? <FlaskConical className="size-4" /> : <Building2 className="size-4" />}
-          </span>
-          {!compact && (
-            <>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-semibold text-ink">{account?.name ?? 'Ingen konto valgt'}</span>
-                <span className="block truncate text-[11px] text-muted">
-                  {mode === 'demo' ? 'Demo-tilstand' : account ? `Konto ${account.number ?? account.id}` : 'Microsoft Advertising'} · AI {fmtUsd(usage.costUsd)}
-                </span>
+    <div className="flex items-center gap-1">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label="Konto og indstillinger"
+            className={cn(
+              'flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] text-left transition-colors hover:bg-line-2 data-[state=open]:bg-line-2',
+              compact ? 'justify-center p-1.5' : 'px-2 py-1.5',
+            )}
+          >
+            {avatar}
+            {!compact && (
+              <span className="min-w-0 flex-1 truncate text-[13.5px]">
+                <span className="font-medium text-ink">{account?.name ?? 'Ingen konto'}</span>
+                <span className="text-muted"> · {plan}</span>
               </span>
-              <ChevronsUpDown className="size-4 shrink-0 text-muted" />
+            )}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="top" align="start" sideOffset={6} className="w-[264px]">
+          <div className="flex items-center gap-2.5 px-2.5 pb-2 pt-1.5">
+            {avatar}
+            <div className="min-w-0">
+              <div className="truncate text-[13px] font-medium text-ink">{account?.name ?? 'Ingen konto'}</div>
+              <div className="truncate text-[11.5px] text-muted">
+                {mode === 'demo' ? 'Demo-konto' : `Microsoft Advertising · ${account?.number ?? account?.id ?? ''}`}
+              </div>
+            </div>
+          </div>
+          {accounts.length > 1 && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Skift konto</DropdownMenuLabel>
+              {accounts.map((a) => (
+                <DropdownMenuItem key={a.id} onSelect={() => set({ accountId: a.id })}>
+                  <Building2 />
+                  <span className="flex-1 truncate">{a.name}</span>
+                  {a.id === accountId && <Check className="!text-brand" />}
+                </DropdownMenuItem>
+              ))}
             </>
           )}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" className="w-[280px]">
-        <DropdownMenuLabel>{mode === 'demo' ? 'Demo-konti' : 'Annoncekonti'}</DropdownMenuLabel>
-        {accounts.map((a) => (
-          <DropdownMenuItem key={a.id} onSelect={() => set({ accountId: a.id })}>
-            <Building2 />
-            <span className="flex-1 truncate">{a.name}</span>
-            {a.id === accountId && <Check className="!text-brand" />}
-          </DropdownMenuItem>
-        ))}
-        {accounts.length === 0 && <div className="px-3 py-2 text-[12.5px] text-muted">Ingen konti indlæst endnu.</div>}
-        <DropdownMenuSeparator />
-        {mode === 'demo' ? (
+          <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => go('settings', 'connections')}>
-            <Plug /> Forbind Microsoft Advertising
+            <Settings /> <span className="flex-1">Indstillinger</span> <span className="text-[11px] text-subtle">Ctrl ,</span>
           </DropdownMenuItem>
-        ) : (
-          <DropdownMenuItem onSelect={() => set({ mode: 'demo', accounts: [], accountId: null })}>
-            <FlaskConical /> Skift til demo-konto
+          <DropdownMenuItem onSelect={() => go('settings', 'spend')}>
+            <Wallet /> Forbrugsregler
           </DropdownMenuItem>
-        )}
-        <DropdownMenuItem onSelect={() => go('settings', 'connections')}>
-          <Settings /> Forbindelser
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <DropdownMenuItem onSelect={() => go('settings', 'ai')}>
+            <Sparkles /> <span className="flex-1">AI-forbrug</span> <span className="text-[11.5px] tabular text-muted">{fmtUsd(usage.costUsd)}</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {mode === 'demo' ? (
+            <DropdownMenuItem onSelect={() => go('settings', 'connections')}>
+              <Plug /> Forbind Microsoft Advertising
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={() => set({ mode: 'demo', accounts: [], accountId: null })}>
+              <FlaskConical /> Skift til demo-konto
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {!compact && (
+        <Tooltip content="Indstillinger">
+          <button
+            type="button"
+            onClick={() => go('settings')}
+            aria-label="Indstillinger"
+            className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-line-2 hover:text-ink"
+          >
+            <Settings className="size-4" />
+          </button>
+        </Tooltip>
+      )}
+    </div>
   );
 }
 
@@ -267,6 +309,7 @@ export function Sidebar() {
   const mode = useConnection((s) => s.mode);
   const [query, setQuery] = useState('');
   const compact = collapsed;
+  const toggle = () => setAppearance({ sidebarCollapsed: !collapsed });
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -282,11 +325,27 @@ export function Sidebar() {
 
   return (
     <aside className={cn('relative z-20 flex h-full shrink-0 flex-col border-r border-line bg-surface transition-[width] duration-300', compact ? 'w-[68px]' : 'w-[260px]')}>
-      <div className={cn('flex items-center pb-4 pt-5', compact ? 'justify-center' : 'justify-between px-4')}>
-        {compact ? <LogoMark /> : <Logo />}
+      <div className={cn('flex h-14 shrink-0 items-center', compact ? 'justify-center' : 'justify-between pl-4 pr-3')}>
+        {compact ? (
+          <Tooltip content="Udvid menu" side="right">
+            <button type="button" onClick={toggle} aria-label="Udvid menu" className="group relative grid size-9 place-items-center rounded-lg hover:bg-line-2">
+              <LogoMark className="size-8 transition-opacity group-hover:opacity-0" />
+              <PanelLeftOpen className="absolute size-[18px] text-ink-2 opacity-0 transition-opacity group-hover:opacity-100" />
+            </button>
+          </Tooltip>
+        ) : (
+          <>
+            <Logo />
+            <Tooltip content="Skjul menu">
+              <Button size="icon-xs" variant="ghost" onClick={toggle} aria-label="Skjul menu">
+                <PanelLeftClose />
+              </Button>
+            </Tooltip>
+          </>
+        )}
       </div>
 
-      <div className={cn(compact ? 'px-3' : 'px-3')}>
+      <div className="px-3 pt-1">
         {compact ? (
           <Tooltip content="Ny samtale (Ctrl+N)" side="right">
             <Button variant="secondary" size="icon" className="w-full" onClick={startNew} aria-label="Ny samtale">
@@ -335,17 +394,8 @@ export function Sidebar() {
         <div className="flex-1" />
       )}
 
-      <div className={cn('grid gap-1.5 border-t border-line pb-3 pt-3', compact ? 'px-3' : 'px-3')}>
-        <AccountSwitcher compact={compact} />
-        <button
-          type="button"
-          onClick={() => setAppearance({ sidebarCollapsed: !collapsed })}
-          className={cn('flex h-8 items-center gap-2 rounded-lg text-[12px] text-muted transition-colors hover:text-brand', compact ? 'justify-center' : 'px-2')}
-          aria-label={compact ? 'Udvid menu' : 'Skjul menu'}
-        >
-          {compact ? <ChevronsRight className="size-4" /> : <ChevronsLeft className="size-4" />}
-          {!compact && 'Skjul menu'}
-        </button>
+      <div className="border-t border-line px-2 py-2">
+        <AccountMenu compact={compact} />
       </div>
     </aside>
   );
