@@ -1,5 +1,6 @@
-# Builds Bing Ads Chat for Windows on every push and publishes the latest build
-# as the pre-release "Seneste build" (tag: build-latest) with:
+# Builds Bing Ads Chat for Windows on every push. The files are uploaded as the
+# artifact "Bing-Ads-Chat-Windows" (Actions → run → Artifacts) and, when the repo
+# allows workflows to write, also published as the pre-release "Seneste build" (tag: build-latest):
 #   - Bing-Ads-Chat-Setup.exe   (installer, recommended)
 #   - Bing-Ads-Chat-portable.exe (runs without installation – needs WebView2, which Windows 10/11 has)
 #   - Bing-Ads-Chat.msi
@@ -64,7 +65,10 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # Needs "Read and write permissions" under Settings → Actions → General → Workflow permissions.
+      # Without it the files are still available as the build artifact above.
       - name: Publish "Seneste build"
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
