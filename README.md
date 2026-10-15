@@ -110,7 +110,7 @@ Opret en nøgle på [console.anthropic.com](https://console.anthropic.com/settin
 *Indstillinger → Forbindelser*. Den gemmes i **Windows Credential Manager**.
 
 ### Microsoft Advertising
-1. Hent dit **developer token** i Microsoft Advertising under *Værktøjer → Developer Portal* (kræver Super Admin).
+1. Hent dit **developer token** på ads.microsoft.com under *Indstillinger → Developer settings → Request Developer Token* (kræver Super Admin).
 2. Opret en **app-registrering** i [Microsoft Entra ID](https://portal.azure.com) → *App-registreringer → Ny registrering*
    ("Accounts in any organizational directory and personal Microsoft accounts").
 3. Under *Authentication*: tilføj platformen **Mobile and desktop applications** med redirect-URI `http://localhost`,

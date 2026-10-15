@@ -153,7 +153,7 @@ export function MicrosoftConnectForm({ compact = false, onDone }: { compact?: bo
               ? 'Indbygget i appen – udfyld kun for at bruge dit eget.'
               : c.hasDeveloperToken
                 ? 'Gemt – udfyld kun for at erstatte.'
-                : 'Findes i Microsoft Advertising under Værktøjer → Developer Portal.'
+                : 'ads.microsoft.com → Indstillinger → Developer settings → Request Developer Token.'
           }
         >
           <SecretInput id="ms-dev" value={developerToken} onChange={setDeveloperToken} placeholder={c.hasDeveloperToken ? '•••••••••••• (gemt)' : 'fx 1A2B3C4D5E6F7G8H'} />
@@ -217,7 +217,7 @@ export function MicrosoftConnectForm({ compact = false, onDone }: { compact?: bo
 export function MicrosoftSetupGuide() {
   const steps = [
     <>
-      Log ind på <b>Microsoft Advertising</b> og hent dit <b>developer token</b> under Værktøjer → Developer Portal (kræver Super Admin).
+      Log ind på <b>ads.microsoft.com</b> → <b>Indstillinger → Developer settings</b> → vælg din bruger → <b>Request Developer Token</b> (kræver Super Admin).
     </>,
     <>
       Gå til <b>portal.azure.com → Microsoft Entra ID → App-registreringer → Ny registrering</b>. Vælg “Accounts in any organizational directory and personal Microsoft accounts”.

@@ -41,7 +41,7 @@ Tilføj også disse to secrets, så appen har Microsoft Advertising-adgangen ind
 
 | Secret | Indhold |
 | --- | --- |
-| `MS_DEVELOPER_TOKEN` | Dit developer token: log ind på https://developers.ads.microsoft.com med din Microsoft Advertising-bruger (Super Admin) → **Request token** → kopiér det |
+| `MS_DEVELOPER_TOKEN` | Dit developer token: log ind på https://ads.microsoft.com (Super Admin) → **Indstillinger → Developer settings** → vælg din bruger → **Request Developer Token** → kopiér det |
 | `MS_CLIENT_ID` | *Application (client) ID* fra en app-registrering: https://entra.microsoft.com → **Applikationer → App-registreringer → Ny registrering** · navn "Bing Ads Chat" · kontotyper: *Accounts in any organizational directory and personal Microsoft accounts* · Registrér. Under **Godkendelse**: *Tilføj en platform → Mobil- og skrivebordsprogrammer* → brugerdefineret omdirigerings-URI `http://localhost` → Konfigurer, og slå **Tillad offentlige klientflows** til → Gem. Kopiér *Application (client) ID* fra Oversigt |
 
 Developer token og client ID ligger i den app, man henter, så alle med installeren kan læse dem. De giver ikke
