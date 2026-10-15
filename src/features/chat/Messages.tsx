@@ -5,6 +5,7 @@ import { MiniOrb, ShinyText } from '@/components/reactbits';
 import { VisualBlock } from '@/components/blocks/VisualBlock';
 import { EASE } from '@/components/motion';
 import { modelInfo } from '@/ai/models';
+import { BrandIcon } from '@/components/brand/BrandIcon';
 import { TERMINAL_TOOLS } from '@/ai/tools';
 import type { SuggestionItem } from '@/ai/visuals';
 import { formatBytes } from '@/lib/attachments';
@@ -203,11 +204,14 @@ export const AssistantMessage = memo(function AssistantMessage({ item, currency,
           <div className="flex items-center gap-2 text-[11.5px] text-subtle opacity-0 transition-opacity group-hover:opacity-100">
             <span>{fmtTime(item.ts)}</span>
             <span>·</span>
-            <span>{modelInfo(item.model).label}</span>
+            <span className="inline-flex items-center gap-1">
+              <BrandIcon brand={modelInfo(item.model).provider === 'google' ? 'gemini' : 'claude'} className="size-3" />
+              {modelInfo(item.model).label}
+            </span>
             {item.costUsd !== undefined && item.costUsd > 0 && (
               <>
                 <span>·</span>
-                <span title="Anslået pris for Claude API-forbruget i dette svar">≈ {fmtUsd(item.costUsd)}</span>
+                <span title="Anslået pris for AI-forbruget i dette svar">≈ {fmtUsd(item.costUsd)}</span>
               </>
             )}
             {text && <CopyButton text={text} />}

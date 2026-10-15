@@ -17,6 +17,7 @@ import { useNotifications, type NotificationTone } from '@/stores/notifications'
 
 export interface ToastOptions {
   description?: ReactNode;
+  /** Ignored – all notifications show for 1 second (kept for call-site compatibility). */
   duration?: number;
   action?: { label: string; onClick: () => void };
   /** Keep out of the history (for trivial confirmations like "Kopieret"). */
@@ -46,7 +47,7 @@ export function NotificationIcon({ tone, className }: { tone: NotificationTone; 
 function Card({ id, tone, title, opts }: { id: string | number; tone: NotificationTone; title: ReactNode; opts: ToastOptions }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
+      initial={{ opacity: 0, y: -8, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className="group pointer-events-auto flex w-[356px] items-start gap-3 rounded-2xl border border-black/[0.06] bg-white/95 p-3.5 pr-3 font-sans shadow-pop backdrop-blur-xl"
@@ -80,6 +81,8 @@ function Card({ id, tone, title, opts }: { id: string | number; tone: Notificati
   );
 }
 
+const TOAST_MS = 1000;
+
 const plain = (node: ReactNode) => (typeof node === 'string' || typeof node === 'number' ? String(node) : undefined);
 
 /** Windows notification when the user can't see the app (hidden in the tray, minimised or in another window). */
@@ -101,9 +104,8 @@ function show(tone: NotificationTone, title: ReactNode, opts: ToastOptions = {})
     useNotifications.getState().push({ title: text, description: plain(opts.description), tone });
   }
   if (text && (opts.native ?? (tone === 'error' || tone === 'update' || tone === 'warning'))) void nativeNotify(text, plain(opts.description));
-  return sonner.custom((id) => <Card id={id} tone={tone} title={title} opts={opts} />, {
-    duration: opts.duration ?? (tone === 'error' ? 9000 : opts.action ? 8000 : 4500),
-  });
+  // Short and out of the way: 1 second (hovering keeps it open); everything stays in the bell.
+  return sonner.custom((id) => <Card id={id} tone={tone} title={title} opts={opts} />, { duration: TOAST_MS });
 }
 
 type ToastFn = ((title: ReactNode, opts?: ToastOptions) => string | number) & {

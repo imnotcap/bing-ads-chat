@@ -139,7 +139,7 @@ export function App() {
             <Shell />
           </ClickSpark>
           {/* Cards are drawn by components/notifications/toast.tsx. */}
-          <Toaster position="bottom-right" offset={{ bottom: 92, right: 20 }} gap={10} toastOptions={{ unstyled: true }} />
+          <Toaster position="top-right" offset={{ top: 52, right: 16 }} gap={8} toastOptions={{ unstyled: true }} />
         </TooltipProvider>
       </MotionConfig>
     </QueryClientProvider>

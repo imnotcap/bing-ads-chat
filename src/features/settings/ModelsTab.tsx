@@ -9,17 +9,21 @@ import { CLAUDE_MODELS, allModels, type ModelInfo } from '@/ai/models';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
 import { Badge, Switch } from '@/components/ui/controls';
+import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
 import { Field, Input } from '@/components/ui/input';
 import { deleteSecret, getSecret, openExternal, setSecret } from '@/lib/platform';
 import { cn, errorMessage } from '@/lib/utils';
 import { useSettings } from '@/stores/settings';
 
-function Section({ title, description, children, action }: { title: string; description?: React.ReactNode; children: React.ReactNode; action?: React.ReactNode }) {
+function Section({ title, description, children, action, brand }: { title: string; description?: React.ReactNode; children: React.ReactNode; action?: React.ReactNode; brand?: Brand }) {
   return (
     <section className="border-b border-line py-7 first:pt-1 last:border-0">
       <div className="mb-4 flex items-start gap-4">
         <div className="min-w-0 flex-1">
-          <h3 className="text-[15px] font-semibold text-ink">{title}</h3>
+          <h3 className="flex items-center gap-2 text-[15px] font-semibold text-ink">
+            {brand && <BrandIcon brand={brand} className="size-[18px]" />}
+            {title}
+          </h3>
           {description && <p className="mt-1 text-[13px] leading-relaxed text-muted">{description}</p>}
         </div>
         {action}
@@ -54,6 +58,7 @@ function ModelRow({ m, enabled, onToggle, extra, isDefault, onDefault }: { m: Mo
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
+            <BrandIcon brand={m.provider === 'google' ? 'gemini' : 'claude'} className={cn(!enabled && 'opacity-50')} />
             <span className={cn('text-[14px] font-semibold', enabled ? 'text-ink' : 'text-muted')}>{m.label}</span>
             <code className="rounded bg-line-2 px-1.5 text-[11px] text-muted">{m.id}</code>
             {isDefault && <Badge tone="brand">Standard</Badge>}
@@ -145,6 +150,7 @@ export function ModelsTab() {
 
       <Section
         title="Gemini (Google)"
+        brand="gemini"
         description={
           <>
             Opret en API-nøgle i{' '}
@@ -234,7 +240,7 @@ export function ModelsTab() {
         </div>
       </Section>
 
-      <Section title="Claude (Anthropic)" description="Kræver en Claude API-nøgle under Forbindelser.">
+      <Section title="Claude (Anthropic)" brand="claude" description="Kræver en Claude API-nøgle under Forbindelser.">
         <div className="grid gap-2.5">
           {CLAUDE_MODELS.map((m) => (
             <ModelRow key={m.id} m={m} enabled={isEnabled(m.id)} onToggle={(v) => toggle(m.id, v)} isDefault={ai.model === m.id} onDefault={() => setAi({ model: m.id })} />

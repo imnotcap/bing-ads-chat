@@ -15,6 +15,7 @@ import { EASE, fadeUp, pageTransition, stagger } from '@/components/motion';
 import { CountUp, SpotlightCard } from '@/components/reactbits';
 import { Button } from '@/components/ui/button';
 import { Badge, Segmented } from '@/components/ui/controls';
+import { BrandIcon } from '@/components/brand/BrandIcon';
 import { Select } from '@/components/ui/overlays';
 import { computeAlerts } from '@/features/insights/alerts';
 import { startChat } from '@/features/chat/startChat';
@@ -491,7 +492,8 @@ export function DashboardPage() {
               {greeting()} 👋
             </motion.div>
             <h1 className="mt-1 text-[28px] font-semibold tracking-[-0.03em] text-ink">Performance-overblik</h1>
-            <p className="mt-1 text-[14px] text-muted">
+            <p className="mt-1 flex items-center gap-1.5 text-[14px] text-muted">
+              <BrandIcon brand="microsoft_ads" />
               {account?.name ?? 'Kontoen'} · {DATE_PRESET_LABELS[datePreset]} sammenlignet med perioden før
             </p>
           </div>

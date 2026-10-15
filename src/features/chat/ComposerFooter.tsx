@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CONNECTORS, isConnectorOn } from '@/ai/connectors';
 import { EFFORT_LABELS, PROVIDER_LABELS, availableModels, modelInfo, type Effort, type Provider } from '@/ai/models';
 import { Switch } from '@/components/ui/controls';
+import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/overlays';
 import { daysInMonth, fmtUsd, today } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -158,7 +159,7 @@ function ConnectorsMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button type="button" className={cn(trigger, 'gap-1.5')} aria-label="Connectors">
-          <Plug className="size-3.5" />
+          {isConnectorOn(connectors, 'msads_read') ? <BrandIcon brand="microsoft_ads" className="size-3.5" /> : <Plug className="size-3.5" />}
           <span>
             {on}/{usable.length}
           </span>
@@ -179,7 +180,7 @@ function ConnectorsMenu() {
               }}
               className="items-start"
             >
-              <c.icon className="mt-0.5" />
+              {c.brand ? <BrandIcon brand={c.brand} className="mt-0.5 !size-4" /> : <c.icon className="mt-0.5" />}
               <span className="grid flex-1 gap-0.5">
                 <span className={cn(checked && 'font-medium text-ink')}>{c.label}</span>
                 <span className="text-[12px] leading-snug text-muted">{supported ? c.description : 'Kun med Claude-modeller'}</span>
@@ -188,10 +189,20 @@ function ConnectorsMenu() {
             </DropdownMenuItem>
           );
         })}
+        <DropdownMenuSeparator />
+        {(['google_ads', 'meta'] as Brand[]).map((b) => (
+          <div key={b} className="flex items-center gap-2.5 px-2.5 py-2 text-[13.5px] text-muted">
+            <BrandIcon brand={b} className="opacity-60" />
+            <span className="flex-1">{b === 'google_ads' ? 'Google Ads' : 'Meta Ads'}</span>
+            <span className="rounded-full bg-line-2 px-2 py-0.5 text-[11px]">Kommer snart</span>
+          </div>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
+
+const providerBrand = (p: Provider): Brand => (p === 'google' ? 'gemini' : 'claude');
 
 export function ComposerFooter() {
   const mode = useSettings((s) => s.spend.approvalMode);
@@ -239,6 +250,7 @@ export function ComposerFooter() {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button type="button" className={trigger} aria-label="Model og indsats">
+            <BrandIcon brand={providerBrand(modelInfo(ai.model).provider)} className="size-3.5" />
             <span className="text-ink-2">{shortModel(modelInfo(ai.model).label)}</span>
             <span>{EFFORT_SHORT[ai.effort]}</span>
             <ChevronDown className="size-3" />
@@ -254,6 +266,7 @@ export function ComposerFooter() {
                 {providers > 1 && <div className="px-2.5 pb-0.5 pt-1.5 text-[11px] font-medium text-subtle">{PROVIDER_LABELS[provider]}</div>}
                 {list.map((m) => (
                   <DropdownMenuItem key={m.id} onSelect={() => setAi({ model: m.id })} className="items-start">
+                    <BrandIcon brand={providerBrand(m.provider)} className="mt-0.5 !size-4" />
                     <span className="grid flex-1 gap-0.5">
                       <span className={cn(m.id === ai.model && 'font-medium text-ink')}>{shortModel(m.label)}</span>
                       {m.description && <span className="line-clamp-2 text-[12px] leading-snug text-muted">{m.description}</span>}

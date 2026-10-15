@@ -5,6 +5,7 @@
  * so it can say what to switch on.
  */
 import { BarChart3, Globe, PenLine, Search, Terminal, type LucideIcon } from 'lucide-react';
+import type { Brand } from '@/components/brand/BrandIcon';
 import type { AnyTool } from './tools/context';
 import { ALL_TOOLS } from './tools';
 
@@ -15,15 +16,17 @@ export interface Connector {
   label: string;
   description: string;
   icon: LucideIcon;
+  /** Platform logo shown instead of the icon. */
+  brand?: Brand;
   defaultOn: boolean;
   /** Only some AI providers can do it (web search is a Claude server tool). */
   providers?: ('anthropic' | 'google')[];
 }
 
 export const CONNECTORS: Connector[] = [
-  { id: 'msads_read', label: 'Microsoft Advertising · data', description: 'Kampagner, søgeord, rapporter og forbrug', icon: Search, defaultOn: true },
-  { id: 'msads_write', label: 'Microsoft Advertising · ændringer', description: 'Budgetter, bud, søgeord, annoncer – efter dine forbrugsregler', icon: PenLine, defaultOn: true },
-  { id: 'msads_api', label: 'Avanceret API-adgang', description: 'Direkte kald til Microsoft Advertising REST API (kræver altid godkendelse)', icon: Terminal, defaultOn: true },
+  { id: 'msads_read', label: 'Microsoft Advertising · data', description: 'Kampagner, søgeord, rapporter og forbrug', icon: Search, brand: 'microsoft_ads', defaultOn: true },
+  { id: 'msads_write', label: 'Microsoft Advertising · ændringer', description: 'Budgetter, bud, søgeord, annoncer – efter dine forbrugsregler', icon: PenLine, brand: 'microsoft_ads', defaultOn: true },
+  { id: 'msads_api', label: 'Avanceret API-adgang', description: 'Direkte kald til Microsoft Advertising REST API (kræver altid godkendelse)', icon: Terminal, brand: 'microsoft_ads', defaultOn: true },
   { id: 'visuals', label: 'Grafer og tabeller', description: 'Nøgletal, grafer og tabeller i svarene', icon: BarChart3, defaultOn: true },
   { id: 'web', label: 'Websøgning', description: 'Søg på nettet, fx konkurrenter og trends (koster ekstra pr. søgning)', icon: Globe, defaultOn: false, providers: ['anthropic'] },
 ];
