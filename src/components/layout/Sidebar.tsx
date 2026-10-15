@@ -4,6 +4,7 @@ import {
   Building2,
   Check,
   FlaskConical,
+  LayoutDashboard,
   LayoutGrid,
   MessageSquare,
   MoreHorizontal,
@@ -33,6 +34,7 @@ import { toast } from '@/components/notifications/toast';
 
 const NAV: { view: View; label: string; icon: LucideIcon }[] = [
   { view: 'chat', label: 'Chat', icon: MessageSquare },
+  { view: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { view: 'campaigns', label: 'Kampagner', icon: LayoutGrid },
   { view: 'activity', label: 'Aktivitet', icon: Activity },
 ];

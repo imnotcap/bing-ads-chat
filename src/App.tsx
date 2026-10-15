@@ -10,6 +10,7 @@ import { EASE } from '@/components/motion';
 import { TooltipProvider } from '@/components/ui/overlays';
 import { ActivityPage } from '@/features/activity/ActivityPage';
 import { CampaignsPage } from '@/features/campaigns/CampaignsPage';
+import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { ChatView } from '@/features/chat/ChatView';
 import { InsightsPanel } from '@/features/insights/InsightsPanel';
 import { Onboarding } from '@/features/onboarding/Onboarding';
@@ -112,6 +113,7 @@ function Shell() {
                   <InsightsPanel open={insights} />
                 </div>
               )}
+              {view === 'dashboard' && <DashboardPage key="dashboard" />}
               {view === 'campaigns' && <CampaignsPage key="campaigns" />}
               {view === 'activity' && <ActivityPage key="activity" />}
             </AnimatePresence>

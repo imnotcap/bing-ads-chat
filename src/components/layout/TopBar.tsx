@@ -4,8 +4,11 @@
  * controls. Empty areas are drag regions for moving the window.
  */
 import { getVersion } from '@tauri-apps/api/app';
+import { motion } from 'motion/react';
 import {
   ArrowDownToLine,
+  LayoutDashboard,
+  MessageSquare,
   ClipboardCopy,
   EllipsisVertical,
   FileText,
@@ -54,7 +57,7 @@ import { LogoMark } from './Logo';
 import { UpdateButton } from './UpdatePrompt';
 import { NotificationBell } from '../notifications/NotificationBell';
 
-const PAGE_TITLES = { campaigns: 'Kampagner', activity: 'Aktivitet' } as const;
+const PAGE_TITLES = { dashboard: 'Dashboard', campaigns: 'Kampagner', activity: 'Aktivitet' } as const;
 
 function IconButton({ label, onClick, disabled, children, shortcut }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode; shortcut?: string }) {
   return (
@@ -405,6 +408,35 @@ function ConversationActions() {
   );
 }
 
+/** Chat ↔ Dashboard switch in the middle of the top bar. */
+function ModeSwitch() {
+  const view = useUi((s) => s.view);
+  const go = useUi((s) => s.go);
+  const options = [
+    { value: 'chat' as const, label: 'Chat', icon: MessageSquare },
+    { value: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
+  ];
+  const active = view === 'dashboard' ? 'dashboard' : view === 'chat' ? 'chat' : null;
+  return (
+    <div className="flex h-8 items-center rounded-[10px] bg-line-2 p-0.5" role="tablist" aria-label="Visning">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="tab"
+          aria-selected={active === o.value}
+          onClick={() => go(o.value)}
+          className={cn('relative flex h-7 items-center gap-1.5 rounded-lg px-3 text-[12.5px] font-medium transition-colors', active === o.value ? 'text-ink' : 'text-muted hover:text-ink')}
+        >
+          {active === o.value && <motion.span layoutId="mode-switch" className="absolute inset-0 rounded-lg bg-white shadow-sm" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
+          <o.icon className="relative size-3.5" />
+          <span className="relative">{o.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function TopBar() {
   const view = useUi((s) => s.view);
   const canBack = useUi((s) => s.historyIndex > 0);
@@ -442,6 +474,8 @@ export function TopBar() {
         )}
       </div>
 
+      <div data-tauri-drag-region className="h-full min-w-6 flex-1" />
+      <ModeSwitch />
       <div data-tauri-drag-region className="h-full min-w-6 flex-1" />
 
       <UpdateButton />
