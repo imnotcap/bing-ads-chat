@@ -1,6 +1,7 @@
 mod exports;
 mod oauth;
 mod secrets;
+mod updater;
 
 use tauri::Manager;
 
@@ -40,6 +41,7 @@ pub fn run() {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_decorations(false);
             }
+            updater::init(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -49,6 +51,9 @@ pub fn run() {
             secrets::secret_set,
             secrets::secret_delete,
             oauth::oauth_listen,
+            updater::check_for_update,
+            updater::install_update,
+            updater::open_download_page,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Bing Ads Chat");

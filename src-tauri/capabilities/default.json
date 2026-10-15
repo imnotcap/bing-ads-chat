@@ -20,6 +20,9 @@
     "allow-oauth-listen",
     "allow-export-save",
     "allow-export-open-folder",
+    "allow-check-for-update",
+    "allow-install-update",
+    "allow-open-download-page",
     "opener:default",
     {
       "identifier": "http:default",

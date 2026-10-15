@@ -1,0 +1,4 @@
+{
+  "$comment": "Public release settings (no secrets). The Cloudflare account and its workers.dev address are found from the CLOUDFLARE_API_TOKEN secret at build time (scripts/resolve-site.mjs) – nothing account-specific lives in the repo. See docs/RELEASE.md.",
+  "workerName": "bing-ads-chat"
+}

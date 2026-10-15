@@ -11,15 +11,20 @@ et sammenfoldeligt **indsigtsvindue** i højre side.
 
 ## Hent appen (Windows)
 
-Hvert push bygges automatisk af GitHub Actions på en Windows-maskine. Den nyeste build ligger under
-[Releases → "Seneste build"](https://github.com/imnotcap/bing-ads-chat/releases/tag/build-latest):
+**Download-side på Cloudflare:** `https://bing-ads-chat.<din-konto>.workers.dev` → **Bing-Ads-Chat-Setup.exe**
+(den præcise adresse står i GitHub Actions-loggen og under *Indstillinger → Om appen → Åbn download-siden*).
 
-- **Bing-Ads-Chat-Setup.exe** – installerer appen med startmenu-genvej (anbefalet).
-- **Bing-Ads-Chat-portable.exe** – kører direkte uden installation.
-- **Bing-Ads-Chat.msi** – til udrulning.
+Du installerer kun én gang. Derefter **opdaterer appen sig selv**: når en ny version er udgivet, viser
+appen "Bing Ads Chat X er klar" → **Opdatér nu**. Den henter den signerede opdatering fra Cloudflare,
+installerer og genstarter. Samtaler, indstillinger og nøgler bevares. Det fungerer som i Inventarland,
+men på din egen Cloudflare-konto: hver ændring på hovedgrenen bygges og udgives automatisk af GitHub
+Actions. Engangsopsætning (to GitHub-secrets): se [docs/RELEASE.md](docs/RELEASE.md).
 
-Appen er ikke kodesigneret endnu, så Windows SmartScreen kan vise "Windows beskyttede din pc" →
-klik **Flere oplysninger → Kør alligevel**.
+Appen er ikke kodesigneret, så Windows SmartScreen kan vise "Windows beskyttede din pc" ved første
+installation → klik **Flere oplysninger → Kør alligevel**.
+
+Hvert build ligger også som backup under
+[Releases → "Seneste build"](https://github.com/imnotcap/bing-ads-chat/releases/tag/build-latest).
 
 ![Chat](docs/chat.png)
 

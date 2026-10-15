@@ -1,0 +1,11 @@
+{
+  // Static Worker for Bing Ads Chat (Cloudflare Workers Free):
+  //   /                         download page (finds the latest version in /version.json)
+  //   /Bing-Ads-Chat-Setup.exe  latest Windows installer
+  //   /updates/latest.json      signed update feed the app checks (tauri-plugin-updater)
+  // Deployed by GitHub Actions (.github/workflows/build-windows.yml → scripts/publish.mjs).
+  "name": "bing-ads-chat",
+  "compatibility_date": "2025-09-01",
+  "workers_dev": true,
+  "assets": { "directory": "./public", "not_found_handling": "404-page" }
+}

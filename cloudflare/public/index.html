@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Hent Bing Ads Chat</title>
+    <link rel="icon" href="/favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Funnel+Sans:wght@300..800&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --brand: #6d5cf6;
+        --brand-600: #5a48e8;
+        --brand-50: #f4f2ff;
+        --ink: #121216;
+        --ink-2: #3a3a42;
+        --muted: #6e6e78;
+        --line: #ebebf0;
+        --canvas: #f6f6f8;
+        --surface: #ffffff;
+        --positive: #16a34a;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        min-height: 100vh;
+        font-family: 'Funnel Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        color: var(--ink);
+        background: radial-gradient(ellipse at top right, rgb(109 92 246 / 0.12), transparent 55%), var(--canvas);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 32px 16px;
+      }
+      main {
+        width: min(620px, 100%);
+        background: var(--surface);
+        border: 1px solid rgb(0 0 0 / 0.05);
+        border-radius: 24px;
+        box-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 18px 48px -20px rgb(16 24 40 / 0.18);
+        padding: 44px clamp(24px, 6vw, 52px);
+      }
+      .brand { display: flex; align-items: center; gap: 14px; }
+      .brand img { width: 52px; height: 52px; border-radius: 14px; }
+      .brand span { font-weight: 650; font-size: 18px; letter-spacing: -0.01em; }
+      h1 { font-size: clamp(26px, 5vw, 34px); font-weight: 600; letter-spacing: -0.025em; margin: 30px 0 8px; }
+      .lead { color: var(--muted); font-size: 16px; line-height: 1.55; margin: 0; }
+      .version { display: inline-flex; gap: 8px; align-items: center; margin-top: 18px; font-size: 13px; color: var(--ink-2);
+        background: var(--canvas); border-radius: 999px; padding: 6px 12px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--positive); }
+      .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 30px; }
+      .btn { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 600; font-size: 16px;
+        background: var(--ink); color: #fff; padding: 15px 24px; border-radius: 14px; transition: background 0.15s, transform 0.15s; }
+      .btn:hover { background: #2a2a31; }
+      .btn:active { transform: translateY(1px); }
+      .btn svg { width: 20px; height: 20px; }
+      ol { margin: 34px 0 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 14px; }
+      ol li { counter-increment: step; display: grid; grid-template-columns: 30px 1fr; gap: 12px; font-size: 15px; line-height: 1.5; color: var(--ink-2); }
+      ol li::before { content: counter(step); width: 30px; height: 30px; border-radius: 50%; background: var(--brand-50); color: var(--brand);
+        font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+      ol b { color: var(--ink); }
+      .note { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 18px; font-size: 13px; color: var(--muted); line-height: 1.6; }
+      .notes { margin-top: 10px; white-space: pre-line; display: block; }
+      .notice { margin: 22px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--brand-50); color: var(--brand-600); font-size: 14px; line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand"><img src="/logo.png" alt="" /><span>Bing Ads Chat</span></div>
+      <h1>Bing Ads Chat til Windows</h1>
+      <p class="lead">Chat med en AI-assistent, der analyserer og styrer din Microsoft Advertising-konto – med forbrugsregler og godkendelse af alle ændringer.</p>
+      <span class="version" id="version" hidden><span class="dot"></span><span id="version-text"></span></span>
+
+      <div class="actions">
+        <a class="btn" href="/Bing-Ads-Chat-Setup.exe" download>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
+          </svg>
+          Hent til Windows
+        </a>
+      </div>
+      <p class="notice" id="notice" hidden>Bing Ads Chat er en computer-app til Windows. Åbn denne side på din pc for at installere den.</p>
+
+      <ol>
+        <li><span>Åbn den hentede fil <b>Bing-Ads-Chat-Setup.exe</b>. Der kræves ikke administratorrettigheder.</span></li>
+        <li><span>Hvis Windows viser <b>"Windows beskyttede din pc"</b>, så klik <b>Flere oplysninger</b> → <b>Kør alligevel</b>.</span></li>
+        <li><span>Start Bing Ads Chat fra Start-menuen. Har du en ældre version, installeres den nye ovenpå – samtaler og nøgler bevares.</span></li>
+        <li><span>Herefter opdaterer appen sig selv – du får besked i appen, når en ny version er klar.</span></li>
+      </ol>
+
+      <p class="note">
+        Kræver Windows 10 eller 11 (64-bit). Microsoft Edge WebView2 installeres automatisk, hvis den mangler.
+        <span class="notes" id="release-notes"></span>
+      </p>
+    </main>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const ua = navigator.userAgent;
+      if (!/Windows/.test(ua)) $("notice").hidden = false;
+      fetch("/version.json", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((info) => {
+          if (!info) return;
+          const date = new Date(info.date).toLocaleDateString("da-DK", { day: "numeric", month: "long", year: "numeric" });
+          $("version-text").textContent = "Version " + info.version + " · " + date + (info.sizeMb ? " · " + info.sizeMb + " MB" : "");
+          $("version").hidden = false;
+          if (info.notes) $("release-notes").textContent = "Nyt i " + info.version + ": " + info.notes;
+        })
+        .catch(() => {});
+    </script>
+  </body>
+</html>

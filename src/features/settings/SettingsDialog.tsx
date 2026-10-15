@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Bot, Building2, Database, Download, OctagonPause, Palette, Plug, Search, ShieldCheck, Wallet, X, type LucideIcon } from 'lucide-react';
+import { Bot, Building2, Database, Download, ExternalLink, Info, Loader2, OctagonPause, Palette, Plug, Search, ShieldCheck, Wallet, X, type LucideIcon } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { getVersion } from '@tauri-apps/api/app';
 import { toast } from 'sonner';
 import { EFFORT_LABELS, MODELS, modelInfo, type Effort } from '@/ai/models';
 import { getBackend } from '@/bing/backend';
@@ -15,7 +16,11 @@ import { Field, Input, NumberInput, Textarea } from '@/components/ui/input';
 import { Dialog } from '@/components/ui/overlays';
 import { useCampaigns, useSelectedRange } from '@/hooks/useAdsData';
 import { fmtMoney, fmtNumber, fmtUsd, monthKey } from '@/lib/format';
+import { isTauri } from '@/lib/platform';
 import { queryClient } from '@/lib/queryClient';
+import { checkForUpdate, openDownloadPage } from '@/lib/updater';
+import { offerUpdate } from '@/hooks/useAutoUpdate';
+import { useUpdate } from '@/stores/update';
 import { cn, errorMessage } from '@/lib/utils';
 import { useActivity } from '@/stores/activity';
 import { useChat } from '@/stores/chat';
@@ -42,6 +47,7 @@ const TABS: TabDef[] = [
   { id: 'ai', label: 'AI-assistent', icon: Bot, group: 'Assistent', keywords: 'model opus sonnet haiku fable effort tænkning forbrug pris tokens cache' },
   { id: 'appearance', label: 'Udseende', icon: Palette, group: 'App', keywords: 'animationer gnister indsigt sidebar tema' },
   { id: 'data', label: 'Data', icon: Database, group: 'App', keywords: 'eksport nulstil slet samtaler demo' },
+  { id: 'about', label: 'Om appen', icon: Info, group: 'App', keywords: 'version opdatering opdateringer download cloudflare installer' },
 ];
 
 function Card({ title, description, children, className, action }: { title: string; description?: React.ReactNode; children: React.ReactNode; className?: string; action?: React.ReactNode }) {
@@ -487,6 +493,49 @@ function AppearanceTab() {
   );
 }
 
+/* ---------------------------------- Om appen ---------------------------------- */
+
+function AboutTab() {
+  const [version, setVersion] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const available = useUpdate((s) => s.available);
+  useEffect(() => {
+    if (isTauri) void getVersion().then(setVersion).catch(() => undefined);
+  }, []);
+  const check = async () => {
+    setChecking(true);
+    try {
+      const info = await checkForUpdate();
+      if (!info.configured) toast('Automatiske opdateringer er ikke slået til i denne version.', { description: 'Installér den nyeste version fra download-siden én gang – derefter opdaterer appen sig selv.' });
+      // offerUpdate only opens the dialog for a new version – reopen it on an explicit check.
+      else if (offerUpdate(info)) useUpdate.getState().openPrompt();
+      else toast.success(`Du har den nyeste version (${info.currentVersion}).`);
+    } catch (e) {
+      toast.error('Kunne ikke søge efter opdateringer', { description: errorMessage(e) });
+    } finally {
+      setChecking(false);
+    }
+  };
+  return (
+    <Card title="Om appen" description="Appen opdaterer sig selv: den tjekker for nye versioner ved start og hver halve time, og du installerer dem med ét klik.">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <div className="text-[14px] font-medium text-ink">Bing Ads Chat {version ?? (isTauri ? '' : '(browser)')}</div>
+          <div className="text-[12.5px] text-muted">{available ? `Version ${available.version} er klar til at blive installeret.` : 'Opdateringer hentes signeret fra Cloudflare.'}</div>
+        </div>
+        <Button variant="secondary" disabled={!isTauri || checking} onClick={() => void check()}>
+          {checking ? <Loader2 className="animate-spin" /> : <Download />} {checking ? 'Søger …' : 'Søg efter opdateringer'}
+        </Button>
+      </div>
+      <div className="mt-4">
+        <Button variant="ghost" disabled={!isTauri} onClick={() => void openDownloadPage().catch((e) => toast.error(errorMessage(e)))}>
+          <ExternalLink /> Åbn download-siden
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 /* ------------------------------------ Data ------------------------------------ */
 
 function DataTab() {
@@ -595,6 +644,8 @@ function TabContent({ id }: { id: SettingsTab }) {
       return <AppearanceTab />;
     case 'data':
       return <DataTab />;
+    case 'about':
+      return <AboutTab />;
   }
 }
 

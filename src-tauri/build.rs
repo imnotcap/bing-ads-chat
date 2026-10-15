@@ -10,6 +10,9 @@ fn main() {
             "oauth_listen",
             "export_save",
             "export_open_folder",
+            "check_for_update",
+            "install_update",
+            "open_download_page",
         ]),
     ))
     .expect("failed to run tauri-build");

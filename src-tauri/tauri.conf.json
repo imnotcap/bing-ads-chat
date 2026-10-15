@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Bing Ads Chat",
   "mainBinaryName": "BingAdsChat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "dk.bingadschat.app",
   "build": {
     "beforeDevCommand": "pnpm dev",

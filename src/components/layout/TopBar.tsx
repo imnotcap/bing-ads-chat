@@ -51,6 +51,7 @@ import { Badge } from '../ui/controls';
 import { Button } from '../ui/button';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '../ui/overlays';
 import { LogoMark } from './Logo';
+import { UpdateButton } from './UpdatePrompt';
 
 const PAGE_TITLES = { campaigns: 'Kampagner', activity: 'Aktivitet' } as const;
 
@@ -436,6 +437,7 @@ export function TopBar() {
 
       <div data-tauri-drag-region className="h-full min-w-6 flex-1" />
 
+      <UpdateButton />
       {view === 'chat' && <ConversationActions />}
       {isTauri ? (
         <>

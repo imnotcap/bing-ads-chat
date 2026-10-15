@@ -14,6 +14,8 @@ import { ChatView } from '@/features/chat/ChatView';
 import { InsightsPanel } from '@/features/insights/InsightsPanel';
 import { Onboarding } from '@/features/onboarding/Onboarding';
 import { SettingsDialog } from '@/features/settings/SettingsDialog';
+import { UpdateDialog } from '@/components/layout/UpdatePrompt';
+import { useAutoUpdate } from '@/hooks/useAutoUpdate';
 import { useBootstrap } from '@/hooks/useBootstrap';
 import { useBudgetWatch } from '@/hooks/useBudgetWatch';
 import { navigate, useNavigationHistory } from '@/hooks/useNavigationHistory';
@@ -65,6 +67,7 @@ function Shell() {
   useBudgetWatch();
   useShortcuts();
   useEffect(ensureFrameless, []);
+  useAutoUpdate();
   useNavigationHistory();
 
   return (
@@ -113,6 +116,7 @@ function Shell() {
         </main>
       </div>
       <SettingsDialog />
+      <UpdateDialog />
       <AnimatePresence>{!onboarded && <Onboarding key="onboarding" />}</AnimatePresence>
     </div>
   );
