@@ -11,8 +11,7 @@ et sammenfoldeligt **indsigtsvindue** i højre side.
 
 ## Hent appen (Windows)
 
-**Download-side på Cloudflare:** `https://bing-ads-chat.<din-konto>.workers.dev` → **Bing-Ads-Chat-Setup.exe**
-(den præcise adresse står i GitHub Actions-loggen og under *Indstillinger → Om appen → Åbn download-siden*).
+**Download-side på Cloudflare:** https://bing-ads-chat.casperjohansen.workers.dev → **Bing-Ads-Chat-Setup.exe**.
 
 Du installerer kun én gang. Derefter **opdaterer appen sig selv**: når en ny version er udgivet, viser
 appen "Bing Ads Chat X er klar" → **Opdatér nu**. Den henter den signerede opdatering fra Cloudflare,

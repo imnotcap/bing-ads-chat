@@ -5,8 +5,8 @@ fra Cloudflare, så ingen skal hente en ny exe-fil efter den første installatio
 
 | Del | Adresse |
 | --- | --- |
-| Download-side | `https://bing-ads-chat.<din-konto>.workers.dev` – står i Actions-loggen under **Find the Cloudflare address** |
-| Opdateringsfeed (signeret) | samme adresse + `/updates/latest.json` |
+| Download-side | https://bing-ads-chat.casperjohansen.workers.dev (findes automatisk ud fra API-tokenet – står også i Actions-loggen under **Find the Cloudflare address**) |
+| Opdateringsfeed (signeret) | https://bing-ads-chat.casperjohansen.workers.dev/updates/latest.json |
 | Kildekode + byggeri | https://github.com/imnotcap/bing-ads-chat (GitHub Actions bygger Windows) |
 
 * Cloudflare: **din egen konto** (Workers Free – ikke Inventarlands) · Worker `bing-ads-chat` (kun statiske filer, ingen database).

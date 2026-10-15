@@ -154,10 +154,14 @@ jobs:
           name: release-bundle
           path: release
 
+      # Separate steps: the address exported to GITHUB_ENV is only visible in later steps.
+      - name: Find the Cloudflare address
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/resolve-site.mjs
+
       - name: Publish update feed + download page
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           RELEASE_NOTES: ${{ github.event.head_commit.message }}
-        run: |
-          node scripts/resolve-site.mjs
-          node scripts/publish.mjs release
+        run: node scripts/publish.mjs release
