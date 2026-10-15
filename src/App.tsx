@@ -17,6 +17,7 @@ import { SettingsDialog } from '@/features/settings/SettingsDialog';
 import { UpdateDialog } from '@/components/layout/UpdatePrompt';
 import { SignInDialog } from '@/features/settings/SignInDialog';
 import { useAutoUpdate } from '@/hooks/useAutoUpdate';
+import { useDesktopShell } from '@/hooks/useDesktopShell';
 import { useBootstrap } from '@/hooks/useBootstrap';
 import { useBudgetWatch } from '@/hooks/useBudgetWatch';
 import { navigate, useNavigationHistory } from '@/hooks/useNavigationHistory';
@@ -69,6 +70,7 @@ function Shell() {
   useShortcuts();
   useEffect(ensureFrameless, []);
   useAutoUpdate();
+  useDesktopShell();
   useNavigationHistory();
 
   return (
@@ -134,16 +136,8 @@ export function App() {
           <ClickSpark enabled={clickSpark && animations !== 'reduced'}>
             <Shell />
           </ClickSpark>
-          <Toaster
-            position="bottom-right"
-            toastOptions={{
-              classNames: {
-                toast: '!rounded-2xl !border-black/[0.06] !shadow-pop !font-sans',
-                title: '!text-[13.5px] !font-semibold',
-                description: '!text-[12.5px]',
-              },
-            }}
-          />
+          {/* Cards are drawn by components/notifications/toast.tsx. */}
+          <Toaster position="bottom-right" offset={{ bottom: 92, right: 20 }} gap={10} toastOptions={{ unstyled: true }} />
         </TooltipProvider>
       </MotionConfig>
     </QueryClientProvider>

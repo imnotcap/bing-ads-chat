@@ -9,6 +9,7 @@ const ALLOWED: &[&str] = &[
     "ms_refresh_token",
     "ms_developer_token",
     "ms_client_secret",
+    "google_api_key",
 ];
 
 fn entry(name: &str) -> Result<keyring::Entry, String> {

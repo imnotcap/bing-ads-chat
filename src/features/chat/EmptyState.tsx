@@ -53,7 +53,7 @@ export function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
             bleed={3}
             wobble={3}
             highlight={1.9}
-            speed={2.35}
+            speed={0.7}
             forceHoverState
           />
         </div>

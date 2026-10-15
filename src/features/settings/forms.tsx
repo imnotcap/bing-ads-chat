@@ -2,7 +2,7 @@
 import { motion } from 'motion/react';
 import { CheckCircle2, ExternalLink, Eye, EyeOff, Hand, KeyRound, Loader2, LogIn, LogOut, Rocket, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
-import { toast } from 'sonner';
+import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/controls';
 import { Field, Input } from '@/components/ui/input';

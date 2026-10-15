@@ -1,10 +1,10 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Bot, Building2, Database, Download, ExternalLink, Info, Loader2, OctagonPause, Palette, Plug, Search, ShieldCheck, Wallet, X, type LucideIcon } from 'lucide-react';
+import { Bot, Building2, Cpu, Database, Download, ExternalLink, Info, Loader2, OctagonPause, Palette, Plug, Search, ShieldCheck, Wallet, X, type LucideIcon } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
-import { toast } from 'sonner';
-import { EFFORT_LABELS, MODELS, modelInfo, type Effort } from '@/ai/models';
+import { toast } from '@/components/notifications/toast';
+import { EFFORT_LABELS, modelInfo, type Effort } from '@/ai/models';
 import { getBackend } from '@/bing/backend';
 import { DemoBackend } from '@/bing/demo/backend';
 import { invalidateSpendCache } from '@/bing/spend';
@@ -29,6 +29,7 @@ import { DEFAULT_SPEND_RULES, useSettings } from '@/stores/settings';
 import { useUi, type SettingsTab } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
 import { switchToDemo } from './connection';
+import { ModelsTab } from './ModelsTab';
 import { ApprovalModePicker, ClaudeKeyForm, MicrosoftConnectForm, MicrosoftSetupGuide } from './forms';
 
 interface TabDef {
@@ -45,6 +46,7 @@ const TABS: TabDef[] = [
   { id: 'business', label: 'Virksomhed', icon: Building2, group: 'Konto', keywords: 'profil mål cpa roas dækningsgrad tone of voice instruktioner website' },
   { id: 'spend', label: 'Forbrug', icon: Wallet, group: 'Assistent', keywords: 'budget månedsbudget grænser godkendelse autopilot nødstop beskyttede kampagner cpc bud budgetvagt' },
   { id: 'ai', label: 'AI-assistent', icon: Bot, group: 'Assistent', keywords: 'model opus sonnet haiku fable effort tænkning forbrug pris tokens cache' },
+  { id: 'models', label: 'AI-modeller', icon: Cpu, group: 'Assistent', keywords: 'gemini google claude modeller admin administrator tillad pris flash haiku api-nøgle' },
   { id: 'appearance', label: 'Udseende', icon: Palette, group: 'App', keywords: 'animationer gnister indsigt sidebar tema' },
   { id: 'data', label: 'Data', icon: Database, group: 'App', keywords: 'eksport nulstil slet samtaler demo' },
   { id: 'about', label: 'Om appen', icon: Info, group: 'App', keywords: 'version opdatering opdateringer download cloudflare installer' },
@@ -296,31 +298,12 @@ function AiTab() {
 
   return (
     <div className="grid gap-5">
-      <Card title="Model" description="Du kan også skifte model direkte i chatfeltet.">
-        <div className="grid gap-2.5 md:grid-cols-2">
-          {MODELS.map((m) => {
-            const active = m.id === ai.model;
-            return (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => setAi({ model: m.id })}
-                className={cn(
-                  'flex flex-col rounded-2xl border p-4 text-left transition-[border-color,box-shadow]',
-                  active ? 'border-brand/40 bg-brand-50/50 shadow-[0_0_0_4px_rgb(109_92_246/0.08)]' : 'border-line hover:border-black/10',
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-[14px] font-semibold text-ink">{m.label}</span>
-                  {m.id === 'claude-opus-5-5' && <Badge tone="brand">Anbefalet</Badge>}
-                </div>
-                <div className="mt-1 text-[12.5px] leading-relaxed text-muted">{m.description}</div>
-                <div className="mt-2 text-[11.5px] text-subtle">
-                  ${m.input} / ${m.output} pr. mio. tokens (input / output)
-                </div>
-              </button>
-            );
-          })}
+      <Card title="Model" description="Vælges i chatfeltet. Hvilke modeller der kan vælges, styres under AI-modeller.">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-[14px] font-semibold text-ink">{modelInfo(ai.model).label}</span>
+          <Button size="sm" variant="secondary" onClick={() => useUi.getState().go('settings', 'models')}>
+            Administrér modeller
+          </Button>
         </div>
       </Card>
 
@@ -339,7 +322,7 @@ function AiTab() {
         </div>
       </Card>
 
-      <Card title="AI-forbrug" description="Anslået ud fra Anthropics listepriser. Den faktiske regning ses i Anthropic Console.">
+      <Card title="AI-forbrug" description="Anslået ud fra listepriserne (Claude) og de priser, du har angivet for Gemini. Den faktiske regning ses hos Anthropic og Google.">
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl bg-line-2/60 p-4">
             <div className="text-[12px] text-muted">Denne måned</div>
@@ -485,6 +468,12 @@ function AppearanceTab() {
         />
       </Field>
       <div className="mt-3">
+        <SwitchRow
+          label="Bliv i baggrunden, når vinduet lukkes"
+          description="Appen kører videre ved uret (systembakken) og åbner med det samme igen. Afslut helt via menuen ≡ → Afslut eller højreklik på ikonet."
+          checked={a.closeToTray}
+          onCheckedChange={(closeToTray) => set({ closeToTray })}
+        />
         <SwitchRow label="Klik-gnister" description="Små gnister ved hvert klik." checked={a.clickSpark} onCheckedChange={(clickSpark) => set({ clickSpark })} />
         <SwitchRow label="Vis indsigtsvindue ved chatten" description="Nøgletal, budget og opmærksomhedspunkter i højre side. Kan også foldes sammen direkte i chatten." checked={a.insightsPanel} onCheckedChange={(insightsPanel) => set({ insightsPanel })} />
         <SwitchRow label="Skjul sidebar" checked={a.sidebarCollapsed} onCheckedChange={(sidebarCollapsed) => set({ sidebarCollapsed })} />
@@ -646,6 +635,8 @@ function TabContent({ id }: { id: SettingsTab }) {
       return <DataTab />;
     case 'about':
       return <AboutTab />;
+    case 'models':
+      return <ModelsTab />;
   }
 }
 

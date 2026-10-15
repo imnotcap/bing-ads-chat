@@ -83,3 +83,54 @@ mod tests {
         assert_eq!(query_from_request_line("GET /favicon.ico HTTP/1.1"), None);
     }
 }
+
+/// Percent-encodes a form value (`application/x-www-form-urlencoded`).
+fn form_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Exchanges an authorization code or refresh token at the Microsoft token endpoint.
+///
+/// Done here instead of with the HTTP plugin: the plugin always adds the webview's
+/// `Origin` header, and Microsoft then treats the request as a browser (SPA) token
+/// redemption and rejects it for a desktop app registration (AADSTS90023).
+/// Returns the HTTP status and the raw JSON body.
+#[tauri::command]
+pub async fn oauth_token(tenant: String, form: Vec<(String, String)>) -> Result<(u16, String), String> {
+    let tenant: String = tenant.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '.').collect();
+    let tenant = if tenant.is_empty() { "common".to_string() } else { tenant };
+    let body = form
+        .iter()
+        .map(|(k, v)| format!("{}={}", form_encode(k), form_encode(v)))
+        .collect::<Vec<_>>()
+        .join("&");
+    let res = tauri_plugin_http::reqwest::Client::new()
+        .post(format!("https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"))
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| format!("Microsoft kunne ikke kontaktes: {e}"))?;
+    let status = res.status().as_u16();
+    let text = res.text().await.map_err(|e| e.to_string())?;
+    Ok((status, text))
+}
+
+#[cfg(test)]
+mod form_tests {
+    use super::form_encode;
+
+    #[test]
+    fn encodes_like_url_search_params() {
+        assert_eq!(form_encode("https://ads.microsoft.com/msads.manage offline_access"), "https%3A%2F%2Fads.microsoft.com%2Fmsads.manage+offline_access");
+        assert_eq!(form_encode("a-b_c.d~e"), "a-b_c.d~e");
+    }
+}

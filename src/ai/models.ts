@@ -1,24 +1,33 @@
-/** Claude models offered in the app, with list prices (USD per million tokens). */
+/**
+ * AI models offered in the app. Claude models are built in; Gemini models are
+ * added by the admin under Indstillinger → AI-modeller (fetched from the Gemini
+ * API with the admin's key). The admin also decides which models users can pick.
+ * Prices are list prices in USD per million tokens (editable for Gemini).
+ */
+import { useSettings } from '@/stores/settings';
 
-export type ModelId = 'claude-opus-5-5' | 'claude-sonnet-5-5' | 'claude-haiku-5-5' | 'claude-fable-5-1';
+export type Provider = 'anthropic' | 'google';
+export type ModelId = string;
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface ModelInfo {
   id: ModelId;
+  provider: Provider;
   label: string;
   description: string;
   input: number;
   output: number;
   cacheRead: number;
-  /** 5-minute cache writes cost 1.25× input. */
+  /** 5-minute cache writes cost 1.25× input (Claude). */
   cacheWrite: number;
 }
 
-export const MODELS: ModelInfo[] = [
+export const CLAUDE_MODELS: ModelInfo[] = [
   {
     id: 'claude-opus-5-5',
+    provider: 'anthropic',
     label: 'Claude Opus 5.5',
-    description: 'Anbefalet – stærk analyse og pålidelig brug af værktøjer.',
+    description: 'Stærk analyse og pålidelig brug af værktøjer.',
     input: 4,
     output: 20,
     cacheRead: 0.2,
@@ -26,6 +35,7 @@ export const MODELS: ModelInfo[] = [
   },
   {
     id: 'claude-sonnet-5-5',
+    provider: 'anthropic',
     label: 'Claude Sonnet 5.5',
     description: 'Hurtig og billigere – god til daglige spørgsmål.',
     input: 2,
@@ -35,8 +45,9 @@ export const MODELS: ModelInfo[] = [
   },
   {
     id: 'claude-haiku-5-5',
+    provider: 'anthropic',
     label: 'Claude Haiku 5.5',
-    description: 'Lynhurtig og meget billig – til enkle opslag.',
+    description: 'Lynhurtig og den billigste Claude – god til daglig drift.',
     input: 0.1,
     output: 0.5,
     cacheRead: 0.01,
@@ -44,6 +55,7 @@ export const MODELS: ModelInfo[] = [
   },
   {
     id: 'claude-fable-5-1',
+    provider: 'anthropic',
     label: 'Claude Fable 5.1',
     description: 'Mest kapable model – til de sværeste analyser. Dyrest.',
     input: 10,
@@ -53,6 +65,11 @@ export const MODELS: ModelInfo[] = [
   },
 ];
 
+/** @deprecated use allModels() / availableModels() */
+export const MODELS = CLAUDE_MODELS;
+
+export const PROVIDER_LABELS: Record<Provider, string> = { anthropic: 'Claude (Anthropic)', google: 'Gemini (Google)' };
+
 export const EFFORT_LABELS: Record<Effort, string> = {
   low: 'Lav – hurtigste svar',
   medium: 'Mellem – balanceret',
@@ -61,8 +78,32 @@ export const EFFORT_LABELS: Record<Effort, string> = {
   max: 'Maksimal – langsom og dyr',
 };
 
+/** Every model the app knows: built-in Claude models + the admin's Gemini models. */
+export function allModels(): ModelInfo[] {
+  return [...CLAUDE_MODELS, ...(useSettings.getState().ai.customModels ?? [])];
+}
+
+/** The models the admin has allowed (never empty – falls back to all). */
+export function availableModels(): ModelInfo[] {
+  const enabled = useSettings.getState().ai.enabledModels;
+  const all = allModels();
+  const list = enabled?.length ? all.filter((m) => enabled.includes(m.id)) : all;
+  return list.length ? list : all;
+}
+
 export function modelInfo(id: string): ModelInfo {
-  return MODELS.find((m) => m.id === id) ?? MODELS[0]!;
+  return (
+    allModels().find((m) => m.id === id) ?? {
+      id,
+      provider: id.startsWith('gemini') ? 'google' : 'anthropic',
+      label: id,
+      description: '',
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    }
+  );
 }
 
 export interface TokenUsage {

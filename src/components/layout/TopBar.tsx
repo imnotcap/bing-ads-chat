@@ -33,7 +33,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { toast } from 'sonner';
+import { toast } from '@/components/notifications/toast';
 import { navigate } from '@/hooks/useNavigationHistory';
 import { ATTACH_EVENT } from '@/features/chat/Composer';
 import { assistantMarkdown, conversationMarkdown, exportFileName } from '@/features/chat/exportConversation';
@@ -42,7 +42,7 @@ import { isTauri, openExportsFolder, saveExport } from '@/lib/platform';
 import { errorMessage } from '@/lib/utils';
 import { queryClient } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
-import { closeWindow, isMaximized, minimizeWindow, onWindowResized, toggleMaximizeWindow } from '@/lib/window';
+import { closeWindow, isMaximized, minimizeWindow, onWindowResized, quitApp, toggleMaximizeWindow } from '@/lib/window';
 import { useActiveConversation, useChat } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
@@ -52,6 +52,7 @@ import { Button } from '../ui/button';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '../ui/overlays';
 import { LogoMark } from './Logo';
 import { UpdateButton } from './UpdatePrompt';
+import { NotificationBell } from '../notifications/NotificationBell';
 
 const PAGE_TITLES = { campaigns: 'Kampagner', activity: 'Aktivitet' } as const;
 
@@ -239,7 +240,7 @@ function AppMenu() {
         <DropdownMenuItem
           onSelect={() => {
             void queryClient.invalidateQueries();
-            toast('Data opdateres …');
+            toast.sync('Data opdateres …', { description: 'Henter de nyeste tal fra Microsoft Advertising.' });
           }}
         >
           <RefreshCw /> Opdatér data
@@ -253,7 +254,7 @@ function AppMenu() {
           <Info /> Om Bing Ads Chat
         </DropdownMenuItem>
         {isTauri && (
-          <DropdownMenuItem onSelect={closeWindow}>
+          <DropdownMenuItem onSelect={quitApp}>
             <Power /> Afslut
           </DropdownMenuItem>
         )}
@@ -386,7 +387,7 @@ function ConversationActions() {
         <DropdownMenuItem
           onSelect={() => {
             void queryClient.invalidateQueries();
-            toast('Data opdateres …');
+            toast.sync('Data opdateres …', { description: 'Henter de nyeste tal fra Microsoft Advertising.' });
           }}
         >
           <RefreshCw /> Opdatér data
@@ -444,6 +445,7 @@ export function TopBar() {
       <div data-tauri-drag-region className="h-full min-w-6 flex-1" />
 
       <UpdateButton />
+      <NotificationBell />
       {view === 'chat' && <ConversationActions />}
       {isTauri ? (
         <>

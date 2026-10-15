@@ -1,6 +1,7 @@
 mod exports;
 mod oauth;
 mod secrets;
+mod tray;
 mod updater;
 
 use tauri::Manager;
@@ -36,14 +37,17 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             // The custom title bar replaces Windows' own – make sure it stays hidden.
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_decorations(false);
             }
             updater::init(app)?;
+            tray::create(app.handle())?;
             Ok(())
         })
+        .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
             exports::export_save,
             exports::export_open_folder,
@@ -51,6 +55,9 @@ pub fn run() {
             secrets::secret_set,
             secrets::secret_delete,
             oauth::oauth_listen,
+            oauth::oauth_token,
+            tray::set_close_to_tray,
+            tray::quit_app,
             updater::check_for_update,
             updater::install_update,
             updater::open_download_page,

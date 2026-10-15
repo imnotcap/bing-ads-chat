@@ -1,5 +1,5 @@
 /** Changes the user makes directly in the UI – applied immediately and logged. */
-import { toast } from 'sonner';
+import { toast } from '@/components/notifications/toast';
 import { undoActivity } from '@/ai/agent';
 import { getBackend } from '@/bing/backend';
 import { invalidateSpendCache } from '@/bing/spend';

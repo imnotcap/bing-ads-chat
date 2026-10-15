@@ -90,6 +90,8 @@ export interface Conversation {
   api: ApiMessage[];
   /** Last <context> block sent, so it is only repeated when something changed. */
   lastContext?: string;
+  /** Gemini thought signatures per tool call id (sent back on the next Gemini request). */
+  geminiSignatures?: Record<string, string>;
 }
 
 /** IndexedDB with debounced writes – streaming updates the store many times per second. */

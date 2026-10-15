@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { Ban, Bot, CheckCircle2, ChevronRight, MessageSquare, ShieldAlert, Trash2, Undo2, User, XCircle } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { toast } from 'sonner';
+import { toast } from '@/components/notifications/toast';
 import { undoActivity } from '@/ai/agent';
 import { AnimatedList } from '@/components/reactbits';
 import { EASE, pageTransition } from '@/components/motion';

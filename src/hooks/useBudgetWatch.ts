@@ -4,7 +4,7 @@
  * active campaigns once the monthly budget is used.
  */
 import { useEffect } from 'react';
-import { toast } from 'sonner';
+import { toast } from '@/components/notifications/toast';
 import { getBackend } from '@/bing/backend';
 import { getSpendStatus, invalidateSpendCache } from '@/bing/spend';
 import { fmtMoney, monthKey } from '@/lib/format';

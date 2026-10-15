@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { ClipboardPaste, CornerDownLeft, FileText, FolderOpen, ImageIcon, Loader2, Mic, Paperclip, Plus, Square, X } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
+import { toast } from '@/components/notifications/toast';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { EASE } from '@/components/motion';
 import { ACCEPT_ALL, MAX_ATTACHMENTS, classify, formatBytes, readAttachment, type Attachment } from '@/lib/attachments';

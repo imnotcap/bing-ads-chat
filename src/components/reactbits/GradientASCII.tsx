@@ -366,13 +366,26 @@ export function GradientASCII({
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const resize = () => {
-      canvas.width = Math.max(1, Math.round(host.clientWidth * dpr));
-      canvas.height = Math.max(1, Math.round(host.clientHeight * dpr));
-      gl.viewport(0, 0, canvas.width, canvas.height);
-      gl.uniform2f(u('uRes'), canvas.width, canvas.height);
+    // Resizing a canvas clears it, so resizing on every frame of a layout animation
+    // (e.g. the insights panel sliding open) makes it blink. While the size keeps
+    // changing, the canvas is just stretched by CSS; it is re-rendered sharply once
+    // the size has settled – and drawn immediately, so there is never an empty frame.
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    const applySize = () => {
+      const w = Math.max(1, Math.round(host.clientWidth * dpr));
+      const h = Math.max(1, Math.round(host.clientHeight * dpr));
+      if (w === canvas.width && h === canvas.height) return;
+      canvas.width = w;
+      canvas.height = h;
+      gl.viewport(0, 0, w, h);
+      gl.uniform2f(u('uRes'), w, h);
       gl.uniform1f(u('uCell'), Math.min(64, Math.max(6, cellSize)) * dpr);
+      render();
       wake();
+    };
+    const resize = () => {
+      clearTimeout(settle);
+      settle = setTimeout(applySize, 140);
     };
 
     // Pointer trail and clicks in the aspect-correct domain (centre = 0, height = 1).
@@ -463,6 +476,7 @@ export function GradientASCII({
 
     const ro = new ResizeObserver(resize);
     ro.observe(host);
+    canvas.width = 0; // force the first applySize() below
     const io = new IntersectionObserver(([entry]) => {
       visible = !!entry?.isIntersecting;
       if (visible) wake();
@@ -470,9 +484,10 @@ export function GradientASCII({
     io.observe(host);
     const onVisibility = () => !document.hidden && wake();
     document.addEventListener('visibilitychange', onVisibility);
-    resize();
+    applySize();
 
     return () => {
+      clearTimeout(settle);
       cancelAnimationFrame(raf);
       ro.disconnect();
       io.disconnect();

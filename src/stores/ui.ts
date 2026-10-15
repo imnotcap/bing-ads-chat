@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 export type View = 'chat' | 'campaigns' | 'activity';
-export type SettingsTab = 'connections' | 'spend' | 'ai' | 'business' | 'appearance' | 'data' | 'about';
+export type SettingsTab = 'connections' | 'spend' | 'ai' | 'business' | 'appearance' | 'data' | 'about' | 'models';
 
 /** One step in the back/forward history of the top bar. */
 export interface NavEntry {

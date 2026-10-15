@@ -8,6 +8,7 @@
  * - Every executed, rejected or blocked change is written to the activity log.
  */
 import Anthropic from '@anthropic-ai/sdk';
+import { nativeNotify } from '@/components/notifications/toast';
 import { getBackend } from '@/bing/backend';
 import { getSpendStatus, invalidateSpendCache } from '@/bing/spend';
 import { toContentBlocks, toMeta, type Attachment } from '@/lib/attachments';
@@ -24,6 +25,9 @@ import { applyEdits, requestApproval } from './approvals';
 import { evaluateGuardrails, type SpendContext } from './guardrails';
 import { buildContextBlock, buildSystemPrompt } from './prompt';
 import { TERMINAL_TOOLS, getTool, toolDefinitions, type PlannedChange, type ToolContext } from './tools';
+import { connectorContext, enabledTools, isConnectorOn } from './connectors';
+import { GeminiError, geminiTokenUsage, streamGemini, toGeminiContents } from './gemini';
+import { modelInfo } from './models';
 import type { WriteTool } from './tools/context';
 import { totalActiveDailyBudget } from './tools/write';
 
@@ -98,6 +102,14 @@ function repairHistory(convId: string) {
 }
 
 export function friendlyError(err: unknown): string {
+  if (err instanceof GeminiError) {
+    if (err.status === 400 && /api key/i.test(err.message)) return 'Gemini API-nøglen blev afvist. Tjek den under Indstillinger → AI-modeller.';
+    if (err.status === 403) return 'Gemini-nøglen har ikke adgang til den valgte model. Vælg en anden under Indstillinger → AI-modeller.';
+    if (err.status === 404) return 'Gemini-modellen findes ikke (længere). Vælg en anden under Indstillinger → AI-modeller.';
+    if (err.status === 429) return 'Gemini-kvoten er brugt op lige nu (rate limit). Vent et øjeblik og prøv igen.';
+    if (err.status >= 500) return 'Gemini er overbelastet eller utilgængelig lige nu – prøv igen om lidt.';
+    return `Gemini afviste forespørgslen: ${err.message}`;
+  }
   if (err instanceof Anthropic.AuthenticationError) return 'Claude API-nøglen blev afvist. Tjek den under Indstillinger → Forbindelser.';
   if (err instanceof Anthropic.PermissionDeniedError) return 'Din Claude API-nøgle har ikke adgang til den valgte model. Vælg en anden model under Indstillinger → AI-assistent.';
   if (err instanceof Anthropic.RateLimitError) return 'Claude modtager for mange forespørgsler lige nu (rate limit). Vent et øjeblik og prøv igen.';
@@ -144,8 +156,15 @@ export async function sendMessage(convId: string, text: string, attachments: Att
 
   const fail = (message: string) => updateAssistant(convId, itemId, (it) => ({ ...it, status: 'error', error: message }));
 
-  const apiKey = await getSecret('anthropic_api_key');
-  if (!apiKey) return fail('Der er ingen Claude API-nøgle. Tilføj den under Indstillinger → Forbindelser.');
+  const provider = modelInfo(model).provider;
+  const apiKey = await getSecret(provider === 'google' ? 'google_api_key' : 'anthropic_api_key');
+  if (!apiKey) {
+    return fail(
+      provider === 'google'
+        ? 'Der er ingen Gemini API-nøgle. Tilføj den under Indstillinger → AI-modeller.'
+        : 'Der er ingen Claude API-nøgle. Tilføj den under Indstillinger → Forbindelser.',
+    );
+  }
   const cap = settings.ai.monthlyAiBudgetUsd;
   if (cap !== null && monthTotal(useUsage.getState().months).costUsd >= cap) {
     return fail(`Månedens AI-budget på $${cap} er brugt. Hæv grænsen under Indstillinger → AI-assistent for at fortsætte.`);
@@ -159,6 +178,7 @@ export async function sendMessage(convId: string, text: string, attachments: Att
     periodLabel: DATE_PRESET_LABELS[settings.datePreset],
     periodRange: period,
     rules: settings.spend,
+    connectors: connectorContext(settings.ai.connectors, provider),
   });
   const content: Anthropic.Beta.BetaContentBlockParam[] = [];
   if (context !== conv(convId).lastContext) content.push({ type: 'text', text: context });
@@ -170,8 +190,13 @@ export async function sendMessage(convId: string, text: string, attachments: Att
   controllers.set(convId, controller);
   chat.setRunning(convId, true);
   try {
-    await runLoop(convId, itemId, apiKey, controller.signal);
+    if (provider === 'google') await runGeminiLoop(convId, itemId, apiKey, controller.signal);
+    else await runLoop(convId, itemId, apiKey, controller.signal);
     updateAssistant(convId, itemId, (it) => ({ ...it, status: it.status === 'streaming' ? 'done' : it.status }));
+    // Like Claude: tell the user when an answer is ready while they're elsewhere.
+    const answer = conv(convId).items.find((i) => i.id === itemId);
+    const firstText = answer?.kind === 'assistant' ? answer.parts.find((p) => p.type === 'text')?.text : undefined;
+    void nativeNotify('Svaret er klar', (firstText ?? '').replace(/[*#>_`|]/g, '').trim().slice(0, 140) || conv(convId).title);
   } catch (err) {
     if (controller.signal.aborted) {
       updateAssistant(convId, itemId, (it) => ({
@@ -184,6 +209,7 @@ export async function sendMessage(convId: string, text: string, attachments: Att
     } else {
       console.error(err);
       fail(friendlyError(err));
+      void nativeNotify('Assistenten stødte på en fejl', friendlyError(err));
     }
   } finally {
     controllers.delete(convId);
@@ -198,7 +224,12 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
   const { ai } = settings;
   // VITE_ANTHROPIC_BASE_URL is only used for local development against a mock server.
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, baseURL: import.meta.env.VITE_ANTHROPIC_BASE_URL || undefined });
-  const tools = toolDefinitions();
+  const tools: Anthropic.Beta.BetaToolUnion[] = [...toolDefinitions(enabledTools(ai.connectors))];
+  if (isConnectorOn(ai.connectors, 'web')) {
+    // Web search runs on Anthropic's side; the dynamic-filtering version needs a recent Opus/Sonnet.
+    const dynamic = /^claude-(opus|sonnet)-5/.test(ai.model);
+    tools.push({ type: dynamic ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: 5 } as unknown as Anthropic.Beta.BetaToolUnion);
+  }
   const system: Anthropic.Beta.BetaTextBlockParam[] = [{ type: 'text', text: buildSystemPrompt(settings.business) }];
   const memo = new Map<string, Promise<unknown>>();
   let jsonRetries = 0;
@@ -249,6 +280,11 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
           } else if (b.type === 'tool_use') {
             partIds.set(ev.index, b.id);
             addPart(convId, itemId, { type: 'tool', id: b.id, name: b.name, label: toolLabel(b.name, {}), input: {}, status: 'streaming', startedAt: Date.now() });
+          } else if (b.type === 'server_tool_use') {
+            addPart(convId, itemId, { type: 'tool', id: b.id, name: b.name, label: 'Søger på nettet', input: {}, status: 'running', startedAt: Date.now() });
+          } else if (b.type === 'web_search_tool_result') {
+            const found = Array.isArray(b.content) ? b.content.length : 0;
+            updateTool(convId, itemId, b.tool_use_id, { status: 'done', summary: found ? `${found} resultater` : 'Ingen resultater', endedAt: Date.now() });
           }
         } else if (ev.type === 'content_block_delta') {
           const id = partIds.get(ev.index);
@@ -306,6 +342,120 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
     appendApi(convId, { role: 'user', content: results });
     // Follow-up suggestions close the turn – no extra request needed.
     if (toolUses.every((u) => TERMINAL_TOOLS.has(u.name))) return;
+  }
+}
+
+/* ------------------------------ the Gemini loop ------------------------------ */
+
+/** The same tool-use loop as runLoop, against Google Gemini (see ai/gemini.ts). */
+async function runGeminiLoop(convId: string, itemId: string, apiKey: string, signal: AbortSignal) {
+  const settings = useSettings.getState();
+  const { ai } = settings;
+  const tools = enabledTools(ai.connectors);
+  const system = buildSystemPrompt(settings.business);
+  const memo = new Map<string, Promise<unknown>>();
+
+  for (let round = 1; ; round++) {
+    if (round > ai.maxToolRounds) {
+      notice(convId, itemId, 'warning', `Stoppede efter ${ai.maxToolRounds} værktøjsrunder. Skriv "fortsæt", hvis assistenten skal arbejde videre.`);
+      return;
+    }
+    if (ai.monthlyAiBudgetUsd !== null && monthTotal(useUsage.getState().months).costUsd >= ai.monthlyAiBudgetUsd) {
+      notice(convId, itemId, 'warning', 'Månedens AI-budget er brugt – assistenten stoppede her.');
+      return;
+    }
+
+    const c = conv(convId);
+    const deltas = createDeltaBuffer(convId, itemId);
+    const blocks: Anthropic.Beta.BetaContentBlockParam[] = [];
+    const uses: ToolUse[] = [];
+    const signatures: Record<string, string> = {};
+    let textId: string | null = null;
+    let thoughtId: string | null = null;
+    let finishReason: string | null = null;
+    let usage = {};
+    const endThought = () => {
+      if (!thoughtId) return;
+      deltas.flush();
+      const id = thoughtId;
+      updatePart(convId, itemId, id, (p) => (p.type === 'thinking' ? { ...p, endedAt: Date.now() } : p));
+      thoughtId = null;
+    };
+
+    try {
+      for await (const ev of streamGemini({ apiKey, model: ai.model, system, contents: toGeminiContents(c.api, c.geminiSignatures), tools, effort: ai.effort, showThinking: ai.showThinking, signal })) {
+        if (ev.type === 'thought') {
+          if (!ai.showThinking) continue;
+          if (!thoughtId) {
+            deltas.flush();
+            thoughtId = uid('th_');
+            addPart(convId, itemId, { type: 'thinking', id: thoughtId, text: '', startedAt: Date.now() });
+          }
+          deltas.push(thoughtId, ev.text);
+        } else if (ev.type === 'text') {
+          endThought();
+          if (!textId) {
+            deltas.flush();
+            textId = uid('t_');
+            addPart(convId, itemId, { type: 'text', id: textId, text: '' });
+          }
+          deltas.push(textId, ev.text);
+          const last = blocks[blocks.length - 1];
+          if (last?.type === 'text') last.text += ev.text;
+          else blocks.push({ type: 'text', text: ev.text });
+        } else if (ev.type === 'call') {
+          endThought();
+          deltas.flush();
+          textId = null;
+          const use = { type: 'tool_use', id: ev.id, name: ev.name, input: ev.args } as ToolUse;
+          uses.push(use);
+          blocks.push({ type: 'tool_use', id: ev.id, name: ev.name, input: ev.args });
+          if (ev.signature) signatures[ev.id] = ev.signature;
+          addPart(convId, itemId, { type: 'tool', id: ev.id, name: ev.name, label: toolLabel(ev.name, ev.args), input: ev.args, status: 'streaming', startedAt: Date.now() });
+        } else {
+          finishReason = ev.finishReason;
+          usage = ev.usage;
+        }
+      }
+    } finally {
+      endThought();
+      deltas.flush();
+    }
+
+    const cost = useUsage.getState().record(ai.model, geminiTokenUsage(usage));
+    updateAssistant(convId, itemId, (it) => ({ ...it, costUsd: (it.costUsd ?? 0) + cost }));
+
+    if (finishReason && ['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'RECITATION'].includes(finishReason)) {
+      notice(convId, itemId, 'warning', 'Gemini afviste at svare på denne forespørgsel. Prøv at omformulere den.');
+      if (blocks.some((b) => b.type === 'text')) appendApi(convId, { role: 'assistant', content: blocks.filter((b) => b.type === 'text') });
+      return;
+    }
+    if (finishReason === 'MALFORMED_FUNCTION_CALL') {
+      notice(convId, itemId, 'error', 'Gemini lavede et ugyldigt værktøjskald. Prøv igen – eller vælg en anden model.');
+      return;
+    }
+    if (finishReason === 'MAX_TOKENS' && uses.length) {
+      notice(convId, itemId, 'error', 'Svaret blev for langt og blev afbrudt, før værktøjet kunne køre. Prøv at dele opgaven op.');
+      return;
+    }
+    if (!blocks.length) {
+      notice(convId, itemId, 'warning', 'Gemini returnerede et tomt svar. Prøv igen.');
+      return;
+    }
+
+    if (Object.keys(signatures).length) {
+      useChat.getState().patch(convId, (cv) => ({ geminiSignatures: { ...cv.geminiSignatures, ...signatures } }));
+    }
+    appendApi(convId, { role: 'assistant', content: blocks });
+    if (finishReason === 'MAX_TOKENS') {
+      notice(convId, itemId, 'warning', 'Svaret nåede den maksimale længde. Skriv "fortsæt" for resten.');
+      return;
+    }
+    if (!uses.length) return;
+
+    const results = await executeTools(convId, itemId, uses, memo, signal);
+    appendApi(convId, { role: 'user', content: results });
+    if (uses.every((u) => TERMINAL_TOOLS.has(u.name))) return;
   }
 }
 
@@ -449,6 +599,7 @@ async function executeTools(
   }
 
   const approvals = new Map(planned.filter((x) => x.verdict === 'approve').map((x) => [x.id, requestApproval(x.id, signal)]));
+  if (approvals.size) void nativeNotify('Godkendelse kræves', `${approvals.size} ændring${approvals.size === 1 ? '' : 'er'} venter på din godkendelse i Bing Ads Chat.`);
 
   for (const item of planned) {
     if (item.verdict === 'block') continue;

@@ -18,12 +18,16 @@
     "allow-secret-set",
     "allow-secret-delete",
     "allow-oauth-listen",
+    "allow-oauth-token",
     "allow-export-save",
     "allow-export-open-folder",
+    "allow-set-close-to-tray",
+    "allow-quit-app",
     "allow-check-for-update",
     "allow-install-update",
     "allow-open-download-page",
     "opener:default",
+    "notification:default",
     {
       "identifier": "http:default",
       "allow": [

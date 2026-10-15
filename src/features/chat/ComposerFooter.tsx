@@ -2,11 +2,13 @@
  * The row under the chat field (Claude style): approval mode on the left; model,
  * effort and the monthly AI-usage ring on the right.
  */
-import { ChartColumn, Check, ChevronDown, Hand, Rocket, Settings, ShieldCheck } from 'lucide-react';
+import { ChartColumn, Check, ChevronDown, Hand, Plug, Rocket, Settings, ShieldCheck } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Popover } from 'radix-ui';
-import { useMemo, useState } from 'react';
-import { EFFORT_LABELS, MODELS, modelInfo, type Effort } from '@/ai/models';
+import { useEffect, useMemo, useState } from 'react';
+import { CONNECTORS, isConnectorOn } from '@/ai/connectors';
+import { EFFORT_LABELS, PROVIDER_LABELS, availableModels, modelInfo, type Effort, type Provider } from '@/ai/models';
+import { Switch } from '@/components/ui/controls';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/overlays';
 import { daysInMonth, fmtUsd, today } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -144,12 +146,68 @@ function UsageRing() {
   );
 }
 
+/** Connectors on/off for this chat (like Claude's "Search and tools"). */
+function ConnectorsMenu() {
+  const connectors = useSettings((s) => s.ai.connectors);
+  const model = useSettings((s) => s.ai.model);
+  const setAi = useSettings((s) => s.setAi);
+  const provider = modelInfo(model).provider;
+  const usable = CONNECTORS.filter((c) => !c.providers || c.providers.includes(provider));
+  const on = usable.filter((c) => isConnectorOn(connectors, c.id)).length;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" className={cn(trigger, 'gap-1.5')} aria-label="Connectors">
+          <Plug className="size-3.5" />
+          <span>
+            {on}/{usable.length}
+          </span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-[340px]">
+        <DropdownMenuLabel className="normal-case tracking-normal">Connectors – hvad assistenten må bruge</DropdownMenuLabel>
+        {CONNECTORS.map((c) => {
+          const supported = !c.providers || c.providers.includes(provider);
+          const checked = supported && isConnectorOn(connectors, c.id);
+          return (
+            <DropdownMenuItem
+              key={c.id}
+              disabled={!supported}
+              onSelect={(e) => {
+                e.preventDefault();
+                setAi({ connectors: { ...connectors, [c.id]: !checked } });
+              }}
+              className="items-start"
+            >
+              <c.icon className="mt-0.5" />
+              <span className="grid flex-1 gap-0.5">
+                <span className={cn(checked && 'font-medium text-ink')}>{c.label}</span>
+                <span className="text-[12px] leading-snug text-muted">{supported ? c.description : 'Kun med Claude-modeller'}</span>
+              </span>
+              <Switch checked={checked} tabIndex={-1} className="pointer-events-none mt-0.5" aria-hidden />
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function ComposerFooter() {
   const mode = useSettings((s) => s.spend.approvalMode);
   const setSpend = useSettings((s) => s.setSpend);
   const ai = useSettings((s) => s.ai);
   const setAi = useSettings((s) => s.setAi);
   const current = MODES.find((m) => m.value === mode) ?? MODES[1]!;
+  // Re-read when the admin changes the allowed models.
+  useSettings((s) => s.ai.enabledModels);
+  useSettings((s) => s.ai.customModels);
+  const models = availableModels();
+  const providers = new Set(models.map((m) => m.provider)).size;
+  // The admin may have removed the model in use – fall back to the first allowed one.
+  useEffect(() => {
+    if (!models.some((m) => m.id === ai.model)) setAi({ model: models[0]!.id });
+  }, [models, ai.model, setAi]);
 
   return (
     <div className="mt-1.5 flex items-center px-2">
@@ -174,6 +232,8 @@ export function ComposerFooter() {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <ConnectorsMenu />
+
       <span className="ml-auto" />
 
       <DropdownMenu>
@@ -184,17 +244,26 @@ export function ComposerFooter() {
             <ChevronDown className="size-3" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-[300px]">
+        <DropdownMenuContent side="top" align="end" sideOffset={8} className="max-h-[70vh] w-[320px] overflow-y-auto">
           <DropdownMenuLabel className="normal-case tracking-normal">Model</DropdownMenuLabel>
-          {MODELS.map((m) => (
-            <DropdownMenuItem key={m.id} onSelect={() => setAi({ model: m.id })} className="items-start">
-              <span className="grid flex-1 gap-0.5">
-                <span className={cn(m.id === ai.model && 'font-medium text-ink')}>{shortModel(m.label)}</span>
-                <span className="text-[12px] leading-snug text-muted">{m.description}</span>
-              </span>
-              {m.id === ai.model && <Check className="mt-0.5 !text-brand" />}
-            </DropdownMenuItem>
-          ))}
+          {(['google', 'anthropic'] as Provider[]).map((provider) => {
+            const list = models.filter((m) => m.provider === provider);
+            if (!list.length) return null;
+            return (
+              <div key={provider}>
+                {providers > 1 && <div className="px-2.5 pb-0.5 pt-1.5 text-[11px] font-medium text-subtle">{PROVIDER_LABELS[provider]}</div>}
+                {list.map((m) => (
+                  <DropdownMenuItem key={m.id} onSelect={() => setAi({ model: m.id })} className="items-start">
+                    <span className="grid flex-1 gap-0.5">
+                      <span className={cn(m.id === ai.model && 'font-medium text-ink')}>{shortModel(m.label)}</span>
+                      {m.description && <span className="line-clamp-2 text-[12px] leading-snug text-muted">{m.description}</span>}
+                    </span>
+                    {m.id === ai.model && <Check className="mt-0.5 !text-brand" />}
+                  </DropdownMenuItem>
+                ))}
+              </div>
+            );
+          })}
           <DropdownMenuSeparator />
           <DropdownMenuLabel className="normal-case tracking-normal">Indsats</DropdownMenuLabel>
           {(['low', 'medium', 'high', 'xhigh'] as Effort[]).map((e) => (

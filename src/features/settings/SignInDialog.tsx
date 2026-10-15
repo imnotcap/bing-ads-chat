@@ -5,7 +5,7 @@
  */
 import { ChevronDown, Loader2 } from 'lucide-react';
 import { useState } from 'react';
-import { toast } from 'sonner';
+import { toast } from '@/components/notifications/toast';
 import { hasBuiltinMicrosoft } from '@/bing/credentials';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/overlays';

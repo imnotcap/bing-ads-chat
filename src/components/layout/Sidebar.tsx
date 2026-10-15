@@ -29,7 +29,7 @@ import { useUi, type View } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
 import { disconnectMicrosoft, switchToDemo } from '@/features/settings/connection';
 import { MicrosoftLogo } from '@/features/settings/SignInDialog';
-import { toast } from 'sonner';
+import { toast } from '@/components/notifications/toast';
 
 const NAV: { view: View; label: string; icon: LucideIcon }[] = [
   { view: 'chat', label: 'Chat', icon: MessageSquare },

@@ -15,8 +15,8 @@ export function getTool(name: string): AnyTool | undefined {
 }
 
 /** Tool definitions for the Messages API (stable order keeps the prompt cache warm). */
-export function toolDefinitions(): Anthropic.Beta.BetaTool[] {
-  return ALL_TOOLS.map((t) => {
+export function toolDefinitions(tools: AnyTool[] = ALL_TOOLS): Anthropic.Beta.BetaTool[] {
+  return tools.map((t) => {
     const { $schema: _ignored, ...schema } = z.toJSONSchema(t.schema, { io: 'input' }) as Record<string, unknown>;
     void _ignored;
     return {

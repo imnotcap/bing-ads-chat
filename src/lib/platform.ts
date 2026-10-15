@@ -11,7 +11,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
-export type SecretName = 'anthropic_api_key' | 'ms_refresh_token' | 'ms_developer_token' | 'ms_client_secret';
+export type SecretName = 'anthropic_api_key' | 'google_api_key' | 'ms_refresh_token' | 'ms_developer_token' | 'ms_client_secret';
 
 const DEV_PREFIX = 'bac.dev-secret.';
 

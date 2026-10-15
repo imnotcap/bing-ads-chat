@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Effort, ModelId } from '@/ai/models';
+import type { ConnectorId } from '@/ai/connectors';
+import type { Effort, ModelId, ModelInfo } from '@/ai/models';
 import type { DatePreset } from '@/lib/format';
 
 /** How changes proposed by the assistant are approved. */
@@ -36,6 +37,12 @@ export interface AiSettings {
   monthlyAiBudgetUsd: number | null;
   usdToDkk: number;
   maxToolRounds: number;
+  /** Models users may pick (set by the admin). Empty = all. */
+  enabledModels: ModelId[];
+  /** Gemini models added by the admin (with their prices). */
+  customModels: ModelInfo[];
+  /** Connectors switched on/off in the chat field. */
+  connectors: Partial<Record<ConnectorId, boolean>>;
 }
 
 export interface BusinessProfile {
@@ -56,6 +63,8 @@ export interface Appearance {
   /** Which sections of the insights panel are expanded. */
   insightSections: Record<string, boolean>;
   sidebarCollapsed: boolean;
+  /** Closing the window keeps the app running in the system tray. */
+  closeToTray: boolean;
 }
 
 export const DEFAULT_SPEND_RULES: SpendRules = {
@@ -92,7 +101,7 @@ export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
       spend: DEFAULT_SPEND_RULES,
-      ai: { model: 'claude-opus-5-5', effort: 'medium', showThinking: true, monthlyAiBudgetUsd: 25, usdToDkk: 6.9, maxToolRounds: 30 },
+      ai: { model: 'claude-opus-5-5', effort: 'medium', showThinking: true, monthlyAiBudgetUsd: 25, usdToDkk: 6.9, maxToolRounds: 30, enabledModels: [], customModels: [], connectors: {} },
       business: {
         companyName: '',
         website: '',
@@ -109,6 +118,7 @@ export const useSettings = create<SettingsState>()(
         insightsPanel: true,
         insightSections: { kpis: true, budget: true, alerts: true, campaigns: false },
         sidebarCollapsed: false,
+        closeToTray: true,
       },
       datePreset: 'last30',
       onboarded: false,

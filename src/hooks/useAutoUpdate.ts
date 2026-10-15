@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { checkForUpdate, type UpdateInfo } from '@/lib/updater';
 import { isTauri } from '@/lib/platform';
+import { nativeNotify } from '@/components/notifications/toast';
+import { useNotifications } from '@/stores/notifications';
 import { useUpdate } from '@/stores/update';
 
 const FIRST_CHECK_MS = 3_000;
@@ -18,6 +20,9 @@ export function offerUpdate(info: UpdateInfo): boolean {
   if (available?.version === info.version) return true;
   setAvailable({ version: info.version, notes: info.notes });
   openPrompt();
+  const title = `Bing Ads Chat ${info.version} er klar`;
+  useNotifications.getState().push({ title, description: 'Klik Opdatér nu – appen opdaterer sig selv og genstarter.', tone: 'update' });
+  void nativeNotify(title, 'Åbn appen og klik Opdatér nu – det tager under et minut.');
   return true;
 }
 

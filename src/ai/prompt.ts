@@ -81,6 +81,8 @@ export function buildContextBlock(opts: {
   periodLabel: string;
   periodRange: { from: string; to: string };
   rules: SpendRules;
+  /** Which connectors are switched off (see ai/connectors.ts). */
+  connectors?: string;
 }): string {
   const { account, mode, rules } = opts;
   const limits = [
@@ -104,6 +106,7 @@ export function buildContextBlock(opts: {
     `Period selected in the app: ${opts.periodLabel} (${opts.periodRange.from} to ${opts.periodRange.to})`,
     `Approval mode: ${APPROVAL_TEXT[rules.approvalMode]}`,
     limits.length ? `Spending limits: ${limits.join('; ')}` : 'Spending limits: none set',
+    ...(opts.connectors ? [opts.connectors] : []),
     '</context>',
   ].join('\n');
 }

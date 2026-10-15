@@ -5,7 +5,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { Ban, Check, CheckCircle2, Clock, Loader2, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from 'lucide-react';
 import { useState } from 'react';
-import { toast } from 'sonner';
+import { toast } from '@/components/notifications/toast';
 import { answerApproval } from '@/ai/approvals';
 import { undoActivity } from '@/ai/agent';
 import { Button } from '@/components/ui/button';

@@ -4,7 +4,8 @@
  * "Mobile and desktop applications" and the redirect URI `http://localhost`.
  * Docs: https://learn.microsoft.com/advertising/guides/authentication-oauth
  */
-import { msFetch, openExternal, startOAuthListener } from '@/lib/platform';
+import { invoke } from '@tauri-apps/api/core';
+import { isTauri, msFetch, openExternal, startOAuthListener } from '@/lib/platform';
 
 export const MS_SCOPE = 'https://ads.microsoft.com/msads.manage offline_access';
 
@@ -54,14 +55,29 @@ export function buildAuthorizeUrl(cfg: OAuthConfig, redirectUri: string, challen
 async function tokenRequest(cfg: OAuthConfig, form: Record<string, string>): Promise<TokenResponse> {
   const body = new URLSearchParams({ client_id: cfg.clientId, scope: MS_SCOPE, ...form });
   if (cfg.clientSecret) body.set('client_secret', cfg.clientSecret);
-  const res = await msFetch(`https://login.microsoftonline.com/${tenantOf(cfg)}/oauth2/v2.0/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-  });
-  const json = (await res.json().catch(() => ({}))) as TokenResponse & { error?: string; error_description?: string };
-  if (!res.ok || !json.access_token) {
-    const reason = json.error_description?.split('\r\n')[0] ?? json.error ?? `HTTP ${res.status}`;
+  let status: number;
+  let text: string;
+  if (isTauri) {
+    // From Rust: a browser-style Origin header makes Microsoft reject desktop apps (AADSTS90023).
+    [status, text] = await invoke<[number, string]>('oauth_token', { tenant: cfg.tenant?.trim() || 'common', form: [...body.entries()] });
+  } else {
+    const res = await msFetch(`https://login.microsoftonline.com/${tenantOf(cfg)}/oauth2/v2.0/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+    status = res.status;
+    text = await res.text();
+  }
+  const json = (() => {
+    try {
+      return JSON.parse(text) as TokenResponse & { error?: string; error_description?: string };
+    } catch {
+      return {} as TokenResponse & { error?: string; error_description?: string };
+    }
+  })();
+  if (status < 200 || status >= 300 || !json.access_token) {
+    const reason = json.error_description?.split('\r\n')[0] ?? json.error ?? `HTTP ${status}`;
     if (json.error === 'invalid_grant') throw new Error(`Microsoft-login er udløbet eller tilbagekaldt – log ind igen. (${reason})`);
     throw new Error(`Microsoft-login fejlede: ${reason}`);
   }
