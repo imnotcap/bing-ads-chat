@@ -6,7 +6,10 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   Archive,
   ArrowRight,
+  CalendarCheck,
   CalendarDays,
+  CalendarPlus,
+  Loader2,
   CheckSquare,
   CircleCheck,
   Copy,
@@ -30,7 +33,10 @@ import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/overlays';
 import { startChat } from '@/features/chat/startChat';
-import { cn } from '@/lib/utils';
+import { cn, errorMessage } from '@/lib/utils';
+import { addOutlookEvent, outlookAvailable } from '@/bing/outlook';
+import { openExternal } from '@/lib/platform';
+import { useChat } from '@/stores/chat';
 import { LABEL_COLORS, dueState, fmtDue, useBoard, type Card } from '@/stores/board';
 import { useUi } from '@/stores/ui';
 import { Avatar, ColorGrid, FadeIn, LabelPicker, LabelPill, MemberPicker, Pop, PriorityPicker, PriorityTag } from './parts';
@@ -291,6 +297,39 @@ function Activity({ card }: { card: Card }) {
   );
 }
 
+function OutlookButton({ card }: { card: Card }) {
+  const [busy, setBusy] = useState(false);
+  if (!outlookAvailable()) return null;
+  if (card.outlook) {
+    return (
+      <SideButton icon={CalendarCheck} onClick={() => card.outlook?.webLink && void openExternal(card.outlook.webLink)} className="bg-teal-50 text-teal hover:bg-teal-50 hover:text-teal [&_svg]:text-teal">
+        I Outlook {card.outlook.at.slice(11, 16)}
+      </SideButton>
+    );
+  }
+  return (
+    <SideButton
+      icon={busy ? Loader2 : CalendarPlus}
+      className={cn(busy && '[&_svg]:animate-spin')}
+      onClick={async () => {
+        if (!card.due) return toast('Sæt først en forfaldsdato', { description: 'Påmindelsen lægges kl. 9 på forfaldsdatoen.' });
+        setBusy(true);
+        try {
+          const ev = await addOutlookEvent({ subject: card.title, body: card.description || card.title, date: card.due, time: '09:00', minutes: 30, reminderMinutes: 15 });
+          useBoard.getState().updateCard(card.id, { outlook: { eventId: ev.id, webLink: ev.webLink, at: `${card.due}T09:00` } });
+          toast.success('Påmindelse lagt i Outlook', { description: `${fmtDue(card.due)} kl. 9.00` });
+        } catch (e) {
+          toast.error('Kunne ikke lægge den i Outlook', { description: errorMessage(e) });
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      Outlook-påmindelse
+    </SideButton>
+  );
+}
+
 export function CardDialog({ cardId, onClose }: { cardId: string | null; onClose: () => void }) {
   const card = useBoard((s) => (cardId ? s.cards[cardId] : undefined));
   const board = useBoard((s) => s.boards.find((b) => b.id === card?.boardId));
@@ -531,7 +570,23 @@ export function CardDialog({ cardId, onClose }: { cardId: string | null; onClose
                       </div>
                     </Pop>
 
+                    <OutlookButton card={card} />
+
                     <div className="mb-0.5 mt-4 text-[11.5px] font-semibold text-muted">Handlinger</div>
+                    {card.source && (
+                      <SideButton
+                        icon={MessageSquare}
+                        onClick={() => {
+                          const conv = useChat.getState().conversations.find((c) => c.id === card.source!.conversationId);
+                          if (!conv) return toast.error('Samtalen findes ikke længere');
+                          onClose();
+                          useChat.getState().select(conv.id);
+                          useUi.getState().go('chat');
+                        }}
+                      >
+                        Gå til samtalen
+                      </SideButton>
+                    )}
                     <SideButton
                       icon={Sparkles}
                       className="bg-brand-50 text-brand hover:bg-brand-100 hover:text-brand [&_svg]:text-brand"

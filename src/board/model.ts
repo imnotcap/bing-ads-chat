@@ -78,6 +78,10 @@ export interface Card {
   cover: LabelColor | null;
   /** Missing on cards made before priorities existed. */
   priority?: Priority | null;
+  /** Follow-up of changes the assistant made (opens the conversation). */
+  source?: { conversationId: string; activityIds: string[] };
+  /** Outlook reminder made for the card. */
+  outlook?: { eventId: string; webLink?: string; at: string };
   archived: boolean;
   createdAt: number;
 }
@@ -91,6 +95,8 @@ export interface BoardList {
 export interface Board {
   id: string;
   title: string;
+  /** A personal board: only shown to this member, also when the team shares boards. */
+  ownerId?: string;
   accent: LabelColor;
   lists: BoardList[];
   labels: BoardLabel[];
@@ -103,7 +109,7 @@ export interface BoardData {
   members: Member[];
 }
 
-export type CardPatch = Partial<Pick<Card, 'title' | 'description' | 'due' | 'done' | 'cover' | 'priority'>>;
+export type CardPatch = Partial<Pick<Card, 'title' | 'description' | 'due' | 'done' | 'cover' | 'priority' | 'outlook'>>;
 
 type OpBody =
   | { type: 'createBoard'; board: Board }
@@ -340,12 +346,17 @@ export function applyOp(d: BoardData, op: BoardOp): BoardData {
 export function remapMember(d: BoardData, from: string, to: string): BoardData {
   const swap = (id: string) => (id === from ? to : id);
   return {
-    boards: d.boards,
+    boards: d.boards.map((b) => (b.ownerId === from ? { ...b, ownerId: to } : b)),
     members: d.members.map((m) => ({ ...m, id: swap(m.id) })),
     cards: Object.fromEntries(
       Object.entries(d.cards).map(([id, c]) => [id, { ...c, memberIds: c.memberIds.map(swap), activity: c.activity.map((a) => ({ ...a, memberId: swap(a.memberId) })) }]),
     ),
   };
+}
+
+/** Boards this member sees: shared boards and their own personal board. */
+export function visibleBoards(boards: Board[], meId: string) {
+  return boards.filter((b) => !b.ownerId || b.ownerId === meId).sort((a, z) => Number(z.ownerId === meId) - Number(a.ownerId === meId));
 }
 
 /** Rough check that a value from the network is a board data set. */

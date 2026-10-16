@@ -7,6 +7,7 @@ const SERVICE: &str = "dk.bingadschat.app";
 const ALLOWED: &[&str] = &[
     "anthropic_api_key",
     "ms_refresh_token",
+    "ms_graph_refresh_token",
     "ms_developer_token",
     "ms_client_secret",
     "google_api_key",

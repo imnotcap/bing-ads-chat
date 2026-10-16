@@ -74,7 +74,13 @@ export interface AssistantItem {
   status: 'streaming' | 'done' | 'error' | 'stopped';
   error?: string;
   costUsd?: number;
+  /** The follow-up offered after changes in this reply (see FollowUpCard). */
+  followUp?: FollowUpState;
 }
+
+export type FollowUpState =
+  | { status: 'dismissed' }
+  | { status: 'created'; boardId: string; cardId: string; due: string; time: string; outlookLink?: string | null; outlookError?: string };
 
 export type ChatItem = UserItem | AssistantItem;
 

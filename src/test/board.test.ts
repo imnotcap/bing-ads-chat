@@ -92,3 +92,17 @@ describe('board ops', () => {
     expect(d.cards.c1!.activity[0]!.memberId).toBe('m_x');
   });
 });
+
+describe('personal boards', () => {
+  it('shows shared boards and only my own personal board, mine first', async () => {
+    const { visibleBoards } = await import('@/board/model');
+    const b = base().boards[0]!;
+    const boards = [b, { ...b, id: 'anna', ownerId: 'a' }, { ...b, id: 'jonas', ownerId: 'j' }];
+    expect(visibleBoards(boards, 'j').map((x) => x.id)).toEqual(['jonas', 'b']);
+  });
+
+  it('moves the personal board along when the local member gets a team id', () => {
+    const d = remapMember({ ...base(), boards: [{ ...base().boards[0]!, ownerId: 'a' }] }, 'a', 'm_x');
+    expect(d.boards[0]!.ownerId).toBe('m_x');
+  });
+});

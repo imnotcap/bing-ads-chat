@@ -25,6 +25,7 @@ import {
   ArrowDownUp,
   Filter,
   LayoutList,
+  Lock,
   MoreHorizontal,
   Plus,
   RotateCcw,
@@ -33,6 +34,7 @@ import {
   SquareKanban,
   Trash2,
   UserPlus,
+  UserRound,
   Users,
   X,
 } from 'lucide-react';
@@ -45,7 +47,7 @@ import { useSettings } from '@/stores/settings';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { cn } from '@/lib/utils';
 import { inviteCode } from '@/board/sync';
-import { LABEL_COLORS, dueState, useBoard, type Board, type BoardList, type Card, type Member } from '@/stores/board';
+import { LABEL_COLORS, dueState, useBoard, visibleBoards, type Board, type BoardList, type Card, type Member } from '@/stores/board';
 import { useUi } from '@/stores/ui';
 import { CardDialog } from './CardDialog';
 import { CardView, type CardStyle } from './CardView';
@@ -689,8 +691,10 @@ function EmptyBoards() {
 
 export function BoardPage() {
   const boardId = useUi((s) => s.boardId);
-  const boards = useBoard((s) => s.boards);
-  const board = boards.find((b) => b.id === boardId) ?? boards[0];
+  const all = useBoard((s) => s.boards);
+  const meId = useBoard((s) => s.meId);
+  const boards = visibleBoards(all, meId);
+  const board = boards.find((b) => b.id === boardId) ?? boards.find((b) => !b.ownerId) ?? boards[0];
   if (!board) return <EmptyBoards />;
   return <BoardView key={board.id} board={board} />;
 }
@@ -798,8 +802,19 @@ function BoardView({ board }: { board: Board }) {
     <motion.div {...pageTransition} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-56" style={{ background: `linear-gradient(180deg, ${accent.soft} 0%, transparent 100%)` }} />
       <header className="relative flex flex-wrap items-center gap-3 px-6 pb-4 pt-5">
-        <SquareKanban className="size-[22px] shrink-0" style={{ color: accent.solid }} strokeWidth={1.8} />
+        {board.ownerId ? (
+          <UserRound className="size-[22px] shrink-0" style={{ color: accent.solid }} strokeWidth={1.8} />
+        ) : (
+          <SquareKanban className="size-[22px] shrink-0" style={{ color: accent.solid }} strokeWidth={1.8} />
+        )}
         <BoardTitle board={board} />
+        {board.ownerId && (
+          <Tooltip content="Din personlige tavle. Den vises ikke hos dine kolleger, heller ikke når I deler tavler.">
+            <span className="inline-flex items-center gap-1 text-[12px] text-muted">
+              <Lock className="size-3" /> Kun for dig
+            </span>
+          </Tooltip>
+        )}
         {stats.total > 0 && (
           <Tooltip content={`${stats.done} af ${stats.total} kort er færdige`}>
             <div className="flex items-center gap-2 pl-1">

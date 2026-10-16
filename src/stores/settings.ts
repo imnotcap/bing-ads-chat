@@ -43,6 +43,10 @@ export interface AiSettings {
   customModels: ModelInfo[];
   /** Connectors switched on/off in the chat field. */
   connectors: Partial<Record<ConnectorId, boolean>>;
+  /** Offer a follow-up (planning card + Outlook reminder) after the assistant changes something. */
+  followUps: boolean;
+  /** Also add follow-ups to the Outlook calendar (pre-ticked on the follow-up card). */
+  followUpOutlook: boolean;
 }
 
 export interface BusinessProfile {
@@ -107,7 +111,7 @@ export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
       spend: DEFAULT_SPEND_RULES,
-      ai: { model: 'claude-opus-5-5', effort: 'medium', showThinking: true, monthlyAiBudgetUsd: 25, usdToDkk: 6.9, maxToolRounds: 30, enabledModels: [], customModels: [], connectors: {} },
+      ai: { model: 'claude-opus-5-5', effort: 'medium', showThinking: true, monthlyAiBudgetUsd: 25, usdToDkk: 6.9, maxToolRounds: 30, enabledModels: [], customModels: [], connectors: {}, followUps: true, followUpOutlook: true },
       business: {
         companyName: '',
         website: '',

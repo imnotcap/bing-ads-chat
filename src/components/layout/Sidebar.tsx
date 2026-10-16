@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { fmtUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useBoard } from '@/stores/board';
+import { useBoard, visibleBoards } from '@/stores/board';
 import { useChat, type Conversation } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
 import { useUi, type View } from '@/stores/ui';
@@ -53,8 +53,9 @@ function NavButton({ item }: { item: (typeof NAV)[number] }) {
       onClick={() => {
         if (item.view !== 'board') return go(item.view);
         const { boardId } = useUi.getState();
-        const boards = useBoard.getState().boards;
-        const target = boards.find((b) => b.id === boardId) ?? boards[0];
+        const { boards: all, meId } = useBoard.getState();
+        const boards = visibleBoards(all, meId);
+        const target = boards.find((b) => b.id === boardId) ?? boards.find((b) => !b.ownerId) ?? boards[0];
         if (target) openBoard(target.id);
         else go('dashboard');
       }}

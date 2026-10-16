@@ -26,7 +26,7 @@ export function LabelPill({ label, expanded = true, className }: { label: BoardL
   if (!expanded) return <span title={label.name} className={cn('h-2 w-10 rounded-full', className)} style={{ background: c.solid }} />;
   return (
     <span
-      className={cn('inline-flex h-[22px] max-w-full items-center rounded-md px-2 text-[11.5px] font-semibold leading-none', className)}
+      className={cn('inline-flex h-[22px] max-w-full items-center rounded-md px-2 text-[11.5px] font-medium leading-none', className)}
       style={{ background: c.soft, color: c.text, boxShadow: `inset 0 0 0 1px ${c.solid}26` }}
     >
       <span className="truncate">{label.name || c.name}</span>

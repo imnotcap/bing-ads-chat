@@ -77,6 +77,10 @@ interface BoardState extends BoardData {
   addLabel: (boardId: string, name: string, color: LabelColor) => string;
   updateLabel: (boardId: string, labelId: string, patch: Partial<Omit<BoardLabel, 'id'>>) => void;
   deleteLabel: (boardId: string, labelId: string) => void;
+  /** The user's own board ("Min planlægning"); made the first time it is needed. */
+  ensurePersonalBoard: () => string;
+  /** A follow-up card on the personal board for changes the assistant made. */
+  addFollowUp: (f: { title: string; description: string; due: string; checklist: string[]; conversationId: string; activityIds: string[] }) => { boardId: string; cardId: string };
   addMember: (name: string, role?: string) => void;
   updateMember: (memberId: string, patch: Partial<Omit<Member, 'id'>>) => void;
   removeMember: (memberId: string) => void;
@@ -275,6 +279,40 @@ export const useBoard = create<BoardState>()(
         },
         updateLabel: (boardId, labelId, patch) => void op({ type: 'updateLabel', boardId, labelId, patch }),
         deleteLabel: (boardId, labelId) => void op({ type: 'deleteLabel', boardId, labelId }),
+        ensurePersonalBoard: () => {
+          const { boards, meId } = get();
+          const mine = boards.find((b) => b.ownerId === meId);
+          if (mine) return mine.id;
+          const board: Board = {
+            id: uid('b_'),
+            title: 'Min planlægning',
+            ownerId: meId,
+            accent: 'teal',
+            lists: ['Opfølgning', 'I gang', 'Færdig'].map((t) => ({ id: uid('l_'), title: t, cardIds: [] })),
+            labels: [{ id: uid('lb_'), name: 'Opfølgning', color: 'teal' }, ...DEFAULT_LABELS()],
+            createdAt: Date.now(),
+          };
+          op({ type: 'createBoard', board });
+          return board.id;
+        },
+        addFollowUp: (f) => {
+          const boardId = get().ensurePersonalBoard();
+          const board = get().boards.find((b) => b.id === boardId)!;
+          const list = board.lists[0]!;
+          const label = board.labels.find((l) => l.name === 'Opfølgning') ?? board.labels[0];
+          const meId = get().meId;
+          const card = newCard(boardId, list.id, f.title, meId, {
+            description: f.description,
+            due: f.due,
+            priority: 'medium',
+            labelIds: label ? [label.id] : [],
+            memberIds: [meId],
+            checklist: f.checklist.map((text) => ({ id: uid('ci_'), text, done: false })),
+            source: { conversationId: f.conversationId, activityIds: f.activityIds },
+          });
+          op({ type: 'addCard', card, top: true });
+          return { boardId, cardId: card.id };
+        },
         addMember: (name, role) =>
           void op({
             type: 'addMember',

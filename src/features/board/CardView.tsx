@@ -129,7 +129,7 @@ function SimpleCard({ card }: { card: Card }) {
     <div className="px-3 py-2.5">
       <div className="flex items-start gap-1.5">
         <DoneToggle card={card} />
-        <span className={cn('min-w-0 flex-1 text-[13.5px] font-medium leading-snug', card.done ? 'text-muted line-through decoration-black/20' : 'text-ink')}>{card.title}</span>
+        <span className={cn('min-w-0 flex-1 text-[13.5px] leading-snug', card.done ? 'text-muted line-through decoration-black/20' : 'text-ink')}>{card.title}</span>
       </div>
       {hasMeta && (
         <div className="mt-2 flex items-center gap-2.5 text-[12px] text-muted">
@@ -173,7 +173,7 @@ function DetailedCard({ card, board, onOpen }: { card: Card; board: Board; onOpe
     <div className="p-3.5">
       <div className="flex items-start gap-2">
         <DoneToggle card={card} alwaysVisible />
-        <span className={cn('min-w-0 flex-1 text-[14px] font-semibold leading-snug tracking-[-0.005em]', card.done ? 'text-muted' : 'text-ink')}>{card.title}</span>
+        <span className={cn('min-w-0 flex-1 text-[14px] font-medium leading-snug', card.done ? 'text-muted' : 'text-ink')}>{card.title}</span>
         <CardMenu card={card} onOpen={onOpen} />
       </div>
 
@@ -204,7 +204,7 @@ function DetailedCard({ card, board, onOpen }: { card: Card; board: Board; onOpe
       {card.checklist.length > 0 && (
         <div className="mt-3">
           <div className="mb-1.5 flex items-center justify-between text-[12px]">
-            <span className="font-semibold text-ink-2">Opgaver</span>
+            <span className="font-medium text-ink-2">Opgaver</span>
             <span className={cn('tabular', checkDone === card.checklist.length ? 'text-positive' : 'text-subtle')}>
               {checkDone}/{card.checklist.length}
             </span>

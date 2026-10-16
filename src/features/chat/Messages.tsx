@@ -13,6 +13,7 @@ import { fmtTime, fmtUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { AssistantItem, NoticePart, Part, ToolPart, UserItem } from '@/stores/chat';
 import { ApprovalCard } from './ApprovalCard';
+import { FollowUpCard } from './FollowUpCard';
 import { Markdown } from './Markdown';
 import { startChat } from './startChat';
 import { ThinkingBlock } from './ThinkingBlock';
@@ -200,6 +201,7 @@ export const AssistantMessage = memo(function AssistantMessage({ item, currency,
         )}
         {item.status === 'error' && item.error && <NoticeLine part={{ type: 'notice', id: 'err', tone: 'error', text: item.error }} />}
         {item.status === 'stopped' && <div className="text-[12.5px] text-muted">Stoppet.</div>}
+        {item.status === 'done' && <FollowUpCard item={item} />}
         {!live && (
           <div className="flex items-center gap-2 text-[11.5px] text-subtle opacity-0 transition-opacity group-hover:opacity-100">
             <span>{fmtTime(item.ts)}</span>

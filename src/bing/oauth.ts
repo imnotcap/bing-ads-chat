@@ -8,6 +8,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { isTauri, msFetch, openExternal, startOAuthListener } from '@/lib/platform';
 
 export const MS_SCOPE = 'https://ads.microsoft.com/msads.manage offline_access';
+/** Outlook calendar (Microsoft Graph) – asked for separately the first time a reminder is added. */
+export const GRAPH_CALENDAR_SCOPE = 'https://graph.microsoft.com/Calendars.ReadWrite offline_access';
 
 export interface TokenResponse {
   access_token: string;
@@ -37,13 +39,13 @@ function tenantOf(cfg: OAuthConfig) {
   return encodeURIComponent(cfg.tenant?.trim() || 'common');
 }
 
-export function buildAuthorizeUrl(cfg: OAuthConfig, redirectUri: string, challenge: string, state: string): string {
+export function buildAuthorizeUrl(cfg: OAuthConfig, redirectUri: string, challenge: string, state: string, scope = MS_SCOPE): string {
   const params = new URLSearchParams({
     client_id: cfg.clientId,
     response_type: 'code',
     redirect_uri: redirectUri,
     response_mode: 'query',
-    scope: MS_SCOPE,
+    scope,
     state,
     code_challenge: challenge,
     code_challenge_method: 'S256',
@@ -52,8 +54,8 @@ export function buildAuthorizeUrl(cfg: OAuthConfig, redirectUri: string, challen
   return `https://login.microsoftonline.com/${tenantOf(cfg)}/oauth2/v2.0/authorize?${params}`;
 }
 
-async function tokenRequest(cfg: OAuthConfig, form: Record<string, string>): Promise<TokenResponse> {
-  const body = new URLSearchParams({ client_id: cfg.clientId, scope: MS_SCOPE, ...form });
+async function tokenRequest(cfg: OAuthConfig, form: Record<string, string>, scope = MS_SCOPE): Promise<TokenResponse> {
+  const body = new URLSearchParams({ client_id: cfg.clientId, scope, ...form });
   if (cfg.clientSecret) body.set('client_secret', cfg.clientSecret);
   let status: number;
   let text: string;
@@ -84,17 +86,17 @@ async function tokenRequest(cfg: OAuthConfig, form: Record<string, string>): Pro
   return json;
 }
 
-export function refreshAccessToken(cfg: OAuthConfig, refreshToken: string): Promise<TokenResponse> {
-  return tokenRequest(cfg, { grant_type: 'refresh_token', refresh_token: refreshToken });
+export function refreshAccessToken(cfg: OAuthConfig, refreshToken: string, scope = MS_SCOPE): Promise<TokenResponse> {
+  return tokenRequest(cfg, { grant_type: 'refresh_token', refresh_token: refreshToken }, scope);
 }
 
 /** Opens the Microsoft sign-in page in the browser and waits for the redirect. */
-export async function signInInteractive(cfg: OAuthConfig): Promise<TokenResponse> {
+export async function signInInteractive(cfg: OAuthConfig, scope = MS_SCOPE): Promise<TokenResponse> {
   const { port, callback } = await startOAuthListener();
   const redirectUri = `http://localhost:${port}`;
   const { verifier, challenge } = await createPkce();
   const state = base64Url(crypto.getRandomValues(new Uint8Array(16)));
-  await openExternal(buildAuthorizeUrl(cfg, redirectUri, challenge, state));
+  await openExternal(buildAuthorizeUrl(cfg, redirectUri, challenge, state, scope));
 
   const params = await callback;
   const error = params.get('error');
@@ -104,5 +106,5 @@ export async function signInInteractive(cfg: OAuthConfig): Promise<TokenResponse
   const code = params.get('code');
   if (!code) throw new Error('Microsoft returnerede ingen kode.');
 
-  return tokenRequest(cfg, { grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: verifier });
+  return tokenRequest(cfg, { grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: verifier }, scope);
 }

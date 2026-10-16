@@ -319,6 +319,12 @@ function AiTab() {
         <p className="mt-2 text-[12.5px] text-muted">{EFFORT_LABELS[ai.effort]}</p>
         <div className="mt-3">
           <SwitchRow label="Vis assistentens tankegang" description="Viser et kort resumé af, hvordan assistenten ræsonnerer." checked={ai.showThinking} onCheckedChange={(showThinking) => setAi({ showThinking })} />
+          <SwitchRow
+            label="Tilbyd opfølgning efter ændringer"
+            description="Når assistenten har ændret noget, kan du med ét klik få et kort i Min planlægning og en påmindelse i Outlook."
+            checked={ai.followUps}
+            onCheckedChange={(followUps) => setAi({ followUps })}
+          />
         </div>
       </Card>
 

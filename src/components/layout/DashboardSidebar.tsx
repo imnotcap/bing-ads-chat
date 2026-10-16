@@ -4,14 +4,14 @@
  * categories are listed at the bottom so they can be shown again.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { Activity, ChevronDown, Eye, EyeOff, LayoutDashboard, Plus, Search, Sparkles, SquareKanban, type LucideIcon } from 'lucide-react';
+import { Activity, ChevronDown, Eye, EyeOff, LayoutDashboard, Plus, Search, Sparkles, SquareKanban, UserRound, type LucideIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
 import { EASE } from '@/components/motion';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { cn } from '@/lib/utils';
-import { LABEL_COLORS, myOpenCards, useBoard } from '@/stores/board';
+import { LABEL_COLORS, myOpenCards, useBoard, visibleBoards } from '@/stores/board';
 import { useSettings } from '@/stores/settings';
 import { useUi, type View } from '@/stores/ui';
 import { AccountMenu } from './Sidebar';
@@ -24,6 +24,8 @@ interface NavItem {
   brand?: Brand;
   /** Board colour (tints the board icon). */
   swatch?: string;
+  /** The user's own board. */
+  personal?: boolean;
   active: boolean;
   onSelect?: () => void;
   soon?: boolean;
@@ -57,7 +59,11 @@ function ItemRow({ item }: { item: NavItem }) {
         {item.brand ? (
           <BrandIcon brand={item.brand} className="size-[16px]" />
         ) : item.swatch ? (
-          <SquareKanban className="size-[17px]" style={{ color: item.swatch }} strokeWidth={1.8} />
+          item.personal ? (
+            <UserRound className="size-[17px]" style={{ color: item.swatch }} strokeWidth={1.8} />
+          ) : (
+            <SquareKanban className="size-[17px]" style={{ color: item.swatch }} strokeWidth={1.8} />
+          )
         ) : item.icon ? (
           <item.icon className="size-[17px]" strokeWidth={1.8} />
         ) : null}
@@ -78,7 +84,7 @@ function CategoryBlock({ cat, collapsed, onToggle, onHide }: { cat: Category; co
           type="button"
           onClick={onToggle}
           aria-expanded={!collapsed}
-          className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded-md px-2 text-[12.5px] font-medium text-muted transition-colors hover:text-ink"
+          className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded-md px-2 text-[12.5px] font-semibold text-ink-2/70 transition-colors hover:text-ink"
         >
           <ChevronDown className={cn('size-3.5 shrink-0 transition-transform duration-200', collapsed && '-rotate-90')} />
           <span className="truncate">{cat.label}</span>
@@ -194,10 +200,11 @@ export function DashboardSidebar() {
         addLabel: 'Ny tavle',
         onAdd: () => setAdding(true),
         empty: 'Ingen tavler endnu – klik + for at lave en.',
-        items: boards.map((b) => ({
+        items: visibleBoards(boards, meId).map((b) => ({
           id: b.id,
           label: b.title,
           swatch: LABEL_COLORS[b.accent].solid,
+          personal: !!b.ownerId,
           active: view === 'board' && boardId === b.id,
           onSelect: () => openBoard(b.id),
           badge: myOpenCards({ cards, meId }, b.id),
