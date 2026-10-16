@@ -40,4 +40,10 @@ export default {
     for (const [k, v] of Object.entries(CORS)) headers.set(k, v);
     return new Response(res.body, { status: res.status, headers });
   },
+
+  /** Every night: test the data sources again (wrangler.jsonc → triggers). */
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName('main'));
+    ctx.waitUntil(stub.fetch('https://workspace/internal/check-connections', { method: 'POST' }).then((r) => r.text()));
+  },
 };

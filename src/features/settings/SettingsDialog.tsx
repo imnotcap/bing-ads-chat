@@ -28,12 +28,11 @@ import { useConnection, useCurrentAccount } from '@/stores/connection';
 import { DEFAULT_SPEND_RULES, useSettings } from '@/stores/settings';
 import { useUi, type SettingsTab } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
-import { goDemo, goLive } from '@/workspace/shared';
-import { useAccount } from '@/stores/account';
 import { ModelsTab } from './ModelsTab';
 import { startFollowUpTest } from '@/features/chat/followUpTest';
 import { UsersTab } from './UsersTab';
-import { AdsConnectionForm, ApprovalModePicker, ClaudeKeyForm, InventarlandForm, MicrosoftSetupGuide } from './forms';
+import { ConnectorsTab } from './ConnectorsTab';
+import { ApprovalModePicker } from './forms';
 
 interface TabDef {
   id: SettingsTab;
@@ -45,7 +44,7 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  { id: 'connections', label: 'Forbindelser', icon: Plug, group: 'Konto', keywords: 'claude api nøgle microsoft advertising bing developer token client id tenant demo fælles cloudflare inventarland magento webshop salg google ads meta daisycon' },
+  { id: 'connections', label: 'Forbindelser', icon: Plug, group: 'Konto', keywords: 'claude api nøgle microsoft advertising bing developer token demo fælles cloudflare inventarland magento webshop google ads meta linkedin daisycon search console ga4 analytics ahrefs serper klaviyo pim chainbox datakilder integrationer' },
   { id: 'users', label: 'Brugere', icon: Users, group: 'Konto', keywords: 'konto log ud login microsoft administrator admin godkend adgang kolleger team' },
   { id: 'business', label: 'Virksomhed', icon: Building2, group: 'Konto', keywords: 'profil mål cpa roas dækningsgrad tone of voice instruktioner website' },
   { id: 'spend', label: 'Forbrug', icon: Wallet, group: 'Assistent', keywords: 'budget månedsbudget grænser godkendelse autopilot nødstop beskyttede kampagner cpc bud budgetvagt' },
@@ -72,55 +71,6 @@ function Card({ title, description, children, className, action }: { title: stri
 }
 
 /* ------------------------------- Forbindelser ------------------------------- */
-
-function ConnectionsTab() {
-  const mode = useConnection((s) => s.mode);
-  const adsConnected = useAccount((s) => !!s.workspace?.ads.connected);
-  return (
-    <div className="grid gap-5">
-      <div className="flex items-start gap-3 rounded-2xl bg-brand-50/70 px-4 py-3 text-[13px] leading-relaxed text-ink-2">
-        <Users className="mt-0.5 size-4 shrink-0 text-brand" />
-        <span>
-          Forbindelserne er <b>fælles for alle i appen</b>. De gemmes på jeres Cloudflare, så alle i afdelingen arbejder på de samme data – og alle kan ændre dem. Dit eget
-          Microsoft-login bruges kun til din konto, din Outlook-kalender og opfølgningsmails til dig selv.
-        </span>
-      </div>
-      <Card title="Claude (AI)" description="Assistenten bruger Anthropics Claude API. Forbruget betales via den Anthropic-konto, nøglen hører til.">
-        <ClaudeKeyForm />
-      </Card>
-      <Card
-        title="Microsoft Advertising"
-        description="Afdelingens annoncekonti. Indtil den er forbundet, bruger appen en realistisk demo-konto, så alt kan prøves uden risiko."
-        action={
-          <Segmented
-            layoutId="mode-switch"
-            size="sm"
-            value={mode}
-            onChange={(m) => (m === 'demo' ? goDemo() : adsConnected ? goLive() : toast('Forbind Microsoft Advertising nedenfor for at bruge de rigtige data'))}
-            options={[
-              { value: 'demo', label: 'Demo' },
-              { value: 'live', label: 'Rigtig konto' },
-            ]}
-          />
-        }
-      >
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-          <AdsConnectionForm />
-          <div className="rounded-2xl bg-line-2/70 p-4">
-            <div className="mb-3 text-[13px] font-semibold text-ink">Sådan forbinder I</div>
-            <MicrosoftSetupGuide />
-          </div>
-        </div>
-      </Card>
-      <Card
-        title="Inventarland (webshop og andre kanaler)"
-        description="Giver assistenten webshoppens faktiske salg og produkter fra Magento samt Google Ads, Meta og Daisycon – hentet fra Inventarlands API. Kun læseadgang; intet ændres i Inventarland."
-      >
-        <InventarlandForm />
-      </Card>
-    </div>
-  );
-}
 
 /* ---------------------------------- Forbrug ---------------------------------- */
 
@@ -657,7 +607,7 @@ function TabContent({ id }: { id: SettingsTab }) {
     case 'users':
       return <UsersTab />;
     case 'connections':
-      return <ConnectionsTab />;
+      return <ConnectorsTab />;
     case 'spend':
       return <SpendTab />;
     case 'ai':
