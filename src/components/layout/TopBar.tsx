@@ -92,7 +92,7 @@ export function startNewConversation() {
   useUi.getState().go('chat');
 }
 
-function WindowControls() {
+export function WindowControls() {
   const [maximized, setMaximized] = useState(false);
   useEffect(() => {
     const update = () => void isMaximized().then(setMaximized);
@@ -470,9 +470,9 @@ export function TopBar() {
       <div className="ml-3 flex min-w-0 items-center gap-2">
         {view === 'chat' ? <ConversationTitle /> : <span className="px-2 text-[13px] font-medium text-ink">{view === 'board' && boardTitle ? `Planlægning · ${boardTitle}` : PAGE_TITLES[view]}</span>}
         {mode === 'demo' && (
-          <Tooltip content="Du ser demo-data – klik for at logge ind med din rigtige konto" side="bottom">
+          <Tooltip content="Du ser demo-data – klik for at bruge afdelingens Microsoft Advertising-konto" side="bottom">
             <button type="button" onClick={() => useUi.getState().setSignInOpen(true)} className="rounded-full transition-opacity hover:opacity-80">
-              <Badge tone="brand">Demo-konto · Log ind</Badge>
+              <Badge tone="brand">Demo-konto · Brug rigtige data</Badge>
             </button>
           </Tooltip>
         )}

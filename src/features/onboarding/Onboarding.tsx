@@ -8,8 +8,9 @@ import { Field, NumberInput } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
-import { switchToDemo } from '../settings/connection';
-import { ApprovalModePicker, ClaudeKeyForm, MicrosoftConnectForm, MicrosoftSetupGuide } from '../settings/forms';
+import { useAccount } from '@/stores/account';
+import { goDemo, goLive } from '@/workspace/shared';
+import { AdsConnectionForm, ApprovalModePicker, ClaudeKeyForm, MicrosoftSetupGuide } from '../settings/forms';
 
 const FEATURES = [
   { icon: MessageSquareText, title: 'Chat med din konto', text: 'Spørg, analysér og få ændringer lavet i almindeligt dansk.' },
@@ -19,7 +20,8 @@ const FEATURES = [
 
 export function Onboarding() {
   const [step, setStep] = useState(0);
-  const [path, setPath] = useState<'demo' | 'live'>('demo');
+  const adsConnected = useAccount((s) => !!s.workspace?.ads.connected);
+  const [path, setPath] = useState<'demo' | 'live'>(adsConnected ? 'live' : 'demo');
   const hasKey = useConnection((s) => s.hasAnthropicKey);
   const mode = useConnection((s) => s.mode);
   const spend = useSettings((s) => s.spend);
@@ -28,7 +30,8 @@ export function Onboarding() {
   const currency = useConnection((s) => s.accounts.find((a) => a.id === s.accountId)?.currency ?? 'DKK');
 
   const finish = () => {
-    if (path === 'demo' && mode !== 'demo') switchToDemo();
+    if (path === 'demo' && mode !== 'demo') goDemo();
+    if (path === 'live' && adsConnected && mode !== 'live') goLive();
     setOnboarded(true);
   };
 
@@ -94,7 +97,7 @@ export function Onboarding() {
                 {(
                   [
                     { v: 'demo', icon: FlaskConical, title: 'Prøv med demo-konto', text: 'Realistiske data – intet kan gå galt.' },
-                    { v: 'live', icon: Plug, title: 'Forbind min konto', text: 'Brug din rigtige Microsoft Advertising-konto.' },
+                    { v: 'live', icon: Plug, title: adsConnected ? 'Brug afdelingens konto' : 'Forbind vores konto', text: adsConnected ? 'Microsoft Advertising er allerede forbundet.' : 'Forbind afdelingens Microsoft Advertising-konto.' },
                   ] as const
                 ).map((o) => (
                   <button
@@ -118,16 +121,18 @@ export function Onboarding() {
           {/* 2 – Claude */}
           <div>
             <h2 className="text-[22px] font-semibold tracking-[-0.02em] text-ink">Forbind Claude</h2>
-            <p className="mb-5 mt-1 text-[14px] text-muted">Assistenten drives af Claude fra Anthropic. Indsæt din API-nøgle – den gemmes sikkert i Windows Credential Manager.</p>
+            <p className="mb-5 mt-1 text-[14px] text-muted">
+              Assistenten drives af Claude fra Anthropic. {hasKey ? 'Afdelingen har allerede en fælles nøgle – du kan fortsætte.' : 'Indsæt en API-nøgle – den gemmes fælles på jeres Cloudflare, så alle i appen bruger den.'}
+            </p>
             <ClaudeKeyForm onDone={() => setStep(2)} />
           </div>
 
           {/* 3 – Microsoft */}
           <div>
-            <h2 className="text-[22px] font-semibold tracking-[-0.02em] text-ink">{path === 'live' ? 'Forbind Microsoft Advertising' : 'Demo-kontoen er klar'}</h2>
+            <h2 className="text-[22px] font-semibold tracking-[-0.02em] text-ink">{path === 'live' ? (adsConnected ? 'Microsoft Advertising er forbundet' : 'Forbind Microsoft Advertising') : 'Demo-kontoen er klar'}</h2>
             {path === 'live' ? (
               <div className="mt-4 grid gap-6 md:grid-cols-[1fr_300px]">
-                <MicrosoftConnectForm compact onDone={() => setStep(3)} />
+                <AdsConnectionForm compact onDone={() => setStep(3)} />
                 <div className="rounded-2xl bg-line-2/70 p-4">
                   <MicrosoftSetupGuide />
                 </div>

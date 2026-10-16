@@ -46,12 +46,11 @@ import { Segmented, Switch } from '@/components/ui/controls';
 import { useSettings } from '@/stores/settings';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { cn } from '@/lib/utils';
-import { inviteCode } from '@/board/sync';
 import { LABEL_COLORS, dueState, useBoard, visibleBoards, type Board, type BoardList, type Card, type Member } from '@/stores/board';
 import { useUi } from '@/stores/ui';
 import { CardDialog } from './CardDialog';
 import { CardView, type CardStyle } from './CardView';
-import { CodeBox, ShareButton, ShareDialog, useShareDialog } from './ShareDialog';
+import { ShareButton, ShareDialog, useShareDialog } from './ShareDialog';
 import { Avatar, ColorGrid, LabelPill, Pop } from './parts';
 
 /* --------------------------------- filters --------------------------------- */
@@ -509,39 +508,34 @@ function TeamPop() {
         {sorted.map((m) => (
           <MemberRow key={m.id} member={m} isMe={m.id === meId} />
         ))}
-        {team ? (
-          <div className="mt-2 grid gap-2 border-t border-line pt-3">
-            <div className="text-[11.5px] font-semibold text-muted">Invitér kolleger</div>
-            <CodeBox code={inviteCode(team)} />
-            <p className="text-[11.5px] leading-relaxed text-subtle">De dukker op her, når de har skrevet koden ind i deres app.</p>
+        <div className="mt-2 grid gap-1.5 border-t border-line pt-3">
+          {team && <p className="text-[11.5px] leading-relaxed text-subtle">Kolleger kommer med af sig selv, når de logger ind i appen.</p>}
+          <div className="text-[11.5px] font-semibold text-muted">{team ? 'Tilføj en uden konto' : 'Tilføj en kollega'}</div>
+          <div className="flex gap-1.5">
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && add()}
+              placeholder="Navn"
+              className="h-8 min-w-0 flex-1 rounded-lg border border-line px-2.5 text-[13px] outline-none focus:border-brand/50 focus:ring-4 focus:ring-brand/10"
+            />
+            <input
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && add()}
+              placeholder="Rolle"
+              className="h-8 w-24 rounded-lg border border-line px-2.5 text-[13px] outline-none focus:border-brand/50 focus:ring-4 focus:ring-brand/10"
+            />
           </div>
-        ) : (
-          <div className="mt-2 grid gap-1.5 border-t border-line pt-3">
-            <div className="text-[11.5px] font-semibold text-muted">Tilføj en kollega</div>
-            <div className="flex gap-1.5">
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && add()}
-                placeholder="Navn"
-                className="h-8 min-w-0 flex-1 rounded-lg border border-line px-2.5 text-[13px] outline-none focus:border-brand/50 focus:ring-4 focus:ring-brand/10"
-              />
-              <input
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && add()}
-                placeholder="Rolle"
-                className="h-8 w-24 rounded-lg border border-line px-2.5 text-[13px] outline-none focus:border-brand/50 focus:ring-4 focus:ring-brand/10"
-              />
-            </div>
-            <Button size="xs" variant="secondary" disabled={!name.trim()} onClick={add}>
-              <UserPlus /> Tilføj
-            </Button>
+          <Button size="xs" variant="secondary" disabled={!name.trim()} onClick={add}>
+            <UserPlus /> Tilføj
+          </Button>
+          {!team && (
             <button type="button" onClick={() => setShareOpen(true)} className="mt-1 text-left text-[12px] font-medium text-brand hover:underline">
-              Del tavlerne, så kollegerne kan arbejde med →
+              Hvordan deles tavlerne? →
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </Pop>
   );

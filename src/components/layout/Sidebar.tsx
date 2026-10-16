@@ -15,6 +15,7 @@ import {
   Sparkles,
   SquarePen,
   Trash2,
+  Users,
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
@@ -29,7 +30,9 @@ import { useChat, type Conversation } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
 import { useUi, type View } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
-import { disconnectMicrosoft, switchToDemo } from '@/features/settings/connection';
+import { signOut } from '@/workspace/account';
+import { goDemo } from '@/workspace/shared';
+import { useAccount } from '@/stores/account';
 import { MicrosoftLogo } from '@/features/settings/SignInDialog';
 import { toast } from '@/components/notifications/toast';
 
@@ -186,6 +189,7 @@ export function AccountMenu() {
   const months = useUsage((s) => s.months);
   const usage = useMemo(() => monthTotal(months), [months]);
   const plan = mode === 'demo' ? 'Demo' : 'Live';
+  const user = useAccount((s) => s.user);
 
   const avatar = (
     <span className={cn('grid size-7 shrink-0 place-items-center rounded-full text-[11px] font-semibold text-white', mode === 'demo' ? 'bg-brand' : 'bg-teal')}>
@@ -210,6 +214,18 @@ export function AccountMenu() {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="top" align="start" sideOffset={6} className="w-[264px]">
+          {user && (
+            <>
+              <div className="flex items-center gap-2.5 px-2.5 pb-2 pt-1.5">
+                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-ink text-[11px] font-semibold text-white">{initials(user.name)}</span>
+                <div className="min-w-0">
+                  <div className="truncate text-[13px] font-medium text-ink">{user.name}</div>
+                  <div className="truncate text-[11.5px] text-muted">{user.email}</div>
+                </div>
+              </div>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <div className="flex items-center gap-2.5 px-2.5 pb-2 pt-1.5">
             {avatar}
             <div className="min-w-0">
@@ -245,20 +261,19 @@ export function AccountMenu() {
           <DropdownMenuSeparator />
           {mode === 'demo' ? (
             <DropdownMenuItem onSelect={() => useUi.getState().setSignInOpen(true)}>
-              <MicrosoftLogo /> <span className="flex-1">Log ind med Microsoft</span>
+              <MicrosoftLogo /> <span className="flex-1">Brug Microsoft Advertising</span>
             </DropdownMenuItem>
           ) : (
-            <>
-              <DropdownMenuItem onSelect={switchToDemo}>
-                <FlaskConical /> Skift til demo-data
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => void disconnectMicrosoft().then(() => toast('Du er logget ud af Microsoft Advertising', { description: 'Appen viser nu demo-data.' }))}
-              >
-                <LogOut /> Log ud af Microsoft
-              </DropdownMenuItem>
-            </>
+            <DropdownMenuItem onSelect={() => goDemo()}>
+              <FlaskConical /> Skift til demo-data
+            </DropdownMenuItem>
           )}
+          <DropdownMenuItem onSelect={() => go('settings', 'users')}>
+            <Users /> Brugere
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void signOut().then(() => toast('Du er logget ud'))}>
+            <LogOut /> Log ud
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <Tooltip content="Indstillinger">

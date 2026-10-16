@@ -102,23 +102,29 @@ Byg en installer (`.msi` og `setup.exe` i `src-tauri/target/release/bundle/`):
 pnpm app:build
 ```
 
-Første gang du åbner appen, guider en velkomst dig igennem: Claude-nøgle → Microsoft Advertising (eller demo) → forbrugsregler.
+Første gang du åbner appen, logger du ind med din Microsoft-konto. Derefter guider en velkomst dig igennem:
+Claude-nøgle → Microsoft Advertising (eller demo) → forbrugsregler.
 
-### Claude API-nøgle
-Opret en nøgle på [console.anthropic.com](https://console.anthropic.com/settings/keys) og indsæt den under
-*Indstillinger → Forbindelser*. Den gemmes i **Windows Credential Manager**.
+### Konti og fælles forbindelser
 
-### Microsoft Advertising
-1. Hent dit **developer token** på ads.microsoft.com under *Indstillinger → Developer settings → Request Developer Token* (kræver Super Admin).
-2. Opret en **app-registrering** i [Microsoft Entra ID](https://portal.azure.com) → *App-registreringer → Ny registrering*
-   ("Accounts in any organizational directory and personal Microsoft accounts").
-3. Under *Authentication*: tilføj platformen **Mobile and desktop applications** med redirect-URI `http://localhost`,
-   og slå **Allow public client flows** til.
-4. Indsæt developer token og **Application (client) ID** i appen og klik **Log ind med Microsoft**. Browseren åbner,
-   du logger ind, og appen henter dine konti.
+- **Log ind med Microsoft** giver dig en konto i appen og lader appen lægge påmindelser og begivenheder i din egen
+  Outlook-kalender (`Calendars.ReadWrite`). Det er alt, dit eget login bruges til.
+- **Forbindelserne er fælles for hele afdelingen** og gemmes på jeres Cloudflare (`cloudflare/src/workspace.ts`):
+  Microsoft Advertising-login, developer token, Claude- og Gemini-nøgler samt planlægningstavlerne. Alle, der er
+  logget ind, ser de samme data og kan ændre forbindelserne under *Indstillinger → Forbindelser*.
+- Microsoft Advertising-refresh-tokenet forlader aldrig Cloudflare – appen får korte adgangstokens derfra.
+- Den første, der logger ind, bliver **administrator**. Kolleger med en `inventarland.dk`-adresse kommer ind med det
+  samme; andre venter, til en administrator giver adgang under *Indstillinger → Brugere*.
+- Opsætning (app-registrering og `MS_CLIENT_ID`): se [docs/RELEASE.md](docs/RELEASE.md).
 
-Login bruger OAuth 2.0 med PKCE og en midlertidig lokal port; refresh-tokenet gemmes i Windows Credential Manager og
-fornys automatisk.
+### Lokal udvikling med test-login
+
+```bash
+cd cloudflare && npx wrangler dev --port 8787 --var DEV_LOGIN:1 --var MS_CLIENT_ID:<client-id>
+VITE_SITE_URL=http://localhost:8787 pnpm dev   # i en anden terminal
+```
+
+`DEV_LOGIN=1` giver et test-login med blot en e-mailadresse. Det må kun bruges lokalt – aldrig i `wrangler.jsonc`.
 
 ## Kommandoer
 
@@ -140,11 +146,11 @@ src/
                  ui/ (knapper, felter, dropdowns, dialoger), blocks/ (KPI'er, grafer, tabeller), layout/
   features/      chat, insights, campaigns, activity, settings, onboarding
   stores/        zustand: indstillinger, forbindelse, samtaler (IndexedDB), aktivitetslog, AI-forbrug
-src-tauri/       Rust-skal: sikker nøglelagring (Credential Manager), OAuth-loopback, HTTP-scope til Microsoft
+src-tauri/       Rust-skal: sikker lagring af login (Credential Manager), OAuth-loopback, HTTP-scope til Microsoft
 ```
 
 - **Sikkerhed:** Webdelen kan kun kalde Microsofts domæner via Tauri HTTP-pluginnet (scope i
-  `src-tauri/capabilities/default.json`) og Claude via CSP. Nøgler gemmes kun i Windows Credential Manager.
+  `src-tauri/capabilities/default.json`) og Claude via CSP. Fælles nøgler og forbindelser ligger på jeres Cloudflare; på PC'en gemmes kun login-sessionen og kalender-tokenet (Windows Credential Manager).
   Indhold fra kontoen (kampagnenavne, søgetermer, API-svar) behandles som data, ikke instruktioner.
 - **Hver ændring** bliver til en *ChangePlan*, der vurderes af `src/ai/guardrails.ts` (bloker / kræv godkendelse /
   tillad) før noget sendes til Microsoft, og logges med en fortryd-operation.

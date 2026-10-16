@@ -37,18 +37,23 @@ GitHub → repoet **bing-ads-chat** → Settings → Secrets and variables → A
 | `TAURI_SIGNING_PRIVATE_KEY` | Hele indholdet af Bing Ads Chats egen signeringsnøgle `updater.key` (uden adgangskode – den offentlige del står i `src-tauri/tauri.release.conf.json`). Gem filen i din password manager |
 | `CLOUDFLARE_API_TOKEN` | API-token til **din nye Cloudflare-konto**: log ind på dash.cloudflare.com → My Profile → API Tokens → Create Token → skabelonen **Edit Cloudflare Workers** → vælg din konto under *Account Resources* → Continue → Create Token, og kopiér tokenet |
 
-### Valgfrit: "Log ind med Microsoft" med ét klik
+### Login med Microsoft (konti i appen)
 
-Tilføj også disse to secrets, så appen har Microsoft Advertising-adgangen indbygget. Så skal man kun klikke
-**Log ind med Microsoft** og logge ind med sin Microsoft-konto. Uden dem spørger appen om dem første gang.
+Man logger ind i appen med sin Microsoft-konto. Det giver en konto i afdelingens fælles arbejdsområde på
+Cloudflare og lader appen lægge påmindelser i ens egen Outlook-kalender – intet andet. Den første, der logger
+ind, bliver administrator. Kolleger med en `inventarland.dk`-adresse kommer ind med det samme (`ALLOWED_DOMAINS`
+i `cloudflare/wrangler.jsonc`); andre skal godkendes under **Indstillinger → Brugere**.
+
+Forbindelserne (Microsoft Advertising, Claude- og Gemini-nøglerne) og planlægningstavlerne gemmes fælles på
+Cloudflare. De forbindes én gang inde i appen under **Indstillinger → Forbindelser**, og alle kan ændre dem.
 
 | Secret | Indhold |
 | --- | --- |
-| `MS_DEVELOPER_TOKEN` | Dit developer token: log ind på https://ads.microsoft.com (Super Admin) → **Indstillinger → Developer settings** → vælg din bruger → **Request Developer Token** → kopiér det |
-| `MS_CLIENT_ID` | *Application (client) ID* fra en app-registrering: https://entra.microsoft.com → **Applikationer → App-registreringer → Ny registrering** · navn "Bing Ads Chat" · kontotyper: *Accounts in any organizational directory and personal Microsoft accounts* · Registrér. Under **Godkendelse**: *Tilføj en platform → Mobil- og skrivebordsprogrammer* → brugerdefineret omdirigerings-URI `http://localhost` → Konfigurer, og slå **Tillad offentlige klientflows** til → Gem. Kopiér *Application (client) ID* fra Oversigt |
+| `MS_CLIENT_ID` | **Påkrævet til login.** *Application (client) ID* fra en app-registrering: https://entra.microsoft.com → **Applikationer → App-registreringer → Ny registrering** · navn "Bing Ads Chat" · kontotyper: *Accounts in any organizational directory and personal Microsoft accounts* · Registrér. Under **Godkendelse**: *Tilføj en platform → Mobil- og skrivebordsprogrammer* → brugerdefineret omdirigerings-URI `http://localhost` → Konfigurer, og slå **Tillad offentlige klientflows** til → Gem. Under **API-tilladelser**: *Tilføj en tilladelse → Microsoft Graph → Delegerede tilladelser* → `Calendars.ReadWrite` (og `openid`, `profile`, `email`, `offline_access`). Kopiér *Application (client) ID* fra Oversigt. Det bygges ind i appen og gives til Cloudflare-workeren, som kun godtager logins fra netop denne app-registrering |
+| `MS_DEVELOPER_TOKEN` | Valgfrit. Dit developer token: log ind på https://ads.microsoft.com (Super Admin) → **Indstillinger → Developer settings** → vælg din bruger → **Request Developer Token**. Udfyldes ellers i appen, når Microsoft Advertising forbindes |
 
-Developer token og client ID ligger i den app, man henter, så alle med installeren kan læse dem. De giver ikke
-adgang til nogen konto alene: man skal stadig logge ind med en Microsoft-bruger, der har adgang til kontoen.
+Client ID og developer token ligger i den app, man henter, så alle med installeren kan læse dem. De giver ikke
+adgang til noget alene: man skal stadig logge ind med en Microsoft-bruger.
 
 Kør derefter workflowet igen (Actions → Build Windows app → **Run workflow**) eller push en ændring.
 Uden secrets bygger GitHub stadig exe-filerne (artefakt + "Seneste build"), men uden automatiske opdateringer.

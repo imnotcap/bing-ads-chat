@@ -1,23 +1,23 @@
 /**
- * Reminders in the user's Outlook calendar through Microsoft Graph
- * (POST /me/events). Uses the same Microsoft app as the Advertising login, with
- * the extra permission Calendars.ReadWrite: the first time, Microsoft asks the user
- * to allow it in the browser; after that a refresh token is kept in the credential
- * store (ms_graph_refresh_token).
+ * Reminders in the user's own Outlook calendar through Microsoft Graph
+ * (POST /me/events). "Log ind med Microsoft" asks for Calendars.ReadWrite, so the
+ * login's refresh token (ms_graph_refresh_token in the credential store) covers it.
+ * If it is missing or revoked, Microsoft asks once more in the browser.
  */
-import { useConnection } from '@/stores/connection';
-import { effectiveClientId } from './credentials';
+import { useAccount } from '@/stores/account';
+import { BUILTIN_MS } from './credentials';
 import { GRAPH_CALENDAR_SCOPE, refreshAccessToken, signInInteractive, type OAuthConfig } from './oauth';
 import { deleteSecret, getSecret, isTauri, setSecret } from '@/lib/platform';
 
 let cached: { token: string; expires: number } | null = null;
 
 function config(): OAuthConfig | null {
-  const clientId = effectiveClientId();
-  return clientId ? { clientId, tenant: useConnection.getState().msTenant || 'common' } : null;
+  const login = useAccount.getState().login;
+  const clientId = login?.clientId || BUILTIN_MS.clientId;
+  return clientId ? { clientId, tenant: login?.tenant || 'common' } : null;
 }
 
-/** Outlook reminders can be made from this app (desktop app with a Microsoft app id). */
+/** Outlook reminders can be made from this app (desktop app, signed in with Microsoft). */
 export function outlookAvailable() {
   return isTauri && !!config();
 }
@@ -31,18 +31,15 @@ async function graphToken(interactive: boolean): Promise<string> {
     cached = { token: t.access_token, expires: Date.now() + (t.expires_in ?? 3600) * 1000 };
     return t.access_token;
   };
-  // 1) Calendar access given before. 2) The Advertising login, if it already covers the calendar.
-  for (const name of ['ms_graph_refresh_token', 'ms_refresh_token'] as const) {
-    const refresh = await getSecret(name).catch(() => null);
-    if (!refresh) continue;
+  const refresh = await getSecret('ms_graph_refresh_token').catch(() => null);
+  if (refresh) {
     try {
       return await remember(await refreshAccessToken(cfg, refresh, GRAPH_CALENDAR_SCOPE));
     } catch {
-      if (name === 'ms_graph_refresh_token') await deleteSecret('ms_graph_refresh_token').catch(() => {});
+      await deleteSecret('ms_graph_refresh_token').catch(() => {});
     }
   }
   if (!interactive) throw new Error('Outlook-kalenderen er ikke forbundet.');
-  // 3) Ask once in the browser.
   return remember(await signInInteractive(cfg, GRAPH_CALENDAR_SCOPE));
 }
 
@@ -92,7 +89,7 @@ export async function addOutlookEvent(ev: OutlookEvent): Promise<{ id: string; w
   return { id: json.id, webLink: json.webLink };
 }
 
-export async function disconnectOutlook() {
+/** Forgets the calendar token in memory (signing out removes the stored one). */
+export function forgetOutlook() {
   cached = null;
-  await deleteSecret('ms_graph_refresh_token');
 }

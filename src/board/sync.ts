@@ -1,96 +1,57 @@
 /**
- * Shares the planning boards with the team through the Cloudflare Worker
- * (cloudflare/src/worker.ts). Ops made on this PC are sent in small batches; the
- * Worker orders them and tells every open app over a WebSocket that something
- * changed, and the apps fetch the new ops. A team is joined with an invite code
- * (team id + secret); the secret is the key to the team's boards.
+ * Keeps the planning boards in sync with the department's workspace on Cloudflare
+ * (cloudflare/src/workspace.ts). Everyone signed in to the app shares the same
+ * boards. Ops made on this PC are sent in small batches; the Worker orders them and
+ * tells every open app over a WebSocket that something changed, and the apps fetch
+ * the new ops.
+ *
+ * The first time a PC connects, its boards come along: into an empty workspace as
+ * the starting point, otherwise as new boards next to the shared ones (except the
+ * untouched example board).
  */
 import { useEffect } from 'react';
+import { api, ApiError, openSocket } from '@/workspace/api';
+import { useAccount } from '@/stores/account';
+import { LOCAL_ME, MEMBER_COLORS, isBoardData, remapMember, useBoard, type BoardData, type BoardOp, type OpInput } from '@/stores/board';
 import { uid } from '@/lib/utils';
-import { LOCAL_ME, MEMBER_COLORS, isBoardData, remapMember, useBoard, type BoardData, type BoardOp } from '@/stores/board';
 
-export const SITE_URL = ((import.meta.env.VITE_SITE_URL as string | undefined) || 'https://bing-ads-chat.casperjohansen.workers.dev').replace(/\/$/, '');
+/** Member id of a workspace user on the boards. */
+export const memberIdOf = (userId: string) => `u_${userId}`;
 
-export class TeamError extends Error {
-  constructor(
-    message: string,
-    public status = 0,
-  ) {
-    super(message);
+const EXAMPLE_TITLE = 'Marketingplan';
+
+/** The example board every PC starts with, never changed (checked before member ids are remapped). */
+export function isUntouchedExample(d: BoardData, boardId: string) {
+  const board = d.boards.find((b) => b.id === boardId);
+  if (!board || board.ownerId || board.title !== EXAMPLE_TITLE) return false;
+  const cards = Object.values(d.cards).filter((c) => c.boardId === boardId);
+  return cards.length > 0 && cards.every((c) => c.activity.length === 1 && c.activity[0]!.memberId === LOCAL_ME);
+}
+
+/** Ops that add this PC's own boards to the workspace's (`skip`: boards to leave behind). */
+export function bringAlong(local: BoardData, shared: BoardData, skip: Set<string>): OpInput[] {
+  const ops: OpInput[] = [];
+  const known = new Set([...shared.boards.map((b) => b.id), ...skip]);
+  const memberIds = new Set<string>();
+  for (const board of local.boards) {
+    if (known.has(board.id)) continue;
+    ops.push({ type: 'createBoard', board: { ...board, lists: board.lists.map((l) => ({ ...l, cardIds: [] })) } });
+    for (const list of board.lists) {
+      for (const id of list.cardIds) {
+        const card = local.cards[id];
+        if (!card || shared.cards[id]) continue;
+        ops.push({ type: 'addCard', card });
+        card.memberIds.forEach((m) => memberIds.add(m));
+      }
+    }
   }
+  const sharedMembers = new Set(shared.members.map((m) => m.id));
+  const members = local.members.filter((m) => memberIds.has(m.id) && !sharedMembers.has(m.id));
+  return [...members.map((member): OpInput => ({ type: 'addMember', member })), ...ops];
 }
 
-async function api<T>(path: string, init: RequestInit & { secret?: string } = {}): Promise<T> {
-  const { secret, ...rest } = init;
-  let res: Response;
-  try {
-    res = await fetch(`${SITE_URL}/api${path}`, {
-      ...rest,
-      headers: { 'Content-Type': 'application/json', ...(secret ? { Authorization: `Bearer ${secret}` } : {}), ...rest.headers },
-    });
-  } catch {
-    throw new TeamError('Kunne ikke nå serveren. Tjek internetforbindelsen.');
-  }
-  const body = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) {
-    const msg = res.status === 401 || res.status === 404 ? 'Invitationskoden er ikke gyldig (teamet findes ikke, eller koden er forkert).' : (body.error ?? `Serveren svarede ${res.status}.`);
-    throw new TeamError(msg, res.status);
-  }
-  return body;
-}
-
-/* ------------------------------- invite codes ------------------------------- */
-
-export function inviteCode(team: { id: string; secret: string }) {
-  return `bac-${team.id}-${team.secret}`;
-}
-
-export function parseInvite(code: string): { id: string; secret: string } | null {
-  const m = code.trim().match(/^bac-([a-z0-9]{8,40})-([a-z0-9]{20,80})$/i);
-  return m ? { id: m[1]!.toLowerCase(), secret: m[2]!.toLowerCase() } : null;
-}
-
-/* --------------------------------- team setup --------------------------------- */
-
-function withMe(data: BoardData, meId: string, name: string, role: string): BoardData {
-  const exists = data.members.some((m) => m.id === meId);
-  const me = { id: meId, name: name.trim() || 'Mig', role: role.trim() || undefined, color: data.members.find((m) => m.id === meId)?.color ?? MEMBER_COLORS[data.members.length % MEMBER_COLORS.length]! };
-  return { ...data, members: exists ? data.members.map((m) => (m.id === meId ? me : m)) : [...data.members, me] };
-}
-
-/** Turns this PC's boards into a new team and returns the invite code. */
-export async function createTeam(teamName: string, myName: string, role: string) {
-  const s = useBoard.getState();
-  const meId = uid('m_');
-  // The local "Mig" becomes a real member, so teammates can tell people apart.
-  const data = withMe(remapMember({ boards: s.boards, cards: s.cards, members: s.members }, s.meId === LOCAL_ME ? LOCAL_ME : s.meId, meId), meId, myName, role);
-  const res = await api<{ teamId: string; secret: string; version: number }>('/teams', { method: 'POST', body: JSON.stringify({ name: teamName.trim() || 'Team', data }) });
-  useBoard.getState().setTeam({ id: res.teamId, secret: res.secret, name: teamName.trim() || 'Team', version: res.version }, data, meId);
-  connect();
-  return inviteCode({ id: res.teamId, secret: res.secret });
-}
-
-/** Joins a team: its boards replace the ones on this PC. */
-export async function joinTeam(code: string, myName: string, role: string) {
-  const invite = parseInvite(code);
-  if (!invite) throw new TeamError('Koden ligner ikke en invitationskode. Den starter med "bac-".');
-  const res = await api<{ name: string; version: number; data: BoardData }>(`/teams/${invite.id}/state`, { secret: invite.secret });
-  if (!isBoardData(res.data)) throw new TeamError('Teamets tavler kunne ikke læses.');
-  const meId = uid('m_');
-  const store = useBoard.getState();
-  store.setTeam({ ...invite, name: res.name, version: res.version }, res.data, meId);
-  store.dispatch({ type: 'addMember', member: withMe(EMPTY, meId, myName, role).members[0]! });
-  connect();
-  flush();
-}
-
-const EMPTY: BoardData = { boards: [], cards: {}, members: [] };
-
-/** Stops sharing on this PC; the boards stay here as a local copy. */
-export function leaveTeam() {
-  disconnect();
-  const s = useBoard.getState();
-  s.setTeam(null, { boards: s.boards, cards: s.cards, members: s.members }, s.meId);
+function withOp(input: OpInput, actor: string): BoardOp {
+  return { ...input, id: uid('op_'), actor, ts: Date.now() } as BoardOp;
 }
 
 /* ------------------------------------ sync ------------------------------------ */
@@ -101,22 +62,65 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
 let pulling: Promise<void> | null = null;
+let starting: Promise<void> | null = null;
 /** Ops the server has confirmed; dropped from "pending" by the next pull. */
 let acked: string[] = [];
 
-function team() {
-  return useBoard.getState().team;
+const linked = () => useBoard.getState().team;
+const me = () => useAccount.getState().user;
+
+/** Links this PC's boards to the workspace (first connect) and adds the user as a member. */
+function start(): Promise<void> {
+  starting ??= (async () => {
+    const user = me();
+    if (!user) return;
+    const meId = memberIdOf(user.id);
+    const store = useBoard.getState();
+    if (store.team?.userId === user.id) return;
+
+    const state = await api<{ version: number; data: BoardData | null }>('/boards/state');
+    const mine: BoardData = { boards: store.boards, cards: store.cards, members: store.members };
+    const examples = new Set(mine.boards.filter((b) => isUntouchedExample(mine, b.id)).map((b) => b.id));
+    const local = remapMember(mine, store.meId, meId);
+    // Linked before by someone else on this PC: start from the workspace's boards only.
+    const own = !store.team;
+    let { version, data } = state;
+    let bring = own;
+    if (!data) {
+      const seeded = await api<{ version: number; data: BoardData; seeded: boolean }>('/boards/seed', { method: 'POST', body: JSON.stringify({ data: own ? local : { boards: [], cards: {}, members: [] } }) });
+      ({ version, data } = seeded);
+      bring = own && !seeded.seeded;
+    }
+    if (!isBoardData(data)) throw new ApiError('Tavlerne kunne ikke læses.');
+    const pending = bring ? bringAlong(local, data, examples).map((o) => withOp(o, meId)) : [];
+    useBoard.getState().setTeam({ version, userId: user.id }, data, meId, pending);
+    ensureMember();
+  })().finally(() => {
+    starting = null;
+  });
+  return starting;
+}
+
+/** The signed-in user is a member on the boards, with the name from their Microsoft account. */
+function ensureMember() {
+  const user = me();
+  const s = useBoard.getState();
+  if (!user || !s.team) return;
+  const meId = memberIdOf(user.id);
+  const existing = s.members.find((m) => m.id === meId);
+  if (!existing) s.dispatch({ type: 'addMember', member: { id: meId, name: user.name, color: MEMBER_COLORS[s.members.length % MEMBER_COLORS.length]! } });
+  else if (existing.name !== user.name) s.dispatch({ type: 'updateMember', memberId: meId, patch: { name: user.name } });
 }
 
 export function pull(): Promise<void> {
   if (pulling) return pulling;
-  const t = team();
+  const t = linked();
   if (!t) return Promise.resolve();
   pulling = (async () => {
     try {
-      const res = await api<{ version: number; ops?: BoardOp[]; data?: BoardData }>(`/teams/${t.id}/changes?since=${t.version}`, { secret: t.secret });
+      const res = await api<{ version: number; ops?: BoardOp[]; data?: BoardData }>(`/boards/changes?since=${t.version}`);
       const store = useBoard.getState();
-      if (store.team?.id !== t.id) return;
+      if (store.team?.userId !== t.userId) return;
       if (res.data && isBoardData(res.data)) {
         store.resetConfirmed(res.data, res.version);
         store.applyRemote([], res.version, acked);
@@ -135,12 +139,11 @@ export function pull(): Promise<void> {
 export function flush() {
   if (flushTimer) clearTimeout(flushTimer);
   flushTimer = null;
-  const t = team();
-  if (!t || flushing) return;
+  if (!linked() || flushing) return;
   const batch = useBoard.getState().pending.filter((p) => !acked.includes(p.id)).slice(0, 100);
   if (!batch.length) return;
   flushing = true;
-  void api<{ version: number; accepted: string[]; duplicates: string[] }>(`/teams/${t.id}/ops`, { method: 'POST', secret: t.secret, body: JSON.stringify({ ops: batch }) })
+  void api<{ version: number; accepted: string[]; duplicates: string[] }>('/boards/ops', { method: 'POST', body: JSON.stringify({ ops: batch }) })
     .then(async (res) => {
       acked.push(...res.accepted, ...res.duplicates);
       await pull();
@@ -159,18 +162,29 @@ function scheduleFlush(ms = 250) {
 
 function handleError(e: unknown) {
   const store = useBoard.getState();
-  if (e instanceof TeamError && (e.status === 401 || e.status === 404)) {
+  if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
     store.setStatus('error', e.message);
     disconnect();
   } else store.setStatus('offline', e instanceof Error ? e.message : String(e));
 }
 
-export function connect() {
-  const t = team();
-  if (!t || socket) return;
+export async function connect() {
+  if (socket || useAccount.getState().status !== 'ready') return;
   if (retryTimer) clearTimeout(retryTimer);
   useBoard.getState().setStatus('connecting');
-  const ws = new WebSocket(`${SITE_URL.replace(/^http/, 'ws')}/api/teams/${t.id}/socket`, ['bac', t.secret]);
+  try {
+    await start();
+  } catch (e) {
+    handleError(e);
+    if (!(e instanceof ApiError && (e.status === 401 || e.status === 403))) retryTimer = setTimeout(() => void connect(), Math.min(30_000, 1000 * 2 ** retry++));
+    return;
+  }
+  if (socket) return;
+  const ws = await openSocket('/boards/socket');
+  if (!ws || socket) {
+    ws?.close();
+    return;
+  }
   socket = ws;
   ws.onopen = () => {
     retry = 0;
@@ -180,19 +194,22 @@ export function connect() {
   ws.onmessage = (e) => {
     try {
       const msg = JSON.parse(String(e.data)) as { type: string; version?: number };
-      if ((msg.type === 'changed' || msg.type === 'hello') && (msg.version ?? 0) > (team()?.version ?? 0)) void pull();
+      if ((msg.type === 'changed' || msg.type === 'hello') && (msg.version ?? 0) > (linked()?.version ?? 0)) void pull();
     } catch {
       /* "pong" */
     }
   };
-  ws.onclose = () => {
+  ws.onclose = (e) => {
     if (socket !== ws) return;
     socket = null;
     const store = useBoard.getState();
     if (!store.team || store.status === 'error') return;
-    store.setStatus('offline', 'Forbindelsen til teamet er afbrudt – prøver igen …');
-    const delay = Math.min(30_000, 1000 * 2 ** retry++);
-    retryTimer = setTimeout(connect, delay);
+    if (e.code === 4003) {
+      store.setStatus('error', 'Du har ikke længere adgang til arbejdsområdet.');
+      return;
+    }
+    store.setStatus('offline', 'Forbindelsen er afbrudt – prøver igen …');
+    retryTimer = setTimeout(() => void connect(), Math.min(30_000, 1000 * 2 ** retry++));
   };
 }
 
@@ -203,25 +220,32 @@ export function disconnect() {
   ws?.close();
 }
 
-/** Keeps a team's boards in sync while the app runs (mounted once in App.tsx). */
+/** Keeps the boards in sync while the app runs and someone is signed in (mounted once in App.tsx). */
 export function useBoardSync() {
   useEffect(() => {
-    if (team()) connect();
+    if (useAccount.getState().status === 'ready') void connect();
+    const unsubAccount = useAccount.subscribe((s, prev) => {
+      if (s.status === 'ready' && (prev.status !== 'ready' || s.user?.id !== prev.user?.id)) {
+        disconnect();
+        void connect();
+      }
+      if (s.status !== 'ready' && prev.status === 'ready') disconnect();
+    });
     let pendingCount = useBoard.getState().pending.length;
-    const unsub = useBoard.subscribe((s, prev) => {
-      if (s.team && !prev.team) connect();
-      if (!s.team && prev.team) disconnect();
+    const unsub = useBoard.subscribe((s) => {
       if (s.team && s.pending.length > pendingCount) scheduleFlush();
       pendingCount = s.pending.length;
     });
-    const onFocus = () => team() && void pull().then(flush);
+    const onFocus = () => linked() && void pull().then(flush);
     window.addEventListener('focus', onFocus);
     const keepAlive = setInterval(() => {
-      if (!team()) return;
+      if (!linked() || useAccount.getState().status !== 'ready') return;
       if (socket?.readyState === WebSocket.OPEN) socket.send('ping');
+      else if (!socket) void connect();
       void pull().then(flush);
     }, 30_000);
     return () => {
+      unsubAccount();
       unsub();
       window.removeEventListener('focus', onFocus);
       clearInterval(keepAlive);

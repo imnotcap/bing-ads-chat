@@ -11,7 +11,12 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
-export type SecretName = 'anthropic_api_key' | 'google_api_key' | 'ms_refresh_token' | 'ms_graph_refresh_token' | 'ms_developer_token' | 'ms_client_secret';
+/**
+ * app_session: this PC's sign-in to the shared workspace on Cloudflare.
+ * ms_graph_refresh_token: the user's own Microsoft login (their Outlook calendar).
+ * The rest are from before connections were shared; only read to move them to the workspace.
+ */
+export type SecretName = 'app_session' | 'ms_graph_refresh_token' | 'anthropic_api_key' | 'google_api_key' | 'ms_refresh_token' | 'ms_developer_token' | 'ms_client_secret';
 
 const DEV_PREFIX = 'bac.dev-secret.';
 

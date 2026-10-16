@@ -17,7 +17,7 @@ export interface MicrosoftIdentity {
   name: string;
 }
 
-function b64urlBytes(s: string): Uint8Array {
+function b64urlBytes(s: string): Uint8Array<ArrayBuffer> {
   const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4);
   const bin = atob(b64);
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
