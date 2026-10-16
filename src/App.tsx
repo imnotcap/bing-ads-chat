@@ -20,6 +20,7 @@ import { AccountGate } from '@/features/account/LoginScreen';
 import { SettingsDialog } from '@/features/settings/SettingsDialog';
 import { UpdateDialog } from '@/components/layout/UpdatePrompt';
 import { SignInDialog } from '@/features/settings/SignInDialog';
+import { NewBoardDialog } from '@/features/board/BoardAccess';
 import { useAutoUpdate } from '@/hooks/useAutoUpdate';
 import { useDesktopShell } from '@/hooks/useDesktopShell';
 import { useBootstrap } from '@/hooks/useBootstrap';
@@ -154,6 +155,7 @@ function Shell() {
       <SettingsDialog />
       <UpdateDialog />
       <SignInDialog />
+      <NewBoardDialog />
       <AnimatePresence>{signedIn && !onboarded && <Onboarding key="onboarding" />}</AnimatePresence>
       <AccountGate />
     </div>

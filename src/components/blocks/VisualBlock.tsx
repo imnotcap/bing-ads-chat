@@ -1,11 +1,13 @@
 import type { VisualSpec } from '@/ai/visuals';
 import { ChartBlock } from './ChartBlock';
+import { FileBlock } from './FileBlock';
 import { KpiGrid } from './KpiGrid';
 import { TableBlock } from './TableBlock';
 
 export function VisualBlock({ visual, currency }: { visual: VisualSpec; currency: string }) {
   // Follow-up suggestions are interactive and rendered by the chat itself.
   if (visual.type === 'suggestions') return null;
+  if (visual.type === 'file') return <FileBlock fileName={visual.fileName} content={visual.content} description={visual.description} />;
   return (
     <div className="grid gap-2.5">
       {visual.title && <div className="text-[13px] font-semibold text-ink">{visual.title}</div>}

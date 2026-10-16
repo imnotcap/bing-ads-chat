@@ -77,7 +77,9 @@ export async function startOAuthListener(): Promise<{ port: number; callback: Pr
  */
 export async function saveExport(fileName: string, contents: string): Promise<string | null> {
   if (isTauri) return invoke<string>('export_save', { fileName, contents });
-  const url = URL.createObjectURL(new Blob([contents], { type: 'text/markdown;charset=utf-8' }));
+  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+  const types: Record<string, string> = { csv: 'text/csv', tsv: 'text/tab-separated-values', json: 'application/json', ics: 'text/calendar', html: 'text/html', xml: 'application/xml', txt: 'text/plain' };
+  const url = URL.createObjectURL(new Blob([contents], { type: `${types[ext] ?? 'text/markdown'};charset=utf-8` }));
   const a = Object.assign(document.createElement('a'), { href: url, download: fileName });
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);

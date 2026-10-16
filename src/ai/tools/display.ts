@@ -9,7 +9,32 @@ const cell = z.union([z.string(), z.number(), z.null()]);
 /** Display tools after which the assistant's turn ends (no follow-up request needed). */
 export const TERMINAL_TOOLS = new Set(['suggest_next_steps']);
 
+const FILE_TYPES = ['csv', 'tsv', 'txt', 'md', 'json', 'ics', 'html', 'xml'] as const;
+
 export const displayTools = [
+  defineRead({
+    name: 'create_file',
+    kind: 'display',
+    description: `Give the user a file they can save (shown as a file card with "Gem fil", saved to Downloads › Bing Ads Chat). ALWAYS use this when the user asks for a file, a download, an export, something to import, a list to send on, or a calendar entry – never paste the file's content into your reply instead. Your reply text only says briefly what the file contains.
+Formats (text only): csv/tsv for spreadsheets and imports (opens in Excel – use semicolon ";" as separator and decimal comma for Danish Excel, a header row, one record per line, quote fields containing ";"), txt, md (checklists, notes, reports), json, html, xml, and ics for calendar entries (VCALENDAR with VEVENT, DTSTART/DTEND as local time YYYYMMDDTHHMMSS, SUMMARY, DESCRIPTION, a VALARM reminder). Excel (.xlsx), Word and PDF files cannot be made – offer CSV or Markdown instead and say so.`,
+    schema: z.object({
+      fileName: z
+        .string()
+        .max(100)
+        .regex(new RegExp(`^[^\\\\/:*?"<>|]+\\.(${FILE_TYPES.join('|')})$`, 'i'), 'File name with one of the allowed extensions, no folders')
+        .describe(`Danish, descriptive file name with extension, e.g. "negative-soegeord-brand.csv". Allowed: ${FILE_TYPES.join(', ')}.`),
+      content: z.string().min(1).max(200_000).describe('The complete file content.'),
+      description: z.string().max(120).optional().describe('One short Danish line about the file, e.g. "42 søgeord til import i Microsoft Advertising".'),
+    }),
+    label: (i) => `Laver filen ${i.fileName}`,
+    async run(input) {
+      return {
+        result: 'The file is shown to the user with a "Gem fil" button. Do not repeat its content in your reply.',
+        summary: input.fileName,
+        visual: { type: 'file', fileName: input.fileName, content: input.content, description: input.description },
+      };
+    },
+  }),
   defineRead({
     name: 'suggest_next_steps',
     kind: 'display',

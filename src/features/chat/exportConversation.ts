@@ -29,6 +29,7 @@ export function assistantMarkdown(item: AssistantItem): string {
   for (const p of item.parts) {
     if (p.type === 'text' && p.text.trim()) out.push(p.text.trim());
     else if (p.type === 'tool' && p.plan) out.push(changeMarkdown(p));
+    else if (p.type === 'visual' && p.visual.type === 'file') out.push(`📎 ${p.visual.fileName}\n\n\`\`\`\n${p.visual.content}\n\`\`\``);
     else if (p.type === 'visual' && p.visual.type === 'suggestions') out.push(`_${p.visual.question}_\n${p.visual.items.map((i) => `- ${i.label}`).join('\n')}`);
     else if (p.type === 'notice') out.push(`> ${p.text}`);
   }

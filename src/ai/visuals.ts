@@ -29,7 +29,9 @@ export type VisualSpec =
       data: Record<string, string | number | null>[];
     }
   | { type: 'table'; title?: string; columns: VisualColumn[]; rows: Record<string, string | number | null>[] }
-  | { type: 'suggestions'; question: string; items: SuggestionItem[] };
+  | { type: 'suggestions'; question: string; items: SuggestionItem[] }
+  /** A text file the user can save (CSV, TXT, Markdown, JSON, ICS …). */
+  | { type: 'file'; fileName: string; content: string; description?: string };
 
 /** A follow-up the user can pick with one click. */
 export interface SuggestionItem {
