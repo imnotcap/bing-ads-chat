@@ -4,7 +4,7 @@
  * categories are listed at the bottom so they can be shown again.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { Activity, ChevronDown, Eye, EyeOff, LayoutDashboard, Plus, Search, Sparkles, type LucideIcon } from 'lucide-react';
+import { Activity, ChevronDown, Eye, EyeOff, LayoutDashboard, Plus, Search, Sparkles, SquareKanban, type LucideIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
 import { EASE } from '@/components/motion';
@@ -22,7 +22,7 @@ interface NavItem {
   label: string;
   icon?: LucideIcon;
   brand?: Brand;
-  /** Colour square for boards. */
+  /** Board colour (tints the board icon). */
   swatch?: string;
   active: boolean;
   onSelect?: () => void;
@@ -57,7 +57,7 @@ function ItemRow({ item }: { item: NavItem }) {
         {item.brand ? (
           <BrandIcon brand={item.brand} className="size-[16px]" />
         ) : item.swatch ? (
-          <span className="size-3 rounded-[4px]" style={{ background: item.swatch }} />
+          <SquareKanban className="size-[17px]" style={{ color: item.swatch }} strokeWidth={1.8} />
         ) : item.icon ? (
           <item.icon className="size-[17px]" strokeWidth={1.8} />
         ) : null}

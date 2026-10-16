@@ -863,29 +863,41 @@ function BoardView({ board }: { board: Board }) {
     <motion.div {...pageTransition} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-56" style={{ background: `linear-gradient(180deg, ${accent.soft} 0%, transparent 100%)` }} />
       <header className="relative flex flex-wrap items-center gap-3 px-6 pb-4 pt-5">
-        <span className="size-3.5 shrink-0 rounded-[5px]" style={{ background: accent.solid }} />
+        <SquareKanban className="size-[22px] shrink-0" style={{ color: accent.solid }} strokeWidth={1.8} />
         <BoardTitle board={board} />
-        <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
-          <span className="rounded-full bg-white/80 px-2.5 py-1 text-muted ring-1 ring-black/[0.05]">{stats.total} kort</span>
+        {/* Quiet summary; the clickable parts toggle the matching filter. */}
+        <div className="flex flex-wrap items-center gap-x-2 text-[12.5px] text-muted tabular">
+          <span>{stats.total} kort</span>
           {stats.mine > 0 && (
-            <button
-              type="button"
-              onClick={() => setFilters({ ...filters, mine: !filters.mine })}
-              className={cn('rounded-full px-2.5 py-1 font-medium ring-1 transition-colors', filters.mine ? 'bg-brand text-white ring-brand' : 'bg-brand-50 text-brand ring-brand/15 hover:bg-brand-100')}
-            >
-              {stats.mine} til dig
-            </button>
+            <>
+              <span className="text-subtle">·</span>
+              <button
+                type="button"
+                onClick={() => setFilters({ ...filters, mine: !filters.mine })}
+                className={cn('underline-offset-2 transition-colors hover:text-ink hover:underline', filters.mine && 'font-medium text-ink underline')}
+              >
+                {stats.mine} til dig
+              </button>
+            </>
           )}
           {stats.overdue > 0 && (
-            <button
-              type="button"
-              onClick={() => setFilters({ ...filters, due: filters.due === 'overdue' ? 'all' : 'overdue' })}
-              className={cn('rounded-full px-2.5 py-1 font-medium ring-1 transition-colors', filters.due === 'overdue' ? 'bg-negative text-white ring-negative' : 'bg-negative-bg text-negative ring-negative/15')}
-            >
-              {stats.overdue} forfaldne
-            </button>
+            <>
+              <span className="text-subtle">·</span>
+              <button
+                type="button"
+                onClick={() => setFilters({ ...filters, due: filters.due === 'overdue' ? 'all' : 'overdue' })}
+                className={cn('text-negative underline-offset-2 hover:underline', filters.due === 'overdue' && 'font-medium underline')}
+              >
+                {stats.overdue} forfalden{stats.overdue === 1 ? '' : 'e'}
+              </button>
+            </>
           )}
-          {stats.done > 0 && <span className="rounded-full bg-positive-bg px-2.5 py-1 font-medium text-positive ring-1 ring-positive/15">{stats.done} færdige</span>}
+          {stats.done > 0 && (
+            <>
+              <span className="text-subtle">·</span>
+              <span>{stats.done} færdig{stats.done === 1 ? '' : 'e'}</span>
+            </>
+          )}
         </div>
         <div className="ml-auto flex items-center gap-2">
           <TeamPop />
