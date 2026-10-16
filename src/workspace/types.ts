@@ -41,6 +41,15 @@ export interface WorkspaceInfo {
     error: string | null;
   };
   keys: Record<SharedKeyName, SharedKeyInfo | null>;
+  /** Inventarland's API (webshop sales and the other ad channels), read with a shared Inventarland user. */
+  inventarland: {
+    connected: boolean;
+    url: string;
+    email: string | null;
+    connectedBy: string | null;
+    connectedAt: number | null;
+    error: string | null;
+  };
 }
 
 export interface AdsAccess {
@@ -64,3 +73,10 @@ export interface PublicConfig {
 
 /** Microsoft Advertising scope (the workspace's shared connection). */
 export const ADS_SCOPE = 'https://ads.microsoft.com/msads.manage offline_access';
+
+/** Inventarland's Cloudflare API (inventarland-dashboard, apps/worker). */
+export const INVENTARLAND_URL = 'https://inventarland-api.scj-981.workers.dev';
+
+/** Read-only views of Inventarland's API that the workspace passes on. */
+export const INVENTARLAND_VIEWS = ['dashboard', 'channels', 'campaigns', 'sales', 'products'] as const;
+export type InventarlandView = (typeof INVENTARLAND_VIEWS)[number];

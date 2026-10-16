@@ -8,10 +8,12 @@
  *   The Advertising refresh token never leaves Cloudflare: the app asks for a
  *   short-lived access token instead.
  * - Planning boards: every op in order, with a WebSocket ping to all open apps.
+ * - Inventarland: read-only views of Inventarland's API (webshop sales, other ad
+ *   channels), fetched with a shared Inventarland user whose password stays here.
  */
 import { DurableObject } from 'cloudflare:workers';
 import { applyOp, isBoardData, type BoardData, type BoardOp } from '../../src/board/model';
-import { ADS_SCOPE, type AdsAccess, type SharedKeyName, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
+import { ADS_SCOPE, INVENTARLAND_URL, INVENTARLAND_VIEWS, type AdsAccess, type InventarlandView, type SharedKeyName, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
 import { AuthError, verifyMicrosoftIdToken, type MicrosoftIdentity } from './auth';
 
 export interface Env {
@@ -43,6 +45,17 @@ interface AdsConnection {
 }
 
 type Keys = Partial<Record<SharedKeyName, { value: string; by: string; at: number }>>;
+
+/** A read-only Inventarland user the workspace signs in with; its session is kept here too. */
+interface InventarlandConnection {
+  url: string;
+  email: string;
+  password: string;
+  token: string | null;
+  connectedBy: string;
+  connectedAt: number;
+  error: string | null;
+}
 
 interface BoardMeta {
   version: number;
@@ -90,6 +103,7 @@ export class Workspace extends DurableObject<Env> {
   private boards: BoardData | null = null;
   private adsToken: { value: string; expiresAt: number } | null = null;
   private adsPending: Promise<string> | null = null;
+  private invCache = new Map<string, { at: number; body: string }>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -214,6 +228,30 @@ export class Workspace extends DurableObject<Env> {
       return json(body);
     }
 
+    /* ------------------------------- Inventarland ------------------------------- */
+    if (path === '/workspace/inventarland' && method === 'PUT') {
+      const body = (await req.json()) as { url?: string; email?: string; password?: string };
+      const url = (body.url?.trim() || INVENTARLAND_URL).replace(/\/+$/, '');
+      if (!/^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(url) && !/^http:\/\/localhost(:\d+)?$/.test(url)) return fail('Adressen skal være fx https://inventarland-api….workers.dev', 400);
+      const email = body.email?.trim().toLowerCase() ?? '';
+      if (!email.includes('@') || !body.password) return fail('Skriv e-mail og adgangskode til Inventarland-brugeren.', 400);
+      const conn: InventarlandConnection = { url, email, password: body.password, token: null, connectedBy: user.name, connectedAt: Date.now(), error: null };
+      conn.token = await this.inventarlandLogin(conn);
+      await this.ctx.storage.put('inventarland', conn);
+      this.invCache.clear();
+      return json(await this.info());
+    }
+    if (path === '/workspace/inventarland' && method === 'DELETE') {
+      await this.ctx.storage.delete('inventarland');
+      this.invCache.clear();
+      return json(await this.info());
+    }
+    const im = path.match(/^\/inventarland\/([a-z]+)$/);
+    if (im && method === 'GET') {
+      if (!(INVENTARLAND_VIEWS as readonly string[]).includes(im[1]!)) return fail('Ikke fundet.', 404);
+      return this.inventarland(im[1] as InventarlandView, url.searchParams);
+    }
+
     /* --------------------------------- boards --------------------------------- */
     if (path.startsWith('/boards/')) return this.boardRoute(req, url, path.slice('/boards/'.length), user);
 
@@ -298,7 +336,11 @@ export class Workspace extends DurableObject<Env> {
   /* --------------------------- shared connections --------------------------- */
 
   private async info(): Promise<WorkspaceInfo> {
-    const [ads, keys] = await Promise.all([this.ctx.storage.get<AdsConnection>('ads'), this.ctx.storage.get<Keys>('keys')]);
+    const [ads, keys, inv] = await Promise.all([
+      this.ctx.storage.get<AdsConnection>('ads'),
+      this.ctx.storage.get<Keys>('keys'),
+      this.ctx.storage.get<InventarlandConnection>('inventarland'),
+    ]);
     const keyInfo = (k?: { value: string; by: string; at: number }) => (k ? { hint: hint(k.value), by: k.by, at: k.at } : null);
     return {
       ads: {
@@ -312,6 +354,14 @@ export class Workspace extends DurableObject<Env> {
         error: ads?.error ?? null,
       },
       keys: { anthropic: keyInfo(keys?.anthropic), google: keyInfo(keys?.google) },
+      inventarland: {
+        connected: !!inv,
+        url: inv?.url ?? INVENTARLAND_URL,
+        email: inv?.email ?? null,
+        connectedBy: inv?.connectedBy ?? null,
+        connectedAt: inv?.connectedAt ?? null,
+        error: inv?.error ?? null,
+      },
     };
   }
 
@@ -349,6 +399,69 @@ export class Workspace extends DurableObject<Env> {
       }
     })();
     return this.adsPending;
+  }
+
+  /* ------------------------------- Inventarland ------------------------------- */
+
+  /** Signs in to Inventarland's API (POST /api/v1/auth/login) and returns the session token. */
+  private async inventarlandLogin(conn: Pick<InventarlandConnection, 'url' | 'email' | 'password'>): Promise<string> {
+    let res: Response;
+    try {
+      res = await fetch(`${conn.url}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: conn.email, password: conn.password, deviceName: 'Bing Ads Chat (Cloudflare)' }),
+      });
+    } catch {
+      throw new AuthError('Kunne ikke nå Inventarlands API. Tjek adressen.', 502);
+    }
+    const body = (await res.json().catch(() => ({}))) as { token?: string; error?: { message?: string } };
+    if (!res.ok || !body.token) throw new AuthError(`Inventarland afviste login: ${body.error?.message ?? `HTTP ${res.status}`}`, res.status === 401 || res.status === 429 ? 409 : 502);
+    return body.token;
+  }
+
+  /** One read-only view from Inventarland (kept 5 minutes – the data is daily totals). */
+  private async inventarland(view: InventarlandView, params: URLSearchParams): Promise<Response> {
+    const conn = await this.ctx.storage.get<InventarlandConnection>('inventarland');
+    if (!conn) return fail('Inventarland er ikke forbundet. Forbind det under Indstillinger → Forbindelser.', 409);
+    const query = new URLSearchParams();
+    for (const k of ['from', 'to', 'compare', 'granularity', 'provider']) {
+      const v = params.get(k);
+      if (v) query.set(k, v.slice(0, 40));
+    }
+    const target = `${conn.url}/api/v1/${view}?${query}`;
+    const hit = this.invCache.get(target);
+    if (hit && Date.now() - hit.at < 300_000) return new Response(hit.body, { headers: { 'Content-Type': 'application/json', ...CORS } });
+
+    const call = (token: string | null) => fetch(target, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    let token = conn.token;
+    let res = await call(token).catch(() => null);
+    if (res?.status === 401) {
+      // Sessions there last 30 days (90 at most): sign in again.
+      try {
+        token = await this.inventarlandLogin(conn);
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e);
+        await this.ctx.storage.put('inventarland', { ...conn, token: null, error });
+        throw e;
+      }
+      await this.ctx.storage.put('inventarland', { ...conn, token, error: null });
+      res = await call(token).catch(() => null);
+    }
+    if (!res) return fail('Kunne ikke nå Inventarlands API.', 502);
+    const text = await res.text();
+    if (!res.ok) {
+      let message = `Inventarland svarede ${res.status}.`;
+      try {
+        message = (JSON.parse(text) as { error?: { message?: string } }).error?.message ?? message;
+      } catch {
+        /* not JSON */
+      }
+      return fail(`Inventarland: ${message}`, res.status === 400 ? 400 : 502);
+    }
+    if (this.invCache.size > 60) this.invCache.clear();
+    this.invCache.set(target, { at: Date.now(), body: text });
+    return new Response(text, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...CORS } });
   }
 
   /* --------------------------------- boards --------------------------------- */

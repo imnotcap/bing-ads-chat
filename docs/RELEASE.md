@@ -52,6 +52,11 @@ Cloudflare. De forbindes én gang inde i appen under **Indstillinger → Forbind
 | `MS_CLIENT_ID` | **Påkrævet til login.** *Application (client) ID* fra en app-registrering: https://entra.microsoft.com → **Applikationer → App-registreringer → Ny registrering** · navn "Bing Ads Chat" · kontotyper: *Accounts in any organizational directory and personal Microsoft accounts* · Registrér. Under **Godkendelse**: *Tilføj en platform → Mobil- og skrivebordsprogrammer* → brugerdefineret omdirigerings-URI `http://localhost` → Konfigurer, og slå **Tillad offentlige klientflows** til → Gem. Under **API-tilladelser**: *Tilføj en tilladelse → Microsoft Graph → Delegerede tilladelser* → `Calendars.ReadWrite` (og `openid`, `profile`, `email`, `offline_access`). Kopiér *Application (client) ID* fra Oversigt. Det bygges ind i appen og gives til Cloudflare-workeren, som kun godtager logins fra netop denne app-registrering |
 | `MS_DEVELOPER_TOKEN` | Valgfrit. Dit developer token: log ind på https://ads.microsoft.com (Super Admin) → **Indstillinger → Developer settings** → vælg din bruger → **Request Developer Token**. Udfyldes ellers i appen, når Microsoft Advertising forbindes |
 
+Inventarland-data (webshoppens salg og de andre annoncekanaler) forbindes også inde i appen under
+**Indstillinger → Forbindelser → Inventarland** med en Inventarland-bruger med rollen *Læser* – se README.
+
+Uden `MS_CLIENT_ID` stopper udgivelsen med en fejl, så ingen bliver låst ude af en ny version.
+
 Client ID og developer token ligger i den app, man henter, så alle med installeren kan læse dem. De giver ikke
 adgang til noget alene: man skal stadig logge ind med en Microsoft-bruger.
 

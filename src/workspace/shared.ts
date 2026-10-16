@@ -12,7 +12,7 @@ import { queryClient } from '@/lib/queryClient';
 import { useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
 import { api, loadConfig } from './api';
-import { ADS_SCOPE, type SharedKeyName, type WorkspaceInfo } from './types';
+import { ADS_SCOPE, type InventarlandView, type SharedKeyName, type WorkspaceInfo } from './types';
 
 /* --------------------------------- overview --------------------------------- */
 
@@ -132,6 +132,26 @@ export async function setSharedDeveloperToken(developerToken: string) {
 /** Disconnects Microsoft Advertising for everyone (back to demo data). */
 export async function disconnectSharedAds() {
   applyWorkspace(await api<WorkspaceInfo>('/workspace/ads', { method: 'DELETE' }));
+}
+
+/* --------------------------------- Inventarland --------------------------------- */
+
+/**
+ * Connects Inventarland's API with a read-only Inventarland user (webshop sales and
+ * the other ad channels). The password is checked and kept on Cloudflare only.
+ */
+export async function connectInventarland(opts: { url?: string; email: string; password: string }) {
+  applyWorkspace(await api<WorkspaceInfo>('/workspace/inventarland', { method: 'PUT', body: JSON.stringify(opts) }));
+}
+
+export async function disconnectInventarland() {
+  applyWorkspace(await api<WorkspaceInfo>('/workspace/inventarland', { method: 'DELETE' }));
+}
+
+/** One read-only view from Inventarland's API (passed on by the workspace). */
+export function inventarland<T>(view: InventarlandView, params: Record<string, string | undefined>): Promise<T> {
+  const query = new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => !!e[1]));
+  return api<T>(`/inventarland/${view}?${query}`);
 }
 
 /* ------------------------------ moving old keys ------------------------------ */

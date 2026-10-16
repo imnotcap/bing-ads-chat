@@ -13,8 +13,8 @@ import { cn, errorMessage } from '@/lib/utils';
 import { useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
 import type { ApprovalMode } from '@/stores/settings';
-import { connectSharedAds, disconnectSharedAds, goDemo, goLive, setSharedDeveloperToken } from '@/workspace/shared';
-import type { SharedKeyInfo } from '@/workspace/types';
+import { connectInventarland, connectSharedAds, disconnectInventarland, disconnectSharedAds, goDemo, goLive, setSharedDeveloperToken } from '@/workspace/shared';
+import { INVENTARLAND_URL, type SharedKeyInfo } from '@/workspace/types';
 import { removeAnthropicKey, saveAnthropicKey, testAnthropicKey } from './connection';
 
 function SecretInput({ value, onChange, placeholder, id }: { value: string; onChange: (v: string) => void; placeholder?: string; id?: string }) {
@@ -274,6 +274,101 @@ export function AdsConnectionForm({ compact = false, onDone }: { compact?: boole
       <button type="button" onClick={() => setAdvanced((v) => !v)} className="flex w-fit items-center gap-1 text-[12.5px] font-medium text-brand hover:underline">
         {advanced ? 'Skjul avanceret' : 'Developer token og app-registrering'} <ChevronDown className={cn('size-3.5 transition-transform', advanced && 'rotate-180')} />
       </button>
+    </div>
+  );
+}
+
+/**
+ * Inventarland's API: the webshop's sales and the other ad channels, read with a
+ * shared Inventarland user that only has the "Læser" role.
+ */
+export function InventarlandForm() {
+  const inv = useAccount((s) => s.workspace?.inventarland ?? null);
+  const [url, setUrl] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState<'save' | 'off' | null>(null);
+  const [editing, setEditing] = useState(false);
+  const connected = !!inv?.connected;
+  const showForm = !connected || editing;
+
+  const save = async () => {
+    setBusy('save');
+    try {
+      await connectInventarland({ url: url.trim() || undefined, email, password });
+      setPassword('');
+      setEditing(false);
+      toast.success('Inventarland er forbundet for alle', { description: 'Assistenten kan nu se webshoppens salg og de andre annoncekanaler.' });
+    } catch (e) {
+      toast.error('Kunne ikke forbinde Inventarland', { description: errorMessage(e), duration: 10_000 });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="grid content-start gap-4">
+      {connected && inv && (
+        <div className={cn('grid gap-1 rounded-xl px-3.5 py-2.5 text-[13px]', inv.error ? 'bg-warning-bg text-warning' : 'bg-positive-bg text-positive')}>
+          <div className="flex flex-wrap items-center gap-2">
+            {inv.error ? <AlertTriangle className="size-4" /> : <CheckCircle2 className="size-4" />}
+            <span className="font-medium">Forbundet som {inv.email}</span>
+          </div>
+          {inv.error && <p className="text-[12.5px]">{inv.error}</p>}
+          <SharedBy by={inv.connectedBy} at={inv.connectedAt} className={inv.error ? 'text-warning/80' : 'text-positive/80'} />
+        </div>
+      )}
+      {showForm && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Inventarland-bruger (e-mail)" htmlFor="inv-email" hint="En bruger med rollen Læser – opret den i Inventarland under Administration → Brugere.">
+            <Input id="inv-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="bing-ads-chat@inventarland.dk" autoComplete="off" />
+          </Field>
+          <Field label="Adgangskode" htmlFor="inv-password" hint="Gemmes kun på jeres Cloudflare – aldrig på PC'erne.">
+            <SecretInput id="inv-password" value={password} onChange={setPassword} placeholder="••••••••" />
+          </Field>
+          <Field label="API-adresse" htmlFor="inv-url" hint="Tom = Inventarlands egen (inventarland-api).">
+            <Input id="inv-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={inv?.url ?? INVENTARLAND_URL} className="font-mono text-[13px]" />
+          </Field>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {showForm ? (
+          <>
+            <Button variant={connected ? 'secondary' : 'gradient'} disabled={!!busy || !email.includes('@') || !password} onClick={() => void save()}>
+              {busy === 'save' ? <Loader2 className="animate-spin" /> : <LogIn />} {connected ? 'Gem og test' : 'Forbind Inventarland'}
+            </Button>
+            {editing && (
+              <Button variant="ghost" onClick={() => setEditing(false)}>
+                Annullér
+              </Button>
+            )}
+          </>
+        ) : (
+          <>
+            <Button variant="secondary" onClick={() => setEditing(true)}>
+              Skift bruger
+            </Button>
+            <Button
+              variant="ghost"
+              className="text-muted"
+              disabled={!!busy}
+              onClick={async () => {
+                setBusy('off');
+                try {
+                  await disconnectInventarland();
+                  toast('Inventarland er afbrudt for alle');
+                } catch (e) {
+                  toast.error('Kunne ikke afbryde', { description: errorMessage(e) });
+                } finally {
+                  setBusy(null);
+                }
+              }}
+            >
+              <Unplug /> Afbryd
+            </Button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

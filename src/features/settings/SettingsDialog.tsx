@@ -32,7 +32,7 @@ import { goDemo, goLive } from '@/workspace/shared';
 import { useAccount } from '@/stores/account';
 import { ModelsTab } from './ModelsTab';
 import { UsersTab } from './UsersTab';
-import { AdsConnectionForm, ApprovalModePicker, ClaudeKeyForm, MicrosoftSetupGuide } from './forms';
+import { AdsConnectionForm, ApprovalModePicker, ClaudeKeyForm, InventarlandForm, MicrosoftSetupGuide } from './forms';
 
 interface TabDef {
   id: SettingsTab;
@@ -44,7 +44,7 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  { id: 'connections', label: 'Forbindelser', icon: Plug, group: 'Konto', keywords: 'claude api nøgle microsoft advertising bing developer token client id tenant demo fælles cloudflare' },
+  { id: 'connections', label: 'Forbindelser', icon: Plug, group: 'Konto', keywords: 'claude api nøgle microsoft advertising bing developer token client id tenant demo fælles cloudflare inventarland magento webshop salg google ads meta daisycon' },
   { id: 'users', label: 'Brugere', icon: Users, group: 'Konto', keywords: 'konto log ud login microsoft administrator admin godkend adgang kolleger team' },
   { id: 'business', label: 'Virksomhed', icon: Building2, group: 'Konto', keywords: 'profil mål cpa roas dækningsgrad tone of voice instruktioner website' },
   { id: 'spend', label: 'Forbrug', icon: Wallet, group: 'Assistent', keywords: 'budget månedsbudget grænser godkendelse autopilot nødstop beskyttede kampagner cpc bud budgetvagt' },
@@ -110,6 +110,12 @@ function ConnectionsTab() {
             <MicrosoftSetupGuide />
           </div>
         </div>
+      </Card>
+      <Card
+        title="Inventarland (webshop og andre kanaler)"
+        description="Giver assistenten webshoppens faktiske salg og produkter fra Magento samt Google Ads, Meta og Daisycon – hentet fra Inventarlands API. Kun læseadgang; intet ændres i Inventarland."
+      >
+        <InventarlandForm />
       </Card>
     </div>
   );

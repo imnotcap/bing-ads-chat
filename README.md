@@ -117,6 +117,22 @@ Claude-nøgle → Microsoft Advertising (eller demo) → forbrugsregler.
   samme; andre venter, til en administrator giver adgang under *Indstillinger → Brugere*.
 - Opsætning (app-registrering og `MS_CLIENT_ID`): se [docs/RELEASE.md](docs/RELEASE.md).
 
+### Inventarland (webshop og andre kanaler)
+
+Under *Indstillinger → Forbindelser → Inventarland* forbindes appen til Inventarlands API (`inventarland-api` på
+Cloudflare, fra Inventarland-appen). Det giver assistenten tre læse-værktøjer:
+
+| Værktøj | Hvad assistenten får | Brug det til |
+| --- | --- | --- |
+| `get_shop_sales` | Webshoppens faktiske salg fra Magento: omsætning, ordrer, gns. ordre, refusioner, dag for dag og bedst sælgende produkter | Se om Bing-annoncerne giver rigtigt salg – ikke kun Microsofts egne konverteringer. Fx *"Hvor stor en del af webshoppens omsætning bruger vi på Bing?"* |
+| `get_shop_products` | Produktsalg pr. SKU: stk., omsætning, andel og udvikling | Vælg hvad der skal annonceres, og skriv annoncer/søgeord til produkter, der sælger. Fx *"Lav annoncer til de 5 bedst sælgende kontorstole"* |
+| `get_channel_comparison` | Google Ads, Microsoft Ads, Meta og Daisycon side om side (forbrug, omsætning, ROAS, CPA) og en kanals kampagner | Sæt Bing i perspektiv. Fx *"Er vores ROAS på Bing bedre end på Google?"* |
+
+Opsætning (én gang): opret i Inventarland en bruger med rollen **Læser** (*Administration → Brugere*), fx
+`bing-ads-chat@inventarland.dk`, og skriv e-mail og adgangskode ind i Bing Ads Chat. Adgangskoden gemmes kun på jeres
+Cloudflare; Workeren logger selv ind igen, når Inventarland-sessionen udløber. Der læses kun – intet ændres i
+Inventarland. Værktøjerne kan slås fra i chatfeltet under *Inventarland · webshop og kanaler*.
+
 ### Lokal udvikling med test-login
 
 ```bash
