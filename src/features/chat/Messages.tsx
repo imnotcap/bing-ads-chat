@@ -45,7 +45,7 @@ export const UserMessage = memo(function UserMessage({ item }: { item: UserItem 
         </div>
       )}
       {item.text && (
-        <div className="max-w-[78%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-line-2 px-4 py-2.5 text-[15px] leading-relaxed text-ink" data-selectable>
+        <div className="min-w-0 max-w-[78%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-line-2 px-4 py-2.5 text-[15px] leading-relaxed text-ink [overflow-wrap:anywhere]" data-selectable>
           {item.text}
         </div>
       )}
@@ -129,7 +129,7 @@ function Suggestions({ question, items, active }: { question: string; items: Sug
           )}
         >
           <Sparkles className="size-4 shrink-0" />
-          <span className="flex-1">{s.label}</span>
+          <span className="min-w-0 flex-1">{s.label}</span>
           <ArrowRight className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
         </button>
       ))}
@@ -142,7 +142,7 @@ function Suggestions({ question, items, active }: { question: string; items: Sug
               disabled={disabled}
               onClick={() => pick(s)}
               className={cn(
-                'rounded-full border px-3.5 py-1.5 text-[13px] transition-colors',
+                'max-w-full rounded-full border px-3.5 py-1.5 text-left text-[13px] transition-colors',
                 picked === s.label ? 'border-brand/40 bg-brand-50 text-brand' : disabled ? 'border-line text-subtle' : 'border-line bg-surface text-ink-2 hover:border-brand/40 hover:text-ink',
               )}
             >

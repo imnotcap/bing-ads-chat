@@ -108,7 +108,9 @@ Claude-nøgle → Microsoft Advertising (eller demo) → forbrugsregler.
 ### Konti og fælles forbindelser
 
 - **Log ind med Microsoft** giver dig en konto i appen og lader appen lægge påmindelser og begivenheder i din egen
-  Outlook-kalender (`Calendars.ReadWrite`). Det er alt, dit eget login bruges til.
+  Outlook-kalender (`Calendars.ReadWrite`) og sende opfølgningsmails fra dig til dig selv (`Mail.Send`). Det er alt, dit eget
+  login bruges til. Skriv `/test` i chatten (eller *Indstillinger → AI-assistent → Test nu*) for at prøve opfølgningen –
+  kort i Min planlægning, påmindelse i Outlook og mail – uden Microsoft Ads og uden AI.
 - **Forbindelserne er fælles for hele afdelingen** og gemmes på jeres Cloudflare (`cloudflare/src/workspace.ts`):
   Microsoft Advertising-login, developer token, Claude- og Gemini-nøgler samt planlægningstavlerne. Alle, der er
   logget ind, ser de samme data og kan ændre forbindelserne under *Indstillinger → Forbindelser*.

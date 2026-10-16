@@ -22,7 +22,7 @@ import { loadConfig } from '@/workspace/api';
 
 const ACCESS = [
   { icon: UserRound, title: 'Din konto i appen', text: 'Dit navn og din e-mail, så kollegerne kan se, hvem der gør hvad.' },
-  { icon: CalendarDays, title: 'Din Outlook-kalender', text: 'Kun til påmindelser og begivenheder, du selv opretter fra appen.' },
+  { icon: CalendarDays, title: 'Din Outlook: kalender og mail til dig selv', text: 'Kun til påmindelser, begivenheder og opfølgningsmails, du selv opretter fra appen – mails sendes kun til dig.' },
   { icon: Users, title: 'Fælles for afdelingen', text: 'Annoncekonti, AI-nøgler og planlægning deles af alle – de forbindes én gang.' },
 ];
 

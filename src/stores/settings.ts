@@ -47,6 +47,8 @@ export interface AiSettings {
   followUps: boolean;
   /** Also add follow-ups to the Outlook calendar (pre-ticked on the follow-up card). */
   followUpOutlook: boolean;
+  /** Also mail follow-ups to the signed-in user (pre-ticked on the follow-up card). */
+  followUpMail: boolean;
 }
 
 export interface BusinessProfile {
@@ -111,7 +113,7 @@ export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
       spend: DEFAULT_SPEND_RULES,
-      ai: { model: 'claude-opus-5-5', effort: 'medium', showThinking: true, monthlyAiBudgetUsd: 25, usdToDkk: 6.9, maxToolRounds: 30, enabledModels: [], customModels: [], connectors: {}, followUps: true, followUpOutlook: true },
+      ai: { model: 'claude-opus-5-5', effort: 'medium', showThinking: true, monthlyAiBudgetUsd: 25, usdToDkk: 6.9, maxToolRounds: 30, enabledModels: [], customModels: [], connectors: {}, followUps: true, followUpOutlook: true, followUpMail: true },
       business: {
         companyName: '',
         website: '',

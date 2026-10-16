@@ -114,7 +114,7 @@ export function UsersTab() {
       <section className="border-b border-line py-7 first:pt-1">
         <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">Din konto</h2>
         <p className="mt-1 text-[13px] leading-relaxed text-muted">
-          Du er logget ind med Microsoft. Appen bruger kun dit navn og din e-mail og din Outlook-kalender (til påmindelser, du selv opretter).
+          Du er logget ind med Microsoft. Appen bruger kun dit navn og din e-mail, din Outlook-kalender (påmindelser, du selv opretter) og mails fra dig til dig selv (opfølgninger).
         </p>
         <div className="mt-4 flex items-center gap-3 rounded-xl border border-line px-3.5 py-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-full bg-brand text-[12px] font-semibold text-white">{initials(me?.name ?? '')}</span>

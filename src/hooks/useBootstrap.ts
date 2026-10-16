@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { DEMO_ACCOUNTS } from '@/bing/demo/seed';
 import { getBackend } from '@/bing/backend';
+import { MsApiError } from '@/bing/client';
+import { ERROR_105 } from '@/workspace/shared';
 import { errorMessage } from '@/lib/utils';
 import { useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
@@ -32,7 +34,10 @@ export function useBootstrap(): { ready: boolean; error: string | null } {
         set({ accounts, accountId: accounts.some((a) => a.id === accountId) ? accountId : (accounts[0]?.id ?? null) });
         setError(null);
       } catch (e) {
-        if (!cancelled) setError(errorMessage(e));
+        if (cancelled) return;
+        // 105 / 401: Microsoft accepted the sign-in, but Microsoft Advertising does not.
+        const rejected = e instanceof MsApiError && (e.status === 401 || /\(105\)|InvalidCredentials/.test(e.message));
+        setError(rejected ? `${ERROR_105} Forbind igen under Indstillinger → Forbindelser.` : errorMessage(e));
       }
     })();
     return () => {

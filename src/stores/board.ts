@@ -51,7 +51,9 @@ interface BoardState extends BoardData {
   statusDetail: string | null;
 
   dispatch: (op: OpInput) => BoardOp;
-  createBoard: (title: string) => string;
+  /** `access`: who can see it (no owner = everyone). */
+  createBoard: (title: string, access?: { ownerId: string | null; sharedWith: string[] }) => string;
+  setBoardAccess: (boardId: string, ownerId: string | null, sharedWith: string[]) => void;
   updateBoard: (boardId: string, patch: Partial<Pick<Board, 'title' | 'accent'>>) => void;
   deleteBoard: (boardId: string) => void;
   addList: (boardId: string, title: string) => void;
@@ -220,7 +222,7 @@ export const useBoard = create<BoardState>()(
           return full;
         },
 
-        createBoard: (title) => {
+        createBoard: (title, access) => {
           const accents: LabelColor[] = ['purple', 'teal', 'blue', 'pink', 'orange', 'green'];
           const board: Board = {
             id: uid('b_'),
@@ -229,10 +231,12 @@ export const useBoard = create<BoardState>()(
             lists: ['To do', 'I gang', 'Færdig'].map((t) => ({ id: uid('l_'), title: t, cardIds: [] })),
             labels: DEFAULT_LABELS(),
             createdAt: Date.now(),
+            ...(access?.ownerId ? { ownerId: access.ownerId, sharedWith: access.sharedWith.filter((m) => m !== access.ownerId) } : {}),
           };
           op({ type: 'createBoard', board });
           return board.id;
         },
+        setBoardAccess: (boardId, ownerId, sharedWith) => void op({ type: 'setBoardAccess', boardId, ownerId, sharedWith }),
         updateBoard: (boardId, patch) => void op({ type: 'updateBoard', boardId, patch }),
         deleteBoard: (boardId) => void op({ type: 'deleteBoard', boardId }),
         addList: (boardId, title) => void op({ type: 'addList', boardId, list: { id: uid('l_'), title: title.trim() || 'Ny liste', cardIds: [] } }),

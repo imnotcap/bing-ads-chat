@@ -20,6 +20,7 @@ import { AccountGate } from '@/features/account/LoginScreen';
 import { SettingsDialog } from '@/features/settings/SettingsDialog';
 import { UpdateDialog } from '@/components/layout/UpdatePrompt';
 import { SignInDialog } from '@/features/settings/SignInDialog';
+import { NewBoardDialog } from '@/features/board/BoardAccess';
 import { useAutoUpdate } from '@/hooks/useAutoUpdate';
 import { useDesktopShell } from '@/hooks/useDesktopShell';
 import { useBootstrap } from '@/hooks/useBootstrap';
@@ -129,7 +130,9 @@ function Shell() {
               className="relative z-30 flex items-center gap-2 bg-warning-bg px-6 py-2 text-left text-[13px] text-warning"
             >
               <AlertTriangle className="size-4 shrink-0" />
-              <span className="truncate">Microsoft Advertising: {error}</span>
+              <span className="truncate" title={error}>
+                Microsoft Advertising: {error}
+              </span>
               <span className="ml-auto shrink-0 font-semibold underline">Åbn forbindelser</span>
             </button>
           )}
@@ -152,6 +155,7 @@ function Shell() {
       <SettingsDialog />
       <UpdateDialog />
       <SignInDialog />
+      <NewBoardDialog />
       <AnimatePresence>{signedIn && !onboarded && <Onboarding key="onboarding" />}</AnimatePresence>
       <AccountGate />
     </div>

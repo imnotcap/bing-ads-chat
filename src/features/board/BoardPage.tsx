@@ -25,7 +25,6 @@ import {
   ArrowDownUp,
   Filter,
   LayoutList,
-  Lock,
   MoreHorizontal,
   Plus,
   RotateCcw,
@@ -46,7 +45,8 @@ import { Segmented, Switch } from '@/components/ui/controls';
 import { useSettings } from '@/stores/settings';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { cn } from '@/lib/utils';
-import { LABEL_COLORS, dueState, useBoard, visibleBoards, type Board, type BoardList, type Card, type Member } from '@/stores/board';
+import { LABEL_COLORS, boardAccess, canSeeBoard, dueState, useBoard, visibleBoards, type Board, type BoardList, type Card, type Member } from '@/stores/board';
+import { AccessBadge, BoardAccessSection } from './BoardAccess';
 import { useUi } from '@/stores/ui';
 import { CardDialog } from './CardDialog';
 import { CardView, type CardStyle } from './CardView';
@@ -473,8 +473,10 @@ function MemberRow({ member, isMe }: { member: Member; isMe: boolean }) {
   );
 }
 
-function TeamPop() {
-  const members = useBoard((s) => s.members);
+function TeamPop({ board }: { board: Board }) {
+  // On a board for selected people: only the people who can see it.
+  const all = useBoard((s) => s.members);
+  const members = useMemo(() => (board.ownerId ? all.filter((m) => canSeeBoard(board, m.id)) : all), [all, board]);
   const meId = useBoard((s) => s.meId);
   const team = useBoard((s) => s.team);
   const addMember = useBoard((s) => s.addMember);
@@ -561,6 +563,7 @@ function BoardMenu({ board }: { board: Board }) {
         }
       >
         <div className="grid gap-3.5">
+          <BoardAccessSection board={board} />
           <div>
             <div className="mb-1.5 text-[11.5px] font-semibold text-muted">Farve</div>
             <ColorGrid value={board.accent} onChange={(c) => st().updateBoard(board.id, { accent: c })} />
@@ -796,19 +799,13 @@ function BoardView({ board }: { board: Board }) {
     <motion.div {...pageTransition} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-56" style={{ background: `linear-gradient(180deg, ${accent.soft} 0%, transparent 100%)` }} />
       <header className="relative flex flex-wrap items-center gap-3 px-6 pb-4 pt-5">
-        {board.ownerId ? (
+        {boardAccess(board) === 'private' ? (
           <UserRound className="size-[22px] shrink-0" style={{ color: accent.solid }} strokeWidth={1.8} />
         ) : (
           <SquareKanban className="size-[22px] shrink-0" style={{ color: accent.solid }} strokeWidth={1.8} />
         )}
         <BoardTitle board={board} />
-        {board.ownerId && (
-          <Tooltip content="Din personlige tavle. Den vises ikke hos dine kolleger, heller ikke når I deler tavler.">
-            <span className="inline-flex items-center gap-1 text-[12px] text-muted">
-              <Lock className="size-3" /> Kun for dig
-            </span>
-          </Tooltip>
-        )}
+        <AccessBadge board={board} />
         {stats.total > 0 && (
           <Tooltip content={`${stats.done} af ${stats.total} kort er færdige`}>
             <div className="flex items-center gap-2 pl-1">
@@ -828,8 +825,8 @@ function BoardView({ board }: { board: Board }) {
           </Tooltip>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <ShareButton />
-          <TeamPop />
+          <ShareButton board={board} />
+          <TeamPop board={board} />
           <span className="mx-1 h-5 w-px bg-line" />
           {stats.overdue > 0 && (
             <Button size="sm" variant="secondary" aria-pressed={overdueOn} className={cn(overdueOn && 'border-negative/40 bg-negative-bg text-negative hover:bg-negative-bg')} onClick={() => setFilters({ ...filters, due: overdueOn ? 'all' : 'overdue' })}>

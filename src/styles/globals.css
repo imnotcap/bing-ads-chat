@@ -140,6 +140,19 @@
 
 /* Markdown inside assistant messages. */
 @layer components {
+  /*
+   * Content that must never grow wider than its box (the chat column, popovers):
+   * grids get a column that may shrink (an "auto" column grows to its widest
+   * content), long words and links wrap, and wide tables and code scroll inside
+   * their own box.
+   */
+  .fit-width,
+  .fit-width .grid:not([class*='grid-cols-']) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fit-width {
+    overflow-wrap: break-word;
+  }
   .prose-chat {
     @apply text-[15px] leading-[1.65] text-ink-2;
   }
@@ -200,6 +213,7 @@
     @apply rounded-md bg-line-2 px-1.5 py-0.5 text-[13px] text-ink;
   }
   .prose-chat pre {
+    max-width: 100%;
     @apply overflow-x-auto rounded-xl bg-ink p-4 text-[13px] text-white;
   }
   .prose-chat pre code {

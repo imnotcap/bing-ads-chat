@@ -1,17 +1,19 @@
 /**
  * After the assistant has changed something (campaigns, ad groups, keywords, ads …)
  * it offers a follow-up under the reply: a card on the user's personal planning
- * board ("Min planlægning", made if missing) and a reminder in the Outlook calendar.
+ * board ("Min planlægning", made if missing), a reminder in the Outlook calendar and
+ * a mail to the user themselves. "/test" shows the same card without any changes.
  */
 import { motion } from 'motion/react';
-import { ArrowRight, CalendarClock, Check, ExternalLink, Loader2, SquareKanban } from 'lucide-react';
+import { ArrowRight, CalendarClock, Check, ExternalLink, FlaskConical, Loader2, Mail, SquareKanban } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { EASE } from '@/components/motion';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
-import { addOutlookEvent, outlookAvailable } from '@/bing/outlook';
+import { addOutlookEvent, outlookAvailable, sendMailToSelf } from '@/bing/outlook';
 import { openExternal } from '@/lib/platform';
 import { cn, errorMessage } from '@/lib/utils';
+import { useAccount } from '@/stores/account';
 import { fmtDue, useBoard } from '@/stores/board';
 import { useChat, type AssistantItem, type ToolPart } from '@/stores/chat';
 import { useSettings } from '@/stores/settings';
@@ -50,24 +52,40 @@ function describe(changes: ToolPart[]) {
   return `Ændret af assistenten ${date}:\n${lines.join('\n')}\n\nTjek om ændringerne virker: sammenlign forbrug, klik, konverteringer og CPA før og efter.`;
 }
 
+const TEST_DESCRIPTION =
+  'Dette er en test af opfølgningen i Bing Ads Chat – intet er ændret i Microsoft Advertising.\n\nNår assistenten ændrer noget rigtigt, står ændringerne her, så du kan tjekke, om de virkede.';
+
+const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function mailHtml(title: string, description: string, when: string, outlookLink?: string | null) {
+  const body = escapeHtml(description).replace(/\n/g, '<br>');
+  const link = outlookLink ? `<p><a href="${escapeHtml(outlookLink)}">Åbn påmindelsen i Outlook</a></p>` : '';
+  return `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1d1d22"><h2 style="font-size:17px;margin:0 0 8px">${escapeHtml(title)}</h2><p style="color:#6b6b76;margin:0 0 12px">Opfølgning ${escapeHtml(when)}</p><p>${body}</p>${link}<p style="color:#9a9aa5;font-size:12px">Sendt fra Bing Ads Chat til dig selv.</p></div>`;
+}
+
 export function FollowUpCard({ item }: { item: AssistantItem }) {
   const convId = useChat((s) => s.activeId);
   const updateItem = useChat((s) => s.updateItem);
   const enabled = useSettings((s) => s.ai.followUps);
   const outlookDefault = useSettings((s) => s.ai.followUpOutlook);
+  const mailDefault = useSettings((s) => s.ai.followUpMail);
+  const email = useAccount((s) => s.user?.email ?? null);
+  const test = !!item.test;
   const setAi = useSettings((s) => s.setAi);
   const changes = useMemo(() => completedChanges(item), [item]);
   const firstTitle = changes[0]?.plan?.title ?? 'Ændring';
-  const [title, setTitle] = useState(`Følg op: ${firstTitle}${changes.length > 1 ? ` (+${changes.length - 1})` : ''}`);
-  const [due, setDue] = useState(isoDay(7));
+  const [title, setTitle] = useState(test ? 'Test: opfølgning fra Bing Ads Chat' : `Følg op: ${firstTitle}${changes.length > 1 ? ` (+${changes.length - 1})` : ''}`);
+  const [due, setDue] = useState(isoDay(test ? 1 : 7));
   const [time, setTime] = useState('09:00');
   const [toBoard, setToBoard] = useState(true);
   const canOutlook = outlookAvailable();
-  const [toOutlook, setToOutlook] = useState(outlookDefault && canOutlook);
+  const [toOutlook, setToOutlook] = useState((test || outlookDefault) && canOutlook);
+  const canMail = canOutlook && !!email;
+  const [toMail, setToMail] = useState((test || mailDefault) && canMail);
   const [busy, setBusy] = useState(false);
   const state = item.followUp;
 
-  if (!convId || !changes.length) return null;
+  if (!convId || (!changes.length && !test)) return null;
   if (state?.status === 'dismissed') return null;
 
   if (state?.status === 'created') {
@@ -93,21 +111,28 @@ export function FollowUpCard({ item }: { item: AssistantItem }) {
             <ExternalLink className="size-3.5" /> I Outlook
           </button>
         )}
+        {state.mailTo && (
+          <span className="inline-flex items-center gap-1">
+            <Mail className="size-3.5 text-muted" /> Mail sendt til {state.mailTo}
+          </span>
+        )}
         {state.outlookError && <span className="text-[12px] text-warning">Ikke i Outlook: {state.outlookError}</span>}
+        {state.mailError && <span className="text-[12px] text-warning">Ingen mail: {state.mailError}</span>}
       </motion.div>
     );
   }
-  if (!enabled) return null;
+  if (!enabled && !test) return null;
 
   const create = async () => {
     setBusy(true);
     try {
-      const description = describe(changes);
+      const description = test ? TEST_DESCRIPTION : describe(changes);
+      const subject = title.trim() || 'Følg op på annonceændringer';
       let boardId = '';
       let cardId = '';
       if (toBoard) {
         ({ boardId, cardId } = useBoard.getState().addFollowUp({
-          title: title.trim() || 'Følg op',
+          title: subject,
           description,
           due,
           checklist: ['Tjek tallene for det, der blev ændret', 'Beslut: behold, justér eller rul tilbage'],
@@ -119,19 +144,29 @@ export function FollowUpCard({ item }: { item: AssistantItem }) {
       let outlookError: string | undefined;
       if (toOutlook) {
         try {
-          const ev = await addOutlookEvent({ subject: title.trim() || 'Følg op på annonceændringer', body: description, date: due, time, minutes: 30, reminderMinutes: 15 });
+          const ev = await addOutlookEvent({ subject, body: description, date: due, time, minutes: 30, reminderMinutes: 15 });
           outlookLink = ev.webLink ?? null;
           if (cardId) useBoard.getState().updateCard(cardId, { outlook: { eventId: ev.id, webLink: ev.webLink, at: `${due}T${time}` } });
         } catch (e) {
           outlookError = errorMessage(e);
         }
       }
+      let mailTo: string | undefined;
+      let mailError: string | undefined;
+      if (toMail) {
+        try {
+          mailTo = await sendMailToSelf({ subject, html: mailHtml(subject, description, `${fmtDue(due)} kl. ${time}`, outlookLink) });
+        } catch (e) {
+          mailError = errorMessage(e);
+        }
+      }
       updateItem(convId, item.id, (it) => ({
         ...it,
-        followUp: { status: 'created', boardId, cardId, due, time, outlookLink, outlookError },
+        followUp: { status: 'created', boardId, cardId, due, time, outlookLink, outlookError, mailTo, mailError },
       }));
-      if (outlookError) toast.warning('Kortet er lavet, men Outlook fejlede', { description: outlookError });
-      else toast.success('Opfølgning oprettet', { description: `${toBoard ? 'Kort i Min planlægning' : ''}${toBoard && toOutlook ? ' og ' : ''}${toOutlook ? 'påmindelse i Outlook' : ''} · ${fmtDue(due)} kl. ${time}` });
+      const done = [toBoard && 'kort i Min planlægning', toOutlook && !outlookError && 'påmindelse i Outlook', mailTo && 'mail til dig'].filter(Boolean).join(', ');
+      if (outlookError || mailError) toast.warning(done ? `Lavet: ${done}` : 'Opfølgningen fejlede', { description: [outlookError && `Outlook: ${outlookError}`, mailError && `Mail: ${mailError}`].filter(Boolean).join(' · ') });
+      else toast.success('Opfølgning oprettet', { description: `${done.charAt(0).toUpperCase()}${done.slice(1)} · ${fmtDue(due)} kl. ${time}` });
     } finally {
       setBusy(false);
     }
@@ -146,17 +181,19 @@ export function FollowUpCard({ item }: { item: AssistantItem }) {
     >
       <div className="flex items-start gap-3">
         <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-teal-50 text-teal">
-          <CalendarClock className="size-4" />
+          {test ? <FlaskConical className="size-4" /> : <CalendarClock className="size-4" />}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[14px] font-semibold text-ink">Skal jeg sætte en opfølgning på?</div>
+          <div className="text-[14px] font-semibold text-ink">{test ? 'Test af opfølgning' : 'Skal jeg sætte en opfølgning på?'}</div>
           <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
-            Så får du et kort i din personlige planlægning{canOutlook ? ' og en påmindelse i Outlook' : ''}, når det er tid til at tjekke, om ændringen virkede.
+            {test
+              ? 'Prøv opfølgningen af uden Microsoft Advertising: vælg hvad der skal laves, og klik Opret.'
+              : `Så får du et kort i din personlige planlægning${canOutlook ? ', en påmindelse i Outlook og en mail' : ''}, når det er tid til at tjekke, om ændringen virkede.`}
           </p>
         </div>
       </div>
 
-      <div className="mt-3.5 grid gap-3 pl-11">
+      <div className="mt-3.5 grid gap-3 sm:pl-11">
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -199,25 +236,43 @@ export function FollowUpCard({ item }: { item: AssistantItem }) {
               checked={toOutlook}
               onChange={(e) => {
                 setToOutlook(e.target.checked);
-                setAi({ followUpOutlook: e.target.checked });
+                if (!test) setAi({ followUpOutlook: e.target.checked });
               }}
               className="size-4 accent-[var(--color-brand)]"
             />
             Påmindelse i Outlook-kalenderen
           </label>
+          <label
+            className={cn('inline-flex min-w-0 items-center gap-2', canMail ? 'cursor-pointer' : 'cursor-not-allowed opacity-50')}
+            title={canMail ? undefined : 'Kræver desktop-appen og Microsoft-login'}
+          >
+            <input
+              type="checkbox"
+              disabled={!canMail}
+              checked={toMail}
+              onChange={(e) => {
+                setToMail(e.target.checked);
+                if (!test) setAi({ followUpMail: e.target.checked });
+              }}
+              className="size-4 shrink-0 accent-[var(--color-brand)]"
+            />
+            <span className="truncate">Mail til mig{email ? ` (${email})` : ''}</span>
+          </label>
         </div>
         <div className="flex flex-wrap items-center gap-2 pt-0.5">
-          <Button size="sm" variant="gradient" disabled={busy || (!toBoard && !toOutlook)} onClick={() => void create()}>
+          <Button size="sm" variant="gradient" disabled={busy || (!toBoard && !toOutlook && !toMail)} onClick={() => void create()}>
             {busy ? <Loader2 className="animate-spin" /> : <ArrowRight />} Opret opfølgning
           </Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => updateItem(convId, item.id, (it) => ({ ...it, followUp: { status: 'dismissed' } }))}>
             Nej tak
           </Button>
-          <button type="button" onClick={() => setAi({ followUps: false })} className="ml-auto text-[12px] text-subtle hover:text-muted hover:underline">
-            Spørg ikke igen
-          </button>
+          {!test && (
+            <button type="button" onClick={() => setAi({ followUps: false })} className="ml-auto text-[12px] text-subtle hover:text-muted hover:underline">
+              Spørg ikke igen
+            </button>
+          )}
         </div>
-        {toOutlook && busy && <p className="text-[12px] text-muted">Første gang åbner Microsoft i browseren, så du kan give adgang til kalenderen.</p>}
+        {(toOutlook || toMail) && busy && <p className="text-[12px] text-muted">Mangler appen adgang til kalender eller mail, åbner Microsoft i browseren, så du kan give lov.</p>}
       </div>
     </motion.div>
   );

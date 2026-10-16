@@ -101,7 +101,7 @@ export function Pop({
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -4, scale: 0.98, transition: { duration: 0.12 } }}
                 transition={{ duration: 0.2, ease: EASE }}
-                className={cn('rounded-xl border border-line bg-white/95 p-3 shadow-pop backdrop-blur-xl', width)}
+                className={cn('fit-width grid max-w-[calc(100vw-24px)] rounded-xl border border-line bg-white/95 p-3 shadow-pop backdrop-blur-xl', width)}
               >
                 <div className="mb-2.5 flex items-center">
                   <span className="flex-1 text-center text-[12.5px] font-semibold text-ink-2">{title}</span>

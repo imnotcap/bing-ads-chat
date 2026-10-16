@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/overlays';
 import { cn } from '@/lib/utils';
 import { useAccount } from '@/stores/account';
-import { useBoard, type SyncStatus } from '@/stores/board';
+import { boardAccess, useBoard, type Board, type SyncStatus } from '@/stores/board';
 
 export const useShareDialog = create<{ open: boolean; setOpen: (open: boolean) => void }>((set) => ({ open: false, setOpen: (open) => set({ open }) }));
 
@@ -61,7 +61,7 @@ export function ShareDialog() {
         </div>
         {(status === 'error' || offline) && detail && <p className="rounded-xl bg-negative-bg px-3.5 py-2.5 text-[12.5px] text-negative">{detail}</p>}
         <p className="text-[12.5px] leading-relaxed text-muted">
-          Personlige tavler (som “Min planlægning”) kan kun ses af dig. Nye kolleger kommer med, når de logger ind i appen med Microsoft.
+          En tavle kan være for alle, for udvalgte kolleger eller kun for dig – det vælges, når tavlen laves, og ændres i tavlens menu. Private tavler sendes kun til de personer, der må se dem. Nye kolleger kommer med, når de logger ind i appen med Microsoft.
         </p>
       </div>
     </Dialog>
@@ -69,12 +69,12 @@ export function ShareDialog() {
 }
 
 /** The sync status button in the board header. */
-export function ShareButton() {
+export function ShareButton({ board }: { board?: Board }) {
   const status = useBoard((s) => s.status);
   const setOpen = useShareDialog((s) => s.setOpen);
   return (
     <Button size="sm" variant="secondary" onClick={() => setOpen(true)} title={STATUS[status].label}>
-      <StatusDot status={status} /> Delt med afdelingen
+      <StatusDot status={status} /> {!board || boardAccess(board) === 'everyone' ? 'Delt med afdelingen' : STATUS[status].label}
     </Button>
   );
 }

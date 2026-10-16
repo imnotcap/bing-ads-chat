@@ -12,7 +12,7 @@
  *   channels), fetched with a shared Inventarland user whose password stays here.
  */
 import { DurableObject } from 'cloudflare:workers';
-import { applyOp, isBoardData, type BoardData, type BoardOp } from '../../src/board/model';
+import { applyOp, boardOfOp, canSeeBoard, dataFor, isBoardData, mayApply, memberIdOf, type BoardData, type BoardOp } from '../../src/board/model';
 import { ADS_SCOPE, INVENTARLAND_URL, INVENTARLAND_VIEWS, type AdsAccess, type InventarlandView, type SharedKeyName, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
 import { AuthError, verifyMicrosoftIdToken, type MicrosoftIdentity } from './auth';
 
@@ -468,6 +468,9 @@ export class Workspace extends DurableObject<Env> {
 
   private async boardRoute(req: Request, url: URL, action: string, user: WorkspaceUser): Promise<Response> {
     const version = this.boardMeta.version;
+    // Everyone gets only the boards they may see (private and selected boards stay with their people).
+    const memberId = memberIdOf(user.id);
+    const mine = (d: BoardData | null) => (d ? dataFor(d, memberId) : null);
     switch (action) {
       case 'socket': {
         if (req.headers.get('Upgrade') !== 'websocket') return fail('Forventede en WebSocket.', 426);
@@ -477,11 +480,11 @@ export class Workspace extends DurableObject<Env> {
         return new Response(null, { status: 101, webSocket: pair[0], headers: { 'Sec-WebSocket-Protocol': 'bac' } });
       }
       case 'state':
-        return json({ version, data: this.boards });
+        return json({ version, data: mine(this.boards) });
       case 'seed': {
         // The first app to connect brings its boards (e.g. a team shared with invite codes before).
         if (req.method !== 'POST') return fail('Brug POST.', 405);
-        if (this.boards) return json({ version, data: this.boards, seeded: false });
+        if (this.boards) return json({ version, data: mine(this.boards), seeded: false });
         const text = await req.text();
         if (text.length > MAX_DATA) return fail('Tavlerne er for store.', 413);
         const body = JSON.parse(text || '{}') as { data?: unknown };
@@ -490,16 +493,26 @@ export class Workspace extends DurableObject<Env> {
         this.boardMeta = { version: version + 1 };
         await this.ctx.storage.put({ 'boards:meta': this.boardMeta, 'boards:data': this.boards });
         this.broadcast();
-        return json({ version: this.boardMeta.version, data: this.boards, seeded: true });
+        return json({ version: this.boardMeta.version, data: mine(this.boards), seeded: true });
       }
       case 'changes': {
         const since = Number(url.searchParams.get('since') ?? 0);
         if (!(since >= 0) || since >= version) return json({ version, ops: [] });
         // Too far behind (or the ops are gone): send everything.
-        if (version - since > KEEP_OPS) return json({ version, data: this.boards });
+        if (version - since > KEEP_OPS || !this.boards) return json({ version, data: mine(this.boards) });
         const rows = await this.ctx.storage.list<BoardOp>({ start: pad(since + 1), end: pad(version + 1) });
-        if (rows.size !== version - since) return json({ version, data: this.boards });
-        return json({ version, ops: [...rows.values()] });
+        if (rows.size !== version - since) return json({ version, data: mine(this.boards) });
+        const all = [...rows.values()];
+        // Who can see a board changed: send what this person sees now instead of the ops.
+        if (all.some((o) => o.type === 'setBoardAccess')) return json({ version, data: mine(this.boards) });
+        const current = this.boards;
+        const visible = all.filter((o) => {
+          const boardId = boardOfOp(o, current);
+          if (!boardId) return true;
+          const board = current.boards.find((b) => b.id === boardId) ?? (o.type === 'createBoard' ? o.board : undefined);
+          return board ? canSeeBoard(board, memberId) : o.type === 'deleteBoard';
+        });
+        return json({ version, ops: visible });
       }
       case 'ops': {
         if (req.method !== 'POST') return fail('Brug POST.', 405);
@@ -511,9 +524,15 @@ export class Workspace extends DurableObject<Env> {
         let data = this.boards;
         let next = version;
         const writes: Record<string, unknown> = {};
-        for (const op of ops) {
-          if (!op || typeof op.id !== 'string' || typeof op.type !== 'string' || op.id.length > 80) continue;
-          if (accepted.includes(op.id) || (await this.ctx.storage.get(`seen:${op.id}`))) {
+        for (const sent of ops) {
+          if (!sent || typeof sent.id !== 'string' || typeof sent.type !== 'string' || sent.id.length > 80) continue;
+          if (accepted.includes(sent.id) || (await this.ctx.storage.get(`seen:${sent.id}`))) {
+            duplicates.push(sent.id);
+            continue;
+          }
+          // Changes are made in the sender's name, and only on boards they may see.
+          const op = { ...sent, actor: memberId } as BoardOp;
+          if (!mayApply(op, data, memberId)) {
             duplicates.push(op.id);
             continue;
           }

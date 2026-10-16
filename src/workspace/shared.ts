@@ -76,7 +76,7 @@ export function adsAccess(fresh: boolean): Promise<MsAccess> {
   return api<MsAccess>(`/workspace/ads/token${fresh ? '?fresh=1' : ''}`, { method: 'POST' });
 }
 
-const ERROR_105 =
+export const ERROR_105 =
   'Microsoft godkendte login, men Microsoft Advertising afviste det (fejl 105). Det skyldes næsten altid én af to ting: ' +
   '1) Der blev logget ind med en anden Microsoft-konto end den, der bruges på ads.microsoft.com – prøv igen og vælg den rigtige konto. ' +
   '2) Developer tokenet er forkert eller ikke aktivt – tjek det på developers.ads.microsoft.com.';

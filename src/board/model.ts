@@ -95,8 +95,13 @@ export interface BoardList {
 export interface Board {
   id: string;
   title: string;
-  /** A personal board: only shown to this member, also when the team shares boards. */
+  /**
+   * Who can see the board. No owner: everyone in the app. With an owner: the owner
+   * and the members in `sharedWith` (empty = only the owner, e.g. "Min planlægning").
+   * The Cloudflare Worker only sends a member the boards they can see.
+   */
   ownerId?: string;
+  sharedWith?: string[];
   accent: LabelColor;
   lists: BoardList[];
   labels: BoardLabel[];
@@ -115,6 +120,7 @@ type OpBody =
   | { type: 'createBoard'; board: Board }
   | { type: 'updateBoard'; boardId: string; patch: Partial<Pick<Board, 'title' | 'accent'>> }
   | { type: 'deleteBoard'; boardId: string }
+  | { type: 'setBoardAccess'; boardId: string; ownerId: string | null; sharedWith: string[] }
   | { type: 'addList'; boardId: string; list: BoardList }
   | { type: 'renameList'; boardId: string; listId: string; title: string }
   | { type: 'deleteList'; boardId: string; listId: string }
@@ -185,6 +191,11 @@ export function applyOp(d: BoardData, op: BoardOp): BoardData {
       return d.boards.some((b) => b.id === op.board.id) ? d : { ...d, boards: [...d.boards, op.board] };
     case 'updateBoard':
       return mapBoard(d, op.boardId, (b) => ({ ...b, ...op.patch, title: op.patch.title?.trim() || b.title }));
+    case 'setBoardAccess':
+      return mapBoard(d, op.boardId, (b) => {
+        const { ownerId: _o, sharedWith: _s, ...rest } = b;
+        return op.ownerId ? { ...rest, ownerId: op.ownerId, sharedWith: [...new Set(op.sharedWith.filter((m) => m !== op.ownerId))] } : rest;
+      });
     case 'deleteBoard':
       return {
         ...d,
@@ -346,7 +357,7 @@ export function applyOp(d: BoardData, op: BoardOp): BoardData {
 export function remapMember(d: BoardData, from: string, to: string): BoardData {
   const swap = (id: string) => (id === from ? to : id);
   return {
-    boards: d.boards.map((b) => (b.ownerId === from ? { ...b, ownerId: to } : b)),
+    boards: d.boards.map((b) => ({ ...b, ...(b.ownerId === from ? { ownerId: to } : {}), ...(b.sharedWith ? { sharedWith: b.sharedWith.map(swap) } : {}) })),
     members: d.members.map((m) => ({ ...m, id: swap(m.id) })),
     cards: Object.fromEntries(
       Object.entries(d.cards).map(([id, c]) => [id, { ...c, memberIds: c.memberIds.map(swap), activity: c.activity.map((a) => ({ ...a, memberId: swap(a.memberId) })) }]),
@@ -354,9 +365,55 @@ export function remapMember(d: BoardData, from: string, to: string): BoardData {
   };
 }
 
-/** Boards this member sees: shared boards and their own personal board. */
+/* --------------------------------- access --------------------------------- */
+
+/** Member id of a workspace user on the boards. */
+export const memberIdOf = (userId: string) => `u_${userId}`;
+
+export type BoardAccess = 'everyone' | 'selected' | 'private';
+
+export function boardAccess(b: Pick<Board, 'ownerId' | 'sharedWith'>): BoardAccess {
+  return !b.ownerId ? 'everyone' : b.sharedWith?.length ? 'selected' : 'private';
+}
+
+export function canSeeBoard(b: Pick<Board, 'ownerId' | 'sharedWith'>, memberId: string) {
+  return !b.ownerId || b.ownerId === memberId || !!b.sharedWith?.includes(memberId);
+}
+
+/** Boards this member sees, their own private boards first. */
 export function visibleBoards(boards: Board[], meId: string) {
-  return boards.filter((b) => !b.ownerId || b.ownerId === meId).sort((a, z) => Number(z.ownerId === meId) - Number(a.ownerId === meId));
+  return boards.filter((b) => canSeeBoard(b, meId)).sort((a, z) => Number(boardAccess(z) === 'private' && z.ownerId === meId) - Number(boardAccess(a) === 'private' && a.ownerId === meId));
+}
+
+/** Only the boards (and their cards) this member may see – what the Worker sends them. */
+export function dataFor(d: BoardData, memberId: string): BoardData {
+  const boards = d.boards.filter((b) => canSeeBoard(b, memberId));
+  const ids = new Set(boards.map((b) => b.id));
+  return { boards, members: d.members, cards: Object.fromEntries(Object.entries(d.cards).filter(([, c]) => ids.has(c.boardId))) };
+}
+
+/** The board an op is about (null: not about one board, e.g. members). */
+export function boardOfOp(op: BoardOp, d: BoardData): string | null {
+  if (op.type === 'createBoard') return op.board.id;
+  if (op.type === 'addCard') return op.card.boardId;
+  if ('boardId' in op) return op.boardId;
+  if ('cardId' in op) return d.cards[op.cardId]?.boardId ?? null;
+  return null;
+}
+
+/**
+ * May this member make the op? Only on boards they can see, and only the owner (or
+ * anyone, on a board for everyone) changes who can see a board.
+ */
+export function mayApply(op: BoardOp, d: BoardData, memberId: string): boolean {
+  if (op.type === 'createBoard') return !op.board.ownerId || op.board.ownerId === memberId;
+  const boardId = boardOfOp(op, d);
+  if (!boardId) return !('cardId' in op) || op.type === 'deleteCard';
+  const board = d.boards.find((b) => b.id === boardId);
+  if (!board) return true; // gone: the op changes nothing
+  if (!canSeeBoard(board, memberId)) return false;
+  if (op.type === 'setBoardAccess') return (!board.ownerId && op.ownerId === memberId) || board.ownerId === memberId;
+  return true;
 }
 
 /** Rough check that a value from the network is a board data set. */

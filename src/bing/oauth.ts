@@ -8,13 +8,20 @@ import { invoke } from '@tauri-apps/api/core';
 import { isTauri, msFetch, openExternal, startOAuthListener } from '@/lib/platform';
 import { ADS_SCOPE } from '@/workspace/types';
 
+/** Microsoft Graph: your own Outlook calendar, and mail sent from you to yourself. */
+export const GRAPH_SCOPES = {
+  calendar: 'https://graph.microsoft.com/Calendars.ReadWrite',
+  mail: 'https://graph.microsoft.com/Mail.Send',
+} as const;
+export type GraphScope = keyof typeof GRAPH_SCOPES;
+/** Everything the app asks Graph for, in one consent. */
+export const GRAPH_ALL_SCOPE = `${GRAPH_SCOPES.calendar} ${GRAPH_SCOPES.mail} offline_access`;
+
 /**
- * Signing in to the app: who you are (ID token for the workspace) and your own
- * Outlook calendar – nothing else of yours.
+ * Signing in to the app: who you are (ID token for the workspace), your own Outlook
+ * calendar and mail to yourself (follow-ups) – nothing else of yours.
  */
-export const LOGIN_SCOPE = 'openid profile email offline_access https://graph.microsoft.com/Calendars.ReadWrite';
-/** Outlook calendar (Microsoft Graph), from the login's refresh token. */
-export const GRAPH_CALENDAR_SCOPE = 'https://graph.microsoft.com/Calendars.ReadWrite offline_access';
+export const LOGIN_SCOPE = `openid profile email ${GRAPH_ALL_SCOPE}`;
 /** The workspace's shared Microsoft Advertising connection. */
 const MS_SCOPE = ADS_SCOPE;
 

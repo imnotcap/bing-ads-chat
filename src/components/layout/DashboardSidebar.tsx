@@ -4,14 +4,16 @@
  * categories are listed at the bottom so they can be shown again.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { Activity, ChevronDown, Eye, EyeOff, LayoutDashboard, Plus, Search, Sparkles, SquareKanban, UserRound, type LucideIcon } from 'lucide-react';
+import { Activity, ChevronDown, Eye, EyeOff, LayoutDashboard, Plus, Search, Sparkles, SquareKanban, UserRound,
+  UsersRound, type LucideIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
 import { EASE } from '@/components/motion';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { cn } from '@/lib/utils';
-import { LABEL_COLORS, myOpenCards, useBoard, visibleBoards } from '@/stores/board';
+import { LABEL_COLORS, boardAccess, myOpenCards, useBoard, visibleBoards, type BoardAccess } from '@/stores/board';
+import { useNewBoardDialog } from '@/features/board/BoardAccess';
 import { useSettings } from '@/stores/settings';
 import { useUi, type View } from '@/stores/ui';
 import { AccountMenu } from './Sidebar';
@@ -24,8 +26,8 @@ interface NavItem {
   brand?: Brand;
   /** Board colour (tints the board icon). */
   swatch?: string;
-  /** The user's own board. */
-  personal?: boolean;
+  /** Who can see the board (private and selected boards get their own icon). */
+  access?: BoardAccess;
   active: boolean;
   onSelect?: () => void;
   soon?: boolean;
@@ -59,8 +61,10 @@ function ItemRow({ item }: { item: NavItem }) {
         {item.brand ? (
           <BrandIcon brand={item.brand} className="size-[16px]" />
         ) : item.swatch ? (
-          item.personal ? (
+          item.access === 'private' ? (
             <UserRound className="size-[17px]" style={{ color: item.swatch }} strokeWidth={1.8} />
+          ) : item.access === 'selected' ? (
+            <UsersRound className="size-[17px]" style={{ color: item.swatch }} strokeWidth={1.8} />
           ) : (
             <SquareKanban className="size-[17px]" style={{ color: item.swatch }} strokeWidth={1.8} />
           )
@@ -135,33 +139,6 @@ function CategoryBlock({ cat, collapsed, onToggle, onHide }: { cat: Category; co
   );
 }
 
-/** Inline "Navn på tavlen" field shown when + is clicked under Planlægning. */
-function NewBoardField({ onDone }: { onDone: () => void }) {
-  const [title, setTitle] = useState('');
-  const createBoard = useBoard((s) => s.createBoard);
-  const openBoard = useUi((s) => s.openBoard);
-  const submit = () => {
-    if (title.trim()) openBoard(createBoard(title));
-    onDone();
-  };
-  return (
-    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden px-1 pb-2">
-      <input
-        autoFocus
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        onBlur={submit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') submit();
-          if (e.key === 'Escape') onDone();
-        }}
-        placeholder="Navn på den nye tavle"
-        className="h-8 w-full rounded-lg border border-brand/40 bg-white px-2.5 text-[13px] outline-none ring-4 ring-brand/10"
-      />
-    </motion.div>
-  );
-}
-
 export function DashboardSidebar() {
   const view = useUi((s) => s.view);
   const boardId = useUi((s) => s.boardId);
@@ -174,7 +151,6 @@ export function DashboardSidebar() {
   const hidden = useSettings((s) => s.appearance.navHidden);
   const setAppearance = useSettings((s) => s.setAppearance);
   const [query, setQuery] = useState('');
-  const [adding, setAdding] = useState(false);
 
   const categories = useMemo<Category[]>(() => {
     const nav = (id: string, label: string, icon: LucideIcon, target: View): NavItem => ({ id, label, icon, active: view === target, onSelect: () => go(target) });
@@ -198,13 +174,13 @@ export function DashboardSidebar() {
         id: 'planning',
         label: 'Planlægning',
         addLabel: 'Ny tavle',
-        onAdd: () => setAdding(true),
+        onAdd: () => useNewBoardDialog.getState().setOpen(true),
         empty: 'Ingen tavler endnu – klik + for at lave en.',
         items: visibleBoards(boards, meId).map((b) => ({
           id: b.id,
           label: b.title,
           swatch: LABEL_COLORS[b.accent].solid,
-          personal: !!b.ownerId,
+          access: boardAccess(b),
           active: view === 'board' && boardId === b.id,
           onSelect: () => openBoard(b.id),
           badge: myOpenCards({ cards, meId }, b.id),
@@ -246,7 +222,6 @@ export function DashboardSidebar() {
           {visible.map((cat) => (
             <div key={cat.id}>
               <CategoryBlock cat={cat} collapsed={!q && !!collapsed[cat.id]} onToggle={() => toggle(cat.id)} onHide={() => hide(cat.id)} />
-              <AnimatePresence>{cat.id === 'planning' && adding && <NewBoardField onDone={() => setAdding(false)} />}</AnimatePresence>
             </div>
           ))}
         </AnimatePresence>

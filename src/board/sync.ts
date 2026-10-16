@@ -12,11 +12,10 @@
 import { useEffect } from 'react';
 import { api, ApiError, openSocket } from '@/workspace/api';
 import { useAccount } from '@/stores/account';
-import { LOCAL_ME, MEMBER_COLORS, isBoardData, remapMember, useBoard, type BoardData, type BoardOp, type OpInput } from '@/stores/board';
-import { uid } from '@/lib/utils';
+import { LOCAL_ME, MEMBER_COLORS, isBoardData, memberIdOf, remapMember, useBoard, type BoardData, type BoardOp, type OpInput } from '@/stores/board';
 
-/** Member id of a workspace user on the boards. */
-export const memberIdOf = (userId: string) => `u_${userId}`;
+export { memberIdOf };
+import { uid } from '@/lib/utils';
 
 const EXAMPLE_TITLE = 'Marketingplan';
 

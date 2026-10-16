@@ -33,7 +33,7 @@ export const CONNECTORS: Connector[] = [
   { id: 'web', label: 'Websøgning', description: 'Søg på nettet, fx konkurrenter og trends (koster ekstra pr. søgning)', icon: Globe, defaultOn: false, providers: ['anthropic'] },
 ];
 
-const DISPLAY_ALWAYS = new Set(['suggest_next_steps']);
+const DISPLAY_ALWAYS = new Set(['suggest_next_steps', 'create_file']);
 
 /** Which connector a tool belongs to (null = always available). */
 export function connectorOf(tool: AnyTool): ConnectorId | null {

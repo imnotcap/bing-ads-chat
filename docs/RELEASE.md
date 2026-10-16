@@ -40,7 +40,7 @@ GitHub → repoet **bing-ads-chat** → Settings → Secrets and variables → A
 ### Login med Microsoft (konti i appen)
 
 Man logger ind i appen med sin Microsoft-konto. Det giver en konto i afdelingens fælles arbejdsområde på
-Cloudflare og lader appen lægge påmindelser i ens egen Outlook-kalender – intet andet. Den første, der logger
+Cloudflare og lader appen lægge påmindelser i ens egen Outlook-kalender og sende opfølgningsmails til en selv – intet andet. Den første, der logger
 ind, bliver administrator. Kolleger med en `inventarland.dk`-adresse kommer ind med det samme (`ALLOWED_DOMAINS`
 i `cloudflare/wrangler.jsonc`); andre skal godkendes under **Indstillinger → Brugere**.
 
@@ -49,7 +49,7 @@ Cloudflare. De forbindes én gang inde i appen under **Indstillinger → Forbind
 
 | Secret | Indhold |
 | --- | --- |
-| `MS_CLIENT_ID` | **Påkrævet til login.** *Application (client) ID* fra en app-registrering: https://entra.microsoft.com → **Applikationer → App-registreringer → Ny registrering** · navn "Bing Ads Chat" · kontotyper: *Accounts in any organizational directory and personal Microsoft accounts* · Registrér. Under **Godkendelse**: *Tilføj en platform → Mobil- og skrivebordsprogrammer* → brugerdefineret omdirigerings-URI `http://localhost` → Konfigurer, og slå **Tillad offentlige klientflows** til → Gem. Under **API-tilladelser**: *Tilføj en tilladelse → Microsoft Graph → Delegerede tilladelser* → `Calendars.ReadWrite` (og `openid`, `profile`, `email`, `offline_access`). Kopiér *Application (client) ID* fra Oversigt. Det bygges ind i appen og gives til Cloudflare-workeren, som kun godtager logins fra netop denne app-registrering |
+| `MS_CLIENT_ID` | **Påkrævet til login.** *Application (client) ID* fra en app-registrering: https://entra.microsoft.com → **Applikationer → App-registreringer → Ny registrering** · navn "Bing Ads Chat" · kontotyper: *Accounts in any organizational directory and personal Microsoft accounts* · Registrér. Under **Godkendelse**: *Tilføj en platform → Mobil- og skrivebordsprogrammer* → brugerdefineret omdirigerings-URI `http://localhost` → Konfigurer, og slå **Tillad offentlige klientflows** til → Gem. Under **API-tilladelser**: *Tilføj en tilladelse → Microsoft Graph → Delegerede tilladelser* → `Calendars.ReadWrite` og `Mail.Send` (og `openid`, `profile`, `email`, `offline_access`). Mail.Send bruges kun til mails fra brugeren til brugeren selv (opfølgninger). Kopiér *Application (client) ID* fra Oversigt. Det bygges ind i appen og gives til Cloudflare-workeren, som kun godtager logins fra netop denne app-registrering |
 | `MS_DEVELOPER_TOKEN` | Valgfrit. Dit developer token: log ind på https://ads.microsoft.com (Super Admin) → **Indstillinger → Developer settings** → vælg din bruger → **Request Developer Token**. Udfyldes ellers i appen, når Microsoft Advertising forbindes |
 
 Inventarland-data (webshoppens salg og de andre annoncekanaler) forbindes også inde i appen under
