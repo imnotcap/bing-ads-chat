@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import {
-  Activity,
   Building2,
+  SquareKanban,
   Check,
   FlaskConical,
   LayoutDashboard,
@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { fmtUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { useBoard } from '@/stores/board';
 import { useChat, type Conversation } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
 import { useUi, type View } from '@/stores/ui';
@@ -32,22 +33,31 @@ import { disconnectMicrosoft, switchToDemo } from '@/features/settings/connectio
 import { MicrosoftLogo } from '@/features/settings/SignInDialog';
 import { toast } from '@/components/notifications/toast';
 
+// The chat sidebar links into the dashboard workspace, which has its own sidebar.
 const NAV: { view: View; label: string; icon: LucideIcon }[] = [
   { view: 'chat', label: 'Chat', icon: MessageSquare },
   { view: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { view: 'board', label: 'Planlægning', icon: SquareKanban },
   { view: 'campaigns', label: 'Kampagner', icon: LayoutGrid },
-  { view: 'activity', label: 'Aktivitet', icon: Activity },
 ];
 
 function NavButton({ item }: { item: (typeof NAV)[number] }) {
   const view = useUi((s) => s.view);
   const go = useUi((s) => s.go);
+  const openBoard = useUi((s) => s.openBoard);
   const pending = useChat((s) => Object.values(s.running).some(Boolean));
   const active = view === item.view;
   return (
     <button
       type="button"
-      onClick={() => go(item.view)}
+      onClick={() => {
+        if (item.view !== 'board') return go(item.view);
+        const { boardId } = useUi.getState();
+        const boards = useBoard.getState().boards;
+        const target = boards.find((b) => b.id === boardId) ?? boards[0];
+        if (target) openBoard(target.id);
+        else go('dashboard');
+      }}
       aria-current={active ? 'page' : undefined}
       className={cn(
         'group relative flex h-9 w-full items-center gap-2.5 rounded-[10px] px-3 text-[13.5px] font-medium transition-colors',
@@ -168,7 +178,7 @@ function initials(name: string | undefined) {
 }
 
 /** Account & settings menu in the bottom-left corner, styled like Claude's. */
-function AccountMenu() {
+export function AccountMenu() {
   const { accounts, accountId, mode, set } = useConnection();
   const go = useUi((s) => s.go);
   const account = accounts.find((a) => a.id === accountId);

@@ -5,12 +5,13 @@
 import { useId } from 'react';
 import { cn } from '@/lib/utils';
 
-export type Brand = 'microsoft_ads' | 'google_ads' | 'meta' | 'microsoft' | 'google' | 'claude' | 'gemini';
+export type Brand = 'microsoft_ads' | 'google_ads' | 'meta' | 'linkedin' | 'microsoft' | 'google' | 'claude' | 'gemini';
 
 export const BRAND_LABELS: Record<Brand, string> = {
   microsoft_ads: 'Microsoft Advertising',
   google_ads: 'Google Ads',
   meta: 'Meta',
+  linkedin: 'LinkedIn',
   microsoft: 'Microsoft',
   google: 'Google',
   claude: 'Claude',
@@ -51,6 +52,13 @@ export function BrandIcon({ brand, className }: { brand: Brand; className?: stri
             strokeWidth="2.1"
             strokeLinejoin="round"
           />
+        </svg>
+      );
+    case 'linkedin':
+      return (
+        <svg viewBox="0 0 24 24" className={cls} aria-label="LinkedIn">
+          <rect x="2" y="2" width="20" height="20" rx="4.5" fill="#0A66C2" />
+          <path d="M7 10h2.6v7H7Zm1.3-4.1a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM11.2 10h2.5v1c.4-.7 1.3-1.2 2.5-1.2 2.4 0 2.8 1.5 2.8 3.5V17h-2.6v-3.2c0-.9 0-1.9-1.2-1.9s-1.4.9-1.4 1.8V17h-2.6Z" fill="#fff" />
         </svg>
       );
     case 'microsoft':

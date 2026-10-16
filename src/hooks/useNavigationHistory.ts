@@ -6,9 +6,10 @@ import { useUi } from '@/stores/ui';
 export function useNavigationHistory() {
   const view = useUi((s) => s.view);
   const activeId = useChat((s) => s.activeId);
+  const boardId = useUi((s) => s.boardId);
   useEffect(() => {
-    useUi.getState().record({ view, conversationId: view === 'chat' ? activeId : null });
-  }, [view, activeId]);
+    useUi.getState().record({ view, conversationId: view === 'chat' ? activeId : null, boardId: view === 'board' ? boardId : null });
+  }, [view, activeId, boardId]);
 }
 
 export function navigate(delta: -1 | 1) {

@@ -46,10 +46,11 @@ import { errorMessage } from '@/lib/utils';
 import { queryClient } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
 import { closeWindow, isMaximized, minimizeWindow, onWindowResized, quitApp, toggleMaximizeWindow } from '@/lib/window';
+import { useBoard } from '@/stores/board';
 import { useActiveConversation, useChat } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
-import { useUi } from '@/stores/ui';
+import { isDashboardView, useUi } from '@/stores/ui';
 import { Badge } from '../ui/controls';
 import { Button } from '../ui/button';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '../ui/overlays';
@@ -57,7 +58,7 @@ import { LogoMark } from './Logo';
 import { UpdateButton } from './UpdatePrompt';
 import { NotificationBell } from '../notifications/NotificationBell';
 
-const PAGE_TITLES = { dashboard: 'Dashboard', campaigns: 'Kampagner', activity: 'Aktivitet' } as const;
+const PAGE_TITLES = { dashboard: 'Dashboard', campaigns: 'Microsoft Ads · Kampagner', activity: 'Aktivitet', board: 'Planlægning' } as const;
 
 function IconButton({ label, onClick, disabled, children, shortcut }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode; shortcut?: string }) {
   return (
@@ -412,11 +413,12 @@ function ConversationActions() {
 function ModeSwitch() {
   const view = useUi((s) => s.view);
   const go = useUi((s) => s.go);
+  const lastDashView = useUi((s) => s.lastDashView);
   const options = [
     { value: 'chat' as const, label: 'Chat', icon: MessageSquare },
     { value: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
   ];
-  const active = view === 'dashboard' ? 'dashboard' : view === 'chat' ? 'chat' : null;
+  const active = isDashboardView(view) ? 'dashboard' : 'chat';
   return (
     <div className="flex h-8 items-center rounded-[10px] bg-line-2 p-0.5" role="tablist" aria-label="Visning">
       {options.map((o) => (
@@ -425,7 +427,7 @@ function ModeSwitch() {
           type="button"
           role="tab"
           aria-selected={active === o.value}
-          onClick={() => go(o.value)}
+          onClick={() => (o.value === 'dashboard' ? (active === 'dashboard' ? go('dashboard') : go(lastDashView)) : go('chat'))}
           className={cn('relative flex h-7 items-center gap-1.5 rounded-lg px-3 text-[12.5px] font-medium transition-colors', active === o.value ? 'text-ink' : 'text-muted hover:text-ink')}
         >
           {active === o.value && <motion.span layoutId="mode-switch" className="absolute inset-0 rounded-lg bg-white shadow-sm" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
@@ -443,6 +445,8 @@ export function TopBar() {
   const canForward = useUi((s) => s.historyIndex < s.history.length - 1);
   const sidebarCollapsed = useSettings((s) => s.appearance.sidebarCollapsed);
   const mode = useConnection((s) => s.mode);
+  const boardId = useUi((s) => s.boardId);
+  const boardTitle = useBoard((s) => s.boards.find((b) => b.id === boardId)?.title ?? s.boards[0]?.title);
 
   return (
     <header data-tauri-drag-region className="relative z-30 flex h-10 shrink-0 select-none items-center gap-0.5 border-b border-line bg-surface pl-2.5">
@@ -451,7 +455,7 @@ export function TopBar() {
       <IconButton label={sidebarCollapsed ? 'Vis sidebar' : 'Skjul sidebar'} onClick={toggleSidebar} shortcut="Ctrl+B">
         <PanelLeft className="size-4" />
       </IconButton>
-      {sidebarCollapsed && (
+      {sidebarCollapsed && view === 'chat' && (
         <IconButton label="Ny samtale" onClick={startNewConversation} shortcut="Ctrl+N">
           <SquarePen className="size-4" />
         </IconButton>
@@ -464,7 +468,7 @@ export function TopBar() {
       </IconButton>
 
       <div className="ml-3 flex min-w-0 items-center gap-2">
-        {view === 'chat' ? <ConversationTitle /> : <span className="px-2 text-[13px] font-medium text-ink">{PAGE_TITLES[view]}</span>}
+        {view === 'chat' ? <ConversationTitle /> : <span className="px-2 text-[13px] font-medium text-ink">{view === 'board' && boardTitle ? `Planlægning · ${boardTitle}` : PAGE_TITLES[view]}</span>}
         {mode === 'demo' && (
           <Tooltip content="Du ser demo-data – klik for at logge ind med din rigtige konto" side="bottom">
             <button type="button" onClick={() => useUi.getState().setSignInOpen(true)} className="rounded-full transition-opacity hover:opacity-80">

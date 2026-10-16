@@ -1,16 +1,25 @@
 import { create } from 'zustand';
 
-export type View = 'chat' | 'dashboard' | 'campaigns' | 'activity';
+export type View = 'chat' | 'dashboard' | 'campaigns' | 'activity' | 'board';
+
+/** Views of the dashboard workspace (its own sidebar). */
+export const DASHBOARD_VIEWS: View[] = ['dashboard', 'campaigns', 'activity', 'board'];
+export const isDashboardView = (v: View) => DASHBOARD_VIEWS.includes(v);
 export type SettingsTab = 'connections' | 'spend' | 'ai' | 'business' | 'appearance' | 'data' | 'about' | 'models';
 
 /** One step in the back/forward history of the top bar. */
 export interface NavEntry {
   view: View;
   conversationId: string | null;
+  boardId?: string | null;
 }
 
 interface UiState {
   view: View;
+  /** The open planning board (view 'board'). */
+  boardId: string | null;
+  /** Where the Dashboard switch in the top bar returns to. */
+  lastDashView: View;
   settingsTab: SettingsTab;
   /** Settings open as a dialog on top of the current view. */
   settingsOpen: boolean;
@@ -26,6 +35,7 @@ interface UiState {
   historyIndex: number;
   /** Navigate to a view – 'settings' opens the settings dialog (optionally on a tab). */
   go: (view: View | 'settings', tab?: SettingsTab) => void;
+  openBoard: (boardId: string) => void;
   closeSettings: () => void;
   setDraft: (draft: string | null) => void;
   setRenaming: (renaming: boolean) => void;
@@ -38,6 +48,8 @@ interface UiState {
 
 export const useUi = create<UiState>()((set, get) => ({
   view: 'chat',
+  boardId: null,
+  lastDashView: 'dashboard',
   settingsTab: 'connections',
   settingsOpen: false,
   draft: null,
@@ -47,7 +59,12 @@ export const useUi = create<UiState>()((set, get) => ({
   history: [],
   historyIndex: -1,
   go: (view, tab) =>
-    set((s) => (view === 'settings' ? { settingsOpen: true, settingsTab: tab ?? s.settingsTab } : { view, settingsOpen: false })),
+    set((s) =>
+      view === 'settings'
+        ? { settingsOpen: true, settingsTab: tab ?? s.settingsTab }
+        : { view, settingsOpen: false, ...(isDashboardView(view) && (view !== 'board' || s.boardId) ? { lastDashView: view } : {}) },
+    ),
+  openBoard: (boardId) => set({ view: 'board', boardId, lastDashView: 'board', settingsOpen: false }),
   closeSettings: () => set({ settingsOpen: false }),
   setDraft: (draft) => set({ draft }),
   setRenaming: (renaming) => set({ renaming }),
@@ -56,7 +73,7 @@ export const useUi = create<UiState>()((set, get) => ({
   record: (entry) =>
     set((s) => {
       const current = s.history[s.historyIndex];
-      if (current && current.view === entry.view && current.conversationId === entry.conversationId) return s;
+      if (current && current.view === entry.view && current.conversationId === entry.conversationId && (current.boardId ?? null) === (entry.boardId ?? null)) return s;
       const history = [...s.history.slice(0, s.historyIndex + 1), entry].slice(-50);
       return { history, historyIndex: history.length - 1 };
     }),
@@ -65,7 +82,7 @@ export const useUi = create<UiState>()((set, get) => ({
     const next = historyIndex + delta;
     const entry = history[next];
     if (!entry) return null;
-    set({ historyIndex: next, view: entry.view });
+    set({ historyIndex: next, view: entry.view, ...(entry.boardId ? { boardId: entry.boardId } : {}) });
     return entry;
   },
 }));

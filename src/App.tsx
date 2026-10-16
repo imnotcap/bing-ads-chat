@@ -5,12 +5,14 @@ import { useEffect } from 'react';
 import { Toaster } from 'sonner';
 import { ClickSpark } from '@/components/reactbits';
 import { Sidebar } from '@/components/layout/Sidebar';
+import { DashboardSidebar } from '@/components/layout/DashboardSidebar';
 import { TopBar, startNewConversation, toggleInsights, toggleSidebar } from '@/components/layout/TopBar';
 import { EASE } from '@/components/motion';
 import { TooltipProvider } from '@/components/ui/overlays';
 import { ActivityPage } from '@/features/activity/ActivityPage';
 import { CampaignsPage } from '@/features/campaigns/CampaignsPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
+import { BoardPage } from '@/features/board/BoardPage';
 import { ChatView } from '@/features/chat/ChatView';
 import { InsightsPanel } from '@/features/insights/InsightsPanel';
 import { Onboarding } from '@/features/onboarding/Onboarding';
@@ -25,7 +27,7 @@ import { navigate, useNavigationHistory } from '@/hooks/useNavigationHistory';
 import { queryClient } from '@/lib/queryClient';
 import { ensureFrameless } from '@/lib/window';
 import { useSettings } from '@/stores/settings';
-import { useUi } from '@/stores/ui';
+import { isDashboardView, useUi } from '@/stores/ui';
 
 function useShortcuts() {
   useEffect(() => {
@@ -62,6 +64,7 @@ function useShortcuts() {
 
 function Shell() {
   const view = useUi((s) => s.view);
+  const dashMode = isDashboardView(view);
   const insights = useSettings((s) => s.appearance.insightsPanel);
   const onboarded = useSettings((s) => s.onboarded);
   const { error } = useBootstrap();
@@ -89,7 +92,18 @@ function Shell() {
               className="relative z-20 h-full shrink-0 overflow-hidden border-r border-line bg-surface"
               aria-label="Sidebar"
             >
-              <Sidebar />
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={dashMode ? 'dash' : 'chat'}
+                  className="h-full"
+                  initial={{ opacity: 0, x: dashMode ? 12 : -12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: dashMode ? -12 : 12 }}
+                  transition={{ duration: 0.2, ease: EASE }}
+                >
+                  {dashMode ? <DashboardSidebar /> : <Sidebar />}
+                </motion.div>
+              </AnimatePresence>
             </motion.aside>
           )}
         </AnimatePresence>
@@ -116,6 +130,7 @@ function Shell() {
               {view === 'dashboard' && <DashboardPage key="dashboard" />}
               {view === 'campaigns' && <CampaignsPage key="campaigns" />}
               {view === 'activity' && <ActivityPage key="activity" />}
+              {view === 'board' && <BoardPage key="board" />}
             </AnimatePresence>
           </div>
         </main>

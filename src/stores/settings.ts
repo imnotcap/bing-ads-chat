@@ -65,6 +65,10 @@ export interface Appearance {
   sidebarCollapsed: boolean;
   /** Closing the window keeps the app running in the system tray. */
   closeToTray: boolean;
+  /** Dashboard sidebar: collapsed categories. */
+  navCollapsed: Record<string, boolean>;
+  /** Dashboard sidebar: categories hidden with the eye (e.g. Paid for the SEO team). */
+  navHidden: string[];
 }
 
 export const DEFAULT_SPEND_RULES: SpendRules = {
@@ -119,6 +123,8 @@ export const useSettings = create<SettingsState>()(
         insightSections: { kpis: true, budget: true, alerts: true, campaigns: false },
         sidebarCollapsed: false,
         closeToTray: true,
+        navCollapsed: {},
+        navHidden: [],
       },
       datePreset: 'last30',
       onboarded: false,
