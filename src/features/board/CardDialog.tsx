@@ -30,7 +30,7 @@ import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/overlays';
 import { startChat } from '@/features/chat/startChat';
 import { cn } from '@/lib/utils';
-import { LABEL_COLORS, ME, dueState, fmtDue, useBoard, type Card } from '@/stores/board';
+import { LABEL_COLORS, dueState, fmtDue, useBoard, type Card } from '@/stores/board';
 import { useUi } from '@/stores/ui';
 import { Avatar, ColorGrid, FadeIn, LabelPicker, LabelPill, MemberPicker, Pop } from './parts';
 
@@ -221,7 +221,8 @@ function Activity({ card }: { card: Card }) {
   const addComment = useBoard((s) => s.addComment);
   const [text, setText] = useState('');
   const [showEvents, setShowEvents] = useState(true);
-  const me = members.find((m) => m.id === ME)!;
+  const meId = useBoard((s) => s.meId);
+  const me = members.find((m) => m.id === meId) ?? { id: meId, name: 'Mig', color: '#6d5cf6' };
   const feed = [...card.activity].reverse().filter((a) => showEvents || a.kind === 'comment');
   const send = () => {
     if (!text.trim()) return;
@@ -306,7 +307,8 @@ export function CardDialog({ cardId, onClose }: { cardId: string | null; onClose
   const list = board?.lists.find((l) => l.id === card?.listId);
   const labels = board && card ? board.labels.filter((l) => card.labelIds.includes(l.id)) : [];
   const cardMembers = card ? members.filter((m) => card.memberIds.includes(m.id)) : [];
-  const claimed = !!card?.memberIds.includes(ME);
+  const meId = useBoard((s) => s.meId);
+  const claimed = !!card?.memberIds.includes(meId);
   const due = card ? dueState(card) : 'none';
 
   return (
@@ -367,11 +369,7 @@ export function CardDialog({ cardId, onClose }: { cardId: string | null; onClose
                             <DropdownMenuItem
                               key={l.id}
                               disabled={l.id === card.listId}
-                              onSelect={() => {
-                                const from = card.listId;
-                                st().moveCard(card.id, l.id, l.cardIds.length);
-                                st().logMove(card.id, from);
-                              }}
+                              onSelect={() => st().moveCard(card.id, l.id, l.cardIds.length)}
                             >
                               <ArrowRight /> {l.title}
                             </DropdownMenuItem>
@@ -449,7 +447,7 @@ export function CardDialog({ cardId, onClose }: { cardId: string | null; onClose
                     <div className="mb-0.5 text-[11.5px] font-semibold text-muted">Tilføj til kortet</div>
                     <SideButton
                       icon={Hand}
-                      onClick={() => st().toggleMember(card.id, ME)}
+                      onClick={() => st().toggleMember(card.id, meId)}
                       className={cn(claimed && 'bg-brand-50 text-brand hover:bg-brand-100 hover:text-brand [&_svg]:text-brand')}
                     >
                       {claimed ? 'Du har taget den' : 'Tag opgaven'}

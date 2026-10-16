@@ -17,7 +17,7 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { SortableContext, horizontalListSortingStrategy, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { SortableContext, arrayMove, horizontalListSortingStrategy, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { motion } from 'motion/react';
 import {
@@ -40,16 +40,18 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { EASE, pageTransition } from '@/components/motion';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/controls';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { cn } from '@/lib/utils';
-import { LABEL_COLORS, ME, dueState, fmtDue, useBoard, type Board, type BoardList, type Card } from '@/stores/board';
+import { inviteCode } from '@/board/sync';
+import { LABEL_COLORS, dueState, fmtDue, useBoard, type Board, type BoardList, type Card, type Member } from '@/stores/board';
 import { useUi } from '@/stores/ui';
 import { CardDialog } from './CardDialog';
+import { CodeBox, ShareButton, ShareDialog, useShareDialog } from './ShareDialog';
 import { Avatar, ColorGrid, LabelPill, Pop } from './parts';
 
 /* --------------------------------- filters --------------------------------- */
@@ -70,7 +72,7 @@ function activeFilterCount(f: Filters) {
 
 function matches(card: Card, f: Filters) {
   if (f.text && !`${card.title} ${card.description}`.toLowerCase().includes(f.text.toLowerCase())) return false;
-  if (f.mine && !card.memberIds.includes(ME)) return false;
+  if (f.mine && !card.memberIds.includes(useBoard.getState().meId)) return false;
   if (f.members.length && !f.members.some((m) => card.memberIds.includes(m))) return false;
   if (f.labels.length && !f.labels.some((l) => card.labelIds.includes(l))) return false;
   if (f.due === 'none' && card.due) return false;
@@ -102,7 +104,8 @@ function CardView({ card, board, dragging, overlay, onOpen }: { card: Card; boar
   const checkDone = card.checklist.filter((i) => i.done).length;
   const comments = card.activity.filter((a) => a.kind === 'comment').length;
   const due = dueState(card);
-  const claimed = card.memberIds.includes(ME);
+  const meId = useBoard((s) => s.meId);
+  const claimed = card.memberIds.includes(meId);
 
   return (
     <div
@@ -180,7 +183,7 @@ function CardView({ card, board, dragging, overlay, onOpen }: { card: Card; boar
             aria-label={claimed ? 'Slip opgaven' : 'Tag opgaven'}
             onClick={(e) => {
               e.stopPropagation();
-              st().toggleMember(card.id, ME);
+              st().toggleMember(card.id, meId);
             }}
             className={cn(
               'absolute right-1.5 grid size-7 place-items-center rounded-lg bg-white/90 text-muted opacity-0 shadow-sm ring-1 ring-black/5 backdrop-blur transition-opacity hover:text-brand group-hover/card:opacity-100',
@@ -535,11 +538,61 @@ function FilterPop({ board, filters, setFilters }: { board: Board; filters: Filt
   );
 }
 
+/** A team member's name and role; saved when the field is left (one change, not one per key). */
+function MemberRow({ member, isMe }: { member: Member; isMe: boolean }) {
+  const { updateMember, removeMember } = useBoard.getState();
+  const [name, setName] = useState(member.name);
+  const [role, setRole] = useState(member.role ?? '');
+  useEffect(() => {
+    setName(member.name);
+    setRole(member.role ?? '');
+  }, [member.name, member.role]);
+  const save = () => {
+    if (name.trim() && (name.trim() !== member.name || role.trim() !== (member.role ?? ''))) updateMember(member.id, { name: name.trim(), role: role.trim() || undefined });
+  };
+  return (
+    <div className="group flex items-center gap-2.5 rounded-lg px-1.5 py-1 hover:bg-line-2">
+      <Avatar member={member} size={28} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={save}
+            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+            aria-label="Navn"
+            className="min-w-0 flex-1 truncate bg-transparent text-[13px] font-medium text-ink outline-none"
+          />
+          {isMe && <span className="text-[11px] text-subtle">dig</span>}
+        </div>
+        <input
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+          placeholder="Rolle, fx SEO"
+          aria-label="Rolle"
+          className="w-full truncate bg-transparent text-[11.5px] text-muted outline-none placeholder:text-subtle"
+        />
+      </div>
+      {!isMe && (
+        <button type="button" aria-label={`Fjern ${member.name}`} onClick={() => removeMember(member.id)} className="grid size-6 place-items-center rounded-md text-subtle opacity-0 hover:text-negative group-hover:opacity-100">
+          <X className="size-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function TeamPop() {
   const members = useBoard((s) => s.members);
-  const { addMember, updateMember, removeMember } = useBoard.getState();
+  const meId = useBoard((s) => s.meId);
+  const team = useBoard((s) => s.team);
+  const addMember = useBoard((s) => s.addMember);
+  const setShareOpen = useShareDialog((s) => s.setOpen);
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
+  const sorted = [...members].sort((a, b) => Number(b.id === meId) - Number(a.id === meId));
   const add = () => {
     if (!name.trim()) return;
     addMember(name, role);
@@ -554,64 +607,51 @@ function TeamPop() {
       trigger={
         <button type="button" className="flex items-center rounded-full p-0.5 transition-colors hover:bg-line-2" aria-label="Team">
           <span className="flex -space-x-2">
-            {members.slice(0, 5).map((m) => (
+            {sorted.slice(0, 5).map((m) => (
               <Avatar key={m.id} member={m} size={28} ring />
             ))}
           </span>
-          <span className="ml-1 grid size-7 place-items-center rounded-full bg-line-2 text-muted">
-            <UserPlus className="size-3.5" />
-          </span>
+          {members.length > 5 && <span className="ml-1 text-[12px] text-muted tabular">+{members.length - 5}</span>}
         </button>
       }
     >
       <div className="grid gap-1">
-        {members.map((m) => (
-          <div key={m.id} className="group flex items-center gap-2.5 rounded-lg px-1.5 py-1 hover:bg-line-2">
-            <Avatar member={m} size={28} />
-            <div className="min-w-0 flex-1">
+        {sorted.map((m) => (
+          <MemberRow key={m.id} member={m} isMe={m.id === meId} />
+        ))}
+        {team ? (
+          <div className="mt-2 grid gap-2 border-t border-line pt-3">
+            <div className="text-[11.5px] font-semibold text-muted">Invitér kolleger</div>
+            <CodeBox code={inviteCode(team)} />
+            <p className="text-[11.5px] leading-relaxed text-subtle">De dukker op her, når de har skrevet koden ind i deres app.</p>
+          </div>
+        ) : (
+          <div className="mt-2 grid gap-1.5 border-t border-line pt-3">
+            <div className="text-[11.5px] font-semibold text-muted">Tilføj en kollega</div>
+            <div className="flex gap-1.5">
               <input
-                value={m.name}
-                onChange={(e) => updateMember(m.id, { name: e.target.value })}
-                aria-label="Navn"
-                className="w-full truncate bg-transparent text-[13px] font-medium text-ink outline-none"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && add()}
+                placeholder="Navn"
+                className="h-8 min-w-0 flex-1 rounded-lg border border-line px-2.5 text-[13px] outline-none focus:border-brand/50 focus:ring-4 focus:ring-brand/10"
               />
               <input
-                value={m.role ?? ''}
-                onChange={(e) => updateMember(m.id, { role: e.target.value })}
-                placeholder={m.id === ME ? 'Dig – skriv dit navn og din rolle' : 'Rolle, f.eks. SEO'}
-                aria-label="Rolle"
-                className="w-full truncate bg-transparent text-[11.5px] text-muted outline-none placeholder:text-subtle"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && add()}
+                placeholder="Rolle"
+                className="h-8 w-24 rounded-lg border border-line px-2.5 text-[13px] outline-none focus:border-brand/50 focus:ring-4 focus:ring-brand/10"
               />
             </div>
-            {m.id !== ME && (
-              <button type="button" aria-label={`Fjern ${m.name}`} onClick={() => removeMember(m.id)} className="grid size-6 place-items-center rounded-md text-subtle opacity-0 hover:text-negative group-hover:opacity-100">
-                <X className="size-3.5" />
-              </button>
-            )}
+            <Button size="xs" variant="secondary" disabled={!name.trim()} onClick={add}>
+              <UserPlus /> Tilføj
+            </Button>
+            <button type="button" onClick={() => setShareOpen(true)} className="mt-1 text-left text-[12px] font-medium text-brand hover:underline">
+              Del tavlerne, så kollegerne kan arbejde med →
+            </button>
           </div>
-        ))}
-        <div className="mt-2 grid gap-1.5 border-t border-line pt-3">
-          <div className="text-[11.5px] font-semibold text-muted">Tilføj en kollega</div>
-          <div className="flex gap-1.5">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && add()}
-              placeholder="Navn"
-              className="h-8 min-w-0 flex-1 rounded-lg border border-line px-2.5 text-[13px] outline-none focus:border-brand/50 focus:ring-4 focus:ring-brand/10"
-            />
-            <input
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && add()}
-              placeholder="Rolle"
-              className="h-8 w-24 rounded-lg border border-line px-2.5 text-[13px] outline-none focus:border-brand/50 focus:ring-4 focus:ring-brand/10"
-            />
-          </div>
-          <Button size="xs" variant="gradient" disabled={!name.trim()} onClick={add}>
-            <UserPlus /> Tilføj
-          </Button>
-        </div>
+        )}
       </div>
     </Pop>
   );
@@ -773,8 +813,8 @@ function BoardView({ board }: { board: Board }) {
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [openCard, setOpenCard] = useState<string | null>(null);
   const [active, setActive] = useState<{ id: string; type: 'card' | 'list' } | null>(null);
-  const snapshot = useRef<{ boards: Board[]; cards: Record<string, Card> } | null>(null);
-  const fromList = useRef<string | null>(null);
+  const origin = useRef<{ listId: string; index: number } | null>(null);
+  const meId = useBoard((s) => s.meId);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
@@ -801,15 +841,18 @@ function BoardView({ board }: { board: Board }) {
     const type = e.active.data.current?.type as 'card' | 'list';
     setActive({ id: String(e.active.id), type });
     const s = useBoard.getState();
-    snapshot.current = { boards: s.boards, cards: s.cards };
-    fromList.current = type === 'card' ? (s.cards[String(e.active.id)]?.listId ?? null) : null;
+    const c = s.cards[String(e.active.id)];
+    origin.current = type === 'card' && c ? { listId: c.listId, index: listOf(c.id)?.cardIds.indexOf(c.id) ?? -1 } : null;
   };
 
+  /** Moving into another list shows the card there at once (a preview, sent on drop). */
   const onDragOver = (e: DragOverEvent) => {
     const { active: a, over } = e;
     if (!over || a.data.current?.type !== 'card') return;
-    const card = useBoard.getState().cards[String(a.id)];
-    const target = listOf(String(over.id));
+    const s = useBoard.getState();
+    const card = s.cards[String(a.id)];
+    const lists = s.boards.find((b) => b.id === board.id)?.lists ?? [];
+    const target = lists.find((l) => l.id === over.id) ?? lists.find((l) => l.cardIds.includes(String(over.id)));
     if (!card || !target || target.id === card.listId) return;
     let index = target.cardIds.length;
     if (over.data.current?.type === 'card') {
@@ -817,32 +860,33 @@ function BoardView({ board }: { board: Board }) {
       const below = a.rect.current.translated && a.rect.current.translated.top > over.rect.top + over.rect.height / 2;
       index = overIndex + (below ? 1 : 0);
     }
-    st().moveCard(card.id, target.id, index);
+    st().previewMove(card.id, target.id, index);
   };
 
   const onDragEnd = (e: DragEndEvent) => {
     const { active: a, over } = e;
     setActive(null);
-    if (!over) return;
     if (a.data.current?.type === 'list') {
+      const to = over ? board.lists.findIndex((l) => l.id === listOf(String(over.id))?.id) : -1;
       const from = board.lists.findIndex((l) => l.id === a.id);
-      const to = board.lists.findIndex((l) => l.id === listOf(String(over.id))?.id);
-      if (from >= 0 && to >= 0 && from !== to) st().moveList(board.id, from, to);
+      if (from >= 0 && to >= 0 && from !== to) st().moveList(board.id, String(a.id), to);
       return;
     }
+    const s = useBoard.getState();
     const cardId = String(a.id);
-    const card = useBoard.getState().cards[cardId];
-    const list = card && board.lists.find((l) => l.id === card.listId);
-    if (card && list && over.data.current?.type === 'card' && over.id !== a.id) {
-      const to = list.cardIds.indexOf(String(over.id));
-      if (to >= 0) st().moveCard(cardId, list.id, to);
-    }
-    if (fromList.current) st().logMove(cardId, fromList.current);
+    const card = s.cards[cardId];
+    const list = s.boards.find((b) => b.id === board.id)?.lists.find((l) => l.id === card?.listId);
+    if (!card || !list || !over) return st().clearPreview();
+    let ids = list.cardIds;
+    if (over.data.current?.type === 'card' && over.id !== a.id && ids.includes(String(over.id))) ids = arrayMove(ids, ids.indexOf(cardId), ids.indexOf(String(over.id)));
+    const index = ids.indexOf(cardId);
+    if (origin.current?.listId === list.id && origin.current.index === index) st().clearPreview();
+    else st().moveCard(cardId, list.id, index);
   };
 
   const onDragCancel = () => {
     setActive(null);
-    if (snapshot.current) useBoard.setState(snapshot.current);
+    st().clearPreview();
   };
 
   const stats = useMemo(() => {
@@ -850,14 +894,15 @@ function BoardView({ board }: { board: Board }) {
     return {
       total: all.length,
       overdue: all.filter((c) => dueState(c) === 'overdue').length,
-      mine: all.filter((c) => c.memberIds.includes(ME) && !c.done).length,
+      mine: all.filter((c) => c.memberIds.includes(meId) && !c.done).length,
       done: all.filter((c) => c.done).length,
     };
-  }, [board, cards]);
+  }, [board, cards, meId]);
 
   const activeCard = active?.type === 'card' ? cards[active.id] : undefined;
   const activeList = active?.type === 'list' ? board.lists.find((l) => l.id === active.id) : undefined;
   const accent = LABEL_COLORS[board.accent];
+  const overdueOn = filters.due === 'overdue';
 
   return (
     <motion.div {...pageTransition} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -865,45 +910,37 @@ function BoardView({ board }: { board: Board }) {
       <header className="relative flex flex-wrap items-center gap-3 px-6 pb-4 pt-5">
         <SquareKanban className="size-[22px] shrink-0" style={{ color: accent.solid }} strokeWidth={1.8} />
         <BoardTitle board={board} />
-        {/* Quiet summary; the clickable parts toggle the matching filter. */}
-        <div className="flex flex-wrap items-center gap-x-2 text-[12.5px] text-muted tabular">
-          <span>{stats.total} kort</span>
-          {stats.mine > 0 && (
-            <>
-              <span className="text-subtle">·</span>
-              <button
-                type="button"
-                onClick={() => setFilters({ ...filters, mine: !filters.mine })}
-                className={cn('underline-offset-2 transition-colors hover:text-ink hover:underline', filters.mine && 'font-medium text-ink underline')}
-              >
-                {stats.mine} til dig
-              </button>
-            </>
-          )}
-          {stats.overdue > 0 && (
-            <>
-              <span className="text-subtle">·</span>
-              <button
-                type="button"
-                onClick={() => setFilters({ ...filters, due: filters.due === 'overdue' ? 'all' : 'overdue' })}
-                className={cn('text-negative underline-offset-2 hover:underline', filters.due === 'overdue' && 'font-medium underline')}
-              >
-                {stats.overdue} forfalden{stats.overdue === 1 ? '' : 'e'}
-              </button>
-            </>
-          )}
-          {stats.done > 0 && (
-            <>
-              <span className="text-subtle">·</span>
-              <span>{stats.done} færdig{stats.done === 1 ? '' : 'e'}</span>
-            </>
-          )}
-        </div>
+        {stats.total > 0 && (
+          <Tooltip content={`${stats.done} af ${stats.total} kort er færdige`}>
+            <div className="flex items-center gap-2 pl-1">
+              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-black/[0.07]">
+                <motion.div
+                  className="h-full rounded-full"
+                  style={{ background: accent.solid }}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${(stats.done / stats.total) * 100}%` }}
+                  transition={{ duration: 0.6, ease: EASE }}
+                />
+              </div>
+              <span className="text-[12px] text-muted tabular">
+                {stats.done}/{stats.total}
+              </span>
+            </div>
+          </Tooltip>
+        )}
         <div className="ml-auto flex items-center gap-2">
+          <ShareButton />
           <TeamPop />
           <span className="mx-1 h-5 w-px bg-line" />
-          <Button size="sm" variant={filters.mine ? 'gradient' : 'secondary'} onClick={() => setFilters({ ...filters, mine: !filters.mine })}>
+          {stats.overdue > 0 && (
+            <Button size="sm" variant="secondary" aria-pressed={overdueOn} className={cn(overdueOn && 'border-negative/40 bg-negative-bg text-negative hover:bg-negative-bg')} onClick={() => setFilters({ ...filters, due: overdueOn ? 'all' : 'overdue' })}>
+              <span className="size-1.5 rounded-full bg-negative" /> Forfaldne
+              <span className="text-[12px] font-normal text-muted tabular">{stats.overdue}</span>
+            </Button>
+          )}
+          <Button size="sm" variant={filters.mine ? 'gradient' : 'secondary'} aria-pressed={filters.mine} onClick={() => setFilters({ ...filters, mine: !filters.mine })}>
             <Users /> Mine kort
+            {stats.mine > 0 && <span className={cn('text-[12px] font-normal tabular', filters.mine ? 'text-white/75' : 'text-muted')}>{stats.mine}</span>}
           </Button>
           <FilterPop board={board} filters={filters} setFilters={setFilters} />
           <BoardMenu board={board} />
@@ -935,6 +972,7 @@ function BoardView({ board }: { board: Board }) {
       </div>
 
       <CardDialog cardId={openCard} onClose={() => setOpenCard(null)} />
+      <ShareDialog />
     </motion.div>
   );
 }

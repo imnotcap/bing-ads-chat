@@ -1,108 +1,68 @@
 /**
- * Planning boards (Trello-style): boards with lists, cards, labels, members,
- * checklists, due dates and an activity log per card. Stored locally on this PC.
+ * Planning boards (Trello-style). Every change is an op from board/model.ts:
+ * - Alone on this PC, ops are applied straight away and saved locally.
+ * - Shared with a team (board/sync.ts), ops are applied at once on top of the team's
+ *   confirmed copy ("pending") and sent to the Cloudflare Worker, which orders them
+ *   for everyone. What is shown = confirmed + pending (+ the card being dragged).
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { uid } from '@/lib/utils';
+import {
+  MEMBER_COLORS,
+  applyOp,
+  type Board,
+  type BoardData,
+  type BoardLabel,
+  type BoardList,
+  type BoardOp,
+  type Card,
+  type CardPatch,
+  type ChecklistItem,
+  type LabelColor,
+  type Member,
+  type OpInput,
+} from '@/board/model';
 
-export type LabelColor = 'green' | 'yellow' | 'orange' | 'red' | 'purple' | 'blue' | 'teal' | 'pink' | 'gray';
+export * from '@/board/model';
 
-export const LABEL_COLORS: Record<LabelColor, { solid: string; soft: string; text: string; name: string }> = {
-  green: { solid: '#22a06b', soft: '#e3f6ec', text: '#11643f', name: 'Grøn' },
-  yellow: { solid: '#e2b203', soft: '#fdf5d8', text: '#7a5d00', name: 'Gul' },
-  orange: { solid: '#f08a24', soft: '#fff0e1', text: '#8a4508', name: 'Orange' },
-  red: { solid: '#e5484d', soft: '#fdeaea', text: '#9b1c20', name: 'Rød' },
-  purple: { solid: '#6d5cf6', soft: '#efecff', text: '#4532c7', name: 'Lilla' },
-  blue: { solid: '#3b82f6', soft: '#e6f0ff', text: '#1d4fb8', name: 'Blå' },
-  teal: { solid: '#14b8a6', soft: '#e0f7f4', text: '#0d6d63', name: 'Turkis' },
-  pink: { solid: '#ec4899', soft: '#fde8f3', text: '#9d1c5c', name: 'Pink' },
-  gray: { solid: '#8b8b98', soft: '#f0f0f3', text: '#4a4a55', name: 'Grå' },
-};
+/** Member id of the user on this PC before a team is set up. */
+export const LOCAL_ME = 'me';
 
-export const MEMBER_COLORS = ['#6d5cf6', '#14b8a6', '#f08a24', '#ec4899', '#3b82f6', '#22a06b', '#e5484d', '#8b5cf6'];
-
-export interface BoardLabel {
+export interface TeamInfo {
   id: string;
+  secret: string;
   name: string;
-  color: LabelColor;
+  /** Last version of the team's boards this PC has. */
+  version: number;
 }
 
-export interface Member {
-  id: string;
-  name: string;
-  /** Team or role, e.g. "SEO". */
-  role?: string;
-  color: string;
-}
+export type SyncStatus = 'local' | 'connecting' | 'online' | 'offline' | 'error';
 
-export interface ChecklistItem {
-  id: string;
-  text: string;
-  done: boolean;
-}
+interface BoardState extends BoardData {
+  meId: string;
+  confirmed: BoardData;
+  pending: BoardOp[];
+  /** Live position of the card being dragged (not sent until it is dropped). */
+  preview: BoardOp | null;
+  team: TeamInfo | null;
+  status: SyncStatus;
+  statusDetail: string | null;
 
-export interface CardActivity {
-  id: string;
-  ts: number;
-  memberId: string;
-  kind: 'comment' | 'event';
-  text: string;
-}
-
-export interface Card {
-  id: string;
-  boardId: string;
-  listId: string;
-  title: string;
-  description: string;
-  labelIds: string[];
-  memberIds: string[];
-  /** yyyy-mm-dd */
-  due: string | null;
-  done: boolean;
-  checklist: ChecklistItem[];
-  activity: CardActivity[];
-  cover: LabelColor | null;
-  archived: boolean;
-  createdAt: number;
-}
-
-export interface BoardList {
-  id: string;
-  title: string;
-  cardIds: string[];
-}
-
-export interface Board {
-  id: string;
-  title: string;
-  accent: LabelColor;
-  lists: BoardList[];
-  labels: BoardLabel[];
-  createdAt: number;
-}
-
-export const ME = 'me';
-
-type CardPatch = Partial<Pick<Card, 'title' | 'description' | 'due' | 'done' | 'cover' | 'labelIds' | 'memberIds' | 'checklist'>>;
-
-interface BoardState {
-  boards: Board[];
-  cards: Record<string, Card>;
-  members: Member[];
+  dispatch: (op: OpInput) => BoardOp;
   createBoard: (title: string) => string;
   updateBoard: (boardId: string, patch: Partial<Pick<Board, 'title' | 'accent'>>) => void;
   deleteBoard: (boardId: string) => void;
   addList: (boardId: string, title: string) => void;
   renameList: (boardId: string, listId: string, title: string) => void;
   deleteList: (boardId: string, listId: string) => void;
-  moveList: (boardId: string, from: number, to: number) => void;
+  moveList: (boardId: string, listId: string, toIndex: number) => void;
   sortList: (boardId: string, listId: string, by: 'due' | 'title' | 'created') => void;
   addCard: (boardId: string, listId: string, title: string, opts?: { top?: boolean; description?: string; labelIds?: string[] }) => string;
   updateCard: (cardId: string, patch: CardPatch) => void;
-  /** Moves a card to a list at an index (also used live while dragging). */
   moveCard: (cardId: string, toListId: string, toIndex: number) => void;
+  previewMove: (cardId: string, toListId: string, toIndex: number) => void;
+  clearPreview: () => void;
   copyCard: (cardId: string) => void;
   archiveCard: (cardId: string) => void;
   restoreCard: (cardId: string) => void;
@@ -114,14 +74,18 @@ interface BoardState {
   updateCheckItem: (cardId: string, itemId: string, patch: Partial<Omit<ChecklistItem, 'id'>>) => void;
   removeCheckItem: (cardId: string, itemId: string) => void;
   addComment: (cardId: string, text: string) => void;
-  /** Records the move between lists after a drag ends. */
-  logMove: (cardId: string, fromListId: string) => void;
   addLabel: (boardId: string, name: string, color: LabelColor) => string;
   updateLabel: (boardId: string, labelId: string, patch: Partial<Omit<BoardLabel, 'id'>>) => void;
   deleteLabel: (boardId: string, labelId: string) => void;
   addMember: (name: string, role?: string) => void;
   updateMember: (memberId: string, patch: Partial<Omit<Member, 'id'>>) => void;
   removeMember: (memberId: string) => void;
+
+  /* used by board/sync.ts */
+  applyRemote: (ops: BoardOp[], version: number, drop?: string[]) => void;
+  resetConfirmed: (data: BoardData, version: number) => void;
+  setTeam: (team: TeamInfo | null, data: BoardData, meId: string, pending?: BoardOp[]) => void;
+  setStatus: (status: SyncStatus, detail?: string | null) => void;
 }
 
 const DEFAULT_LABELS = (): BoardLabel[] => [
@@ -132,10 +96,9 @@ const DEFAULT_LABELS = (): BoardLabel[] => [
   { id: uid('lb_'), name: 'Haster', color: 'red' },
 ];
 
-function newCard(boardId: string, listId: string, title: string, extra: Partial<Card> = {}): Card {
-  const id = uid('c_');
+function newCard(boardId: string, listId: string, title: string, memberId: string, extra: Partial<Card> = {}): Card {
   return {
-    id,
+    id: uid('c_'),
     boardId,
     listId,
     title,
@@ -145,7 +108,7 @@ function newCard(boardId: string, listId: string, title: string, extra: Partial<
     due: null,
     done: false,
     checklist: [],
-    activity: [{ id: uid('a_'), ts: Date.now(), memberId: ME, kind: 'event', text: 'oprettede kortet' }],
+    activity: [{ id: uid('a_'), ts: Date.now(), memberId, kind: 'event', text: 'oprettede kortet' }],
     cover: null,
     archived: false,
     createdAt: Date.now(),
@@ -160,7 +123,7 @@ function isoDay(offset: number) {
 }
 
 /** The first board, with a few example cards so the board isn't empty on day one. */
-function seed() {
+function seed(): BoardData {
   const boardId = uid('b_');
   const labels = DEFAULT_LABELS();
   const [paid, seo, content, analysis, urgent] = labels.map((l) => l.id) as [string, string, string, string, string];
@@ -168,7 +131,7 @@ function seed() {
   const cards: Card[] = [];
   const add = (listIndex: number, title: string, extra: Partial<Card> = {}) => {
     const list = lists[listIndex]!;
-    const card = newCard(boardId, list.id, title, extra);
+    const card = newCard(boardId, list.id, title, LOCAL_ME, extra);
     list.cardIds.push(card.id);
     cards.push(card);
   };
@@ -186,11 +149,24 @@ function seed() {
   });
   add(1, 'Tilføj negative søgeord på brand-kampagnen', { labelIds: [paid, urgent], due: isoDay(-1) });
   add(1, 'Tjek meta-titler på kategorisiderne', { labelIds: [seo] });
-  add(2, 'Månedsrapport til ledelsen', { labelIds: [analysis], memberIds: [ME], due: isoDay(5), cover: 'blue' });
+  add(2, 'Månedsrapport til ledelsen', { labelIds: [analysis], memberIds: [LOCAL_ME], due: isoDay(5), cover: 'blue' });
   add(3, 'Ny landingsside til efterårskollektionen', { labelIds: [content, seo] });
   add(4, 'Opsæt konverteringssporing', { labelIds: [analysis, paid], done: true });
-  const board: Board = { id: boardId, title: 'Marketingplan', accent: 'purple', lists, labels, createdAt: Date.now() };
-  return { boards: [board], cards: Object.fromEntries(cards.map((c) => [c.id, c])) };
+  return {
+    boards: [{ id: boardId, title: 'Marketingplan', accent: 'purple', lists, labels, createdAt: Date.now() }],
+    cards: Object.fromEntries(cards.map((c) => [c.id, c])),
+    members: [{ id: LOCAL_ME, name: 'Mig', color: MEMBER_COLORS[0]! }],
+  };
+}
+
+type Core = Pick<BoardState, 'confirmed' | 'pending' | 'preview'>;
+
+/** What is shown: the confirmed boards with this PC's unsent changes on top. */
+function derive(s: Core): BoardData {
+  let d = s.confirmed;
+  for (const op of s.pending) d = applyOp(d, op);
+  if (s.preview) d = applyOp(d, s.preview);
+  return d;
 }
 
 const initial = seed();
@@ -198,232 +174,140 @@ const initial = seed();
 export const useBoard = create<BoardState>()(
   persist(
     (set, get) => {
-      const patchCard = (cardId: string, fn: (c: Card) => Partial<Card>) =>
+      /** Sets core fields and recomputes what is shown. */
+      const commit = (patch: Partial<BoardState>) =>
         set((s) => {
-          const c = s.cards[cardId];
-          return c ? { cards: { ...s.cards, [cardId]: { ...c, ...fn(c) } } } : s;
+          const next = { ...s, ...patch };
+          return { ...patch, ...derive(next) };
         });
-      const patchBoard = (boardId: string, fn: (b: Board) => Partial<Board>) =>
-        set((s) => ({ boards: s.boards.map((b) => (b.id === boardId ? { ...b, ...fn(b) } : b)) }));
-      const event = (text: string, memberId = ME): CardActivity => ({ id: uid('a_'), ts: Date.now(), memberId, kind: 'event', text });
-      const listTitle = (c: Card, listId = c.listId) => get().boards.find((b) => b.id === c.boardId)?.lists.find((l) => l.id === listId)?.title ?? '';
+      const op = (input: OpInput) => get().dispatch(input);
 
       return {
         ...initial,
-        members: [{ id: ME, name: 'Mig', color: MEMBER_COLORS[0]! }],
+        confirmed: initial,
+        pending: [],
+        preview: null,
+        meId: LOCAL_ME,
+        team: null,
+        status: 'local',
+        statusDetail: null,
+
+        dispatch: (input) => {
+          const s = get();
+          const full = { ...input, id: uid('op_'), actor: s.meId, ts: Date.now() } as BoardOp;
+          if (s.team) commit({ pending: [...s.pending, full] });
+          else commit({ confirmed: applyOp(s.confirmed, full) });
+          return full;
+        },
 
         createBoard: (title) => {
-          const id = uid('b_');
-          const lists = ['To do', 'I gang', 'Færdig'].map((t) => ({ id: uid('l_'), title: t, cardIds: [] }));
           const accents: LabelColor[] = ['purple', 'teal', 'blue', 'pink', 'orange', 'green'];
-          set((s) => ({
-            boards: [...s.boards, { id, title: title.trim() || 'Ny tavle', accent: accents[s.boards.length % accents.length]!, lists, labels: DEFAULT_LABELS(), createdAt: Date.now() }],
-          }));
-          return id;
-        },
-        updateBoard: (boardId, patch) => patchBoard(boardId, () => patch),
-        deleteBoard: (boardId) =>
-          set((s) => ({
-            boards: s.boards.filter((b) => b.id !== boardId),
-            cards: Object.fromEntries(Object.entries(s.cards).filter(([, c]) => c.boardId !== boardId)),
-          })),
-
-        addList: (boardId, title) => patchBoard(boardId, (b) => ({ lists: [...b.lists, { id: uid('l_'), title: title.trim() || 'Ny liste', cardIds: [] }] })),
-        renameList: (boardId, listId, title) => patchBoard(boardId, (b) => ({ lists: b.lists.map((l) => (l.id === listId ? { ...l, title: title.trim() || l.title } : l)) })),
-        deleteList: (boardId, listId) =>
-          set((s) => ({
-            boards: s.boards.map((b) => (b.id === boardId ? { ...b, lists: b.lists.filter((l) => l.id !== listId) } : b)),
-            cards: Object.fromEntries(Object.entries(s.cards).filter(([, c]) => c.listId !== listId)),
-          })),
-        moveList: (boardId, from, to) =>
-          patchBoard(boardId, (b) => {
-            const lists = [...b.lists];
-            const [moved] = lists.splice(from, 1);
-            if (moved) lists.splice(to, 0, moved);
-            return { lists };
-          }),
-        sortList: (boardId, listId, by) =>
-          patchBoard(boardId, (b) => ({
-            lists: b.lists.map((l) => {
-              if (l.id !== listId) return l;
-              const cards = get().cards;
-              const key = (id: string) => {
-                const c = cards[id];
-                if (!c) return '';
-                return by === 'due' ? (c.due ?? '9999') : by === 'title' ? c.title.toLowerCase() : String(c.createdAt).padStart(15, '0');
-              };
-              return { ...l, cardIds: [...l.cardIds].sort((a, z) => key(a).localeCompare(key(z), 'da')) };
-            }),
-          })),
-
-        addCard: (boardId, listId, title, opts = {}) => {
-          const card = newCard(boardId, listId, title.trim(), { description: opts.description ?? '', labelIds: opts.labelIds ?? [] });
-          set((s) => ({
-            cards: { ...s.cards, [card.id]: card },
-            boards: s.boards.map((b) =>
-              b.id === boardId ? { ...b, lists: b.lists.map((l) => (l.id === listId ? { ...l, cardIds: opts.top ? [card.id, ...l.cardIds] : [...l.cardIds, card.id] } : l)) } : b,
-            ),
-          }));
-          return card.id;
-        },
-        updateCard: (cardId, patch) =>
-          patchCard(cardId, (c) => {
-            const log: CardActivity[] = [];
-            if (patch.done !== undefined && patch.done !== c.done) log.push(event(patch.done ? 'markerede kortet som færdigt' : 'genåbnede kortet'));
-            if (patch.due !== undefined && patch.due !== c.due) log.push(event(patch.due ? `satte forfaldsdato til ${patch.due.split('-').reverse().join('.')}` : 'fjernede forfaldsdatoen'));
-            return { ...patch, activity: [...c.activity, ...log] };
-          }),
-        moveCard: (cardId, toListId, toIndex) =>
-          set((s) => {
-            const card = s.cards[cardId];
-            if (!card) return s;
-            const boards = s.boards.map((b) => {
-              if (b.id !== card.boardId) return b;
-              return {
-                ...b,
-                lists: b.lists.map((l) => {
-                  let ids = l.cardIds.filter((id) => id !== cardId);
-                  if (l.id === toListId) {
-                    ids = [...ids];
-                    ids.splice(Math.max(0, Math.min(toIndex, ids.length)), 0, cardId);
-                  }
-                  return ids.length === l.cardIds.length && l.id !== toListId ? l : { ...l, cardIds: ids };
-                }),
-              };
-            });
-            return { boards, cards: card.listId === toListId ? s.cards : { ...s.cards, [cardId]: { ...card, listId: toListId } } };
-          }),
-        logMove: (cardId, fromListId) => {
-          const c = get().cards[cardId];
-          if (!c || c.listId === fromListId) return;
-          patchCard(cardId, () => ({ activity: [...c.activity, event(`flyttede kortet fra ${listTitle(c, fromListId)} til ${listTitle(c)}`)] }));
-        },
-        copyCard: (cardId) => {
-          const c = get().cards[cardId];
-          if (!c) return;
-          const copy: Card = {
-            ...c,
-            id: uid('c_'),
-            title: `${c.title} (kopi)`,
-            checklist: c.checklist.map((i) => ({ ...i, id: uid('ci_') })),
-            activity: [event('kopierede kortet')],
+          const board: Board = {
+            id: uid('b_'),
+            title: title.trim() || 'Ny tavle',
+            accent: accents[get().boards.length % accents.length]!,
+            lists: ['To do', 'I gang', 'Færdig'].map((t) => ({ id: uid('l_'), title: t, cardIds: [] })),
+            labels: DEFAULT_LABELS(),
             createdAt: Date.now(),
           };
-          set((s) => ({
-            cards: { ...s.cards, [copy.id]: copy },
-            boards: s.boards.map((b) =>
-              b.id === c.boardId
-                ? { ...b, lists: b.lists.map((l) => (l.id === c.listId ? { ...l, cardIds: l.cardIds.flatMap((id) => (id === cardId ? [id, copy.id] : [id])) } : l)) }
-                : b,
-            ),
-          }));
+          op({ type: 'createBoard', board });
+          return board.id;
         },
-        archiveCard: (cardId) =>
-          set((s) => {
-            const c = s.cards[cardId];
-            if (!c) return s;
-            return {
-              cards: { ...s.cards, [cardId]: { ...c, archived: true, activity: [...c.activity, event('arkiverede kortet')] } },
-              boards: s.boards.map((b) => (b.id === c.boardId ? { ...b, lists: b.lists.map((l) => ({ ...l, cardIds: l.cardIds.filter((id) => id !== cardId) })) } : b)),
-            };
-          }),
-        restoreCard: (cardId) =>
-          set((s) => {
-            const c = s.cards[cardId];
-            if (!c) return s;
-            const board = s.boards.find((b) => b.id === c.boardId);
-            const listId = board?.lists.some((l) => l.id === c.listId) ? c.listId : board?.lists[0]?.id;
-            if (!board || !listId) return s;
-            return {
-              cards: { ...s.cards, [cardId]: { ...c, listId, archived: false, activity: [...c.activity, event('gendannede kortet')] } },
-              boards: s.boards.map((b) => (b.id === c.boardId ? { ...b, lists: b.lists.map((l) => (l.id === listId ? { ...l, cardIds: [...l.cardIds, cardId] } : l)) } : b)),
-            };
-          }),
-        deleteCard: (cardId) =>
-          set((s) => {
-            const c = s.cards[cardId];
-            if (!c) return s;
-            const { [cardId]: _removed, ...cards } = s.cards;
-            void _removed;
-            return {
-              cards,
-              boards: s.boards.map((b) => (b.id === c.boardId ? { ...b, lists: b.lists.map((l) => ({ ...l, cardIds: l.cardIds.filter((id) => id !== cardId) })) } : b)),
-            };
-          }),
-        archiveDone: (boardId, listId) => {
-          const list = get().boards.find((b) => b.id === boardId)?.lists.find((l) => l.id === listId);
-          for (const id of list?.cardIds ?? []) if (get().cards[id]?.done) get().archiveCard(id);
+        updateBoard: (boardId, patch) => void op({ type: 'updateBoard', boardId, patch }),
+        deleteBoard: (boardId) => void op({ type: 'deleteBoard', boardId }),
+        addList: (boardId, title) => void op({ type: 'addList', boardId, list: { id: uid('l_'), title: title.trim() || 'Ny liste', cardIds: [] } }),
+        renameList: (boardId, listId, title) => void op({ type: 'renameList', boardId, listId, title }),
+        deleteList: (boardId, listId) => void op({ type: 'deleteList', boardId, listId }),
+        moveList: (boardId, listId, toIndex) => void op({ type: 'moveList', boardId, listId, toIndex }),
+        sortList: (boardId, listId, by) => void op({ type: 'sortList', boardId, listId, by }),
+
+        addCard: (boardId, listId, title, opts = {}) => {
+          const card = newCard(boardId, listId, title.trim(), get().meId, { description: opts.description ?? '', labelIds: opts.labelIds ?? [] });
+          op({ type: 'addCard', card, top: opts.top });
+          return card.id;
         },
+        updateCard: (cardId, patch) => void op({ type: 'updateCard', cardId, patch }),
+        moveCard: (cardId, toListId, toIndex) => {
+          commit({ preview: null });
+          op({ type: 'moveCard', cardId, toListId, toIndex });
+        },
+        previewMove: (cardId, toListId, toIndex) =>
+          commit({ preview: { type: 'moveCard', cardId, toListId, toIndex, id: 'preview', actor: get().meId, ts: Date.now() } }),
+        clearPreview: () => commit({ preview: null }),
+        copyCard: (cardId) => void op({ type: 'copyCard', cardId, newId: uid('c_') }),
+        archiveCard: (cardId) => void op({ type: 'archiveCard', cardId }),
+        restoreCard: (cardId) => void op({ type: 'restoreCard', cardId }),
+        deleteCard: (cardId) => void op({ type: 'deleteCard', cardId }),
+        archiveDone: (boardId, listId) => void op({ type: 'archiveDone', boardId, listId }),
 
-        toggleLabel: (cardId, labelId) =>
-          patchCard(cardId, (c) => ({ labelIds: c.labelIds.includes(labelId) ? c.labelIds.filter((x) => x !== labelId) : [...c.labelIds, labelId] })),
-        toggleMember: (cardId, memberId) =>
-          patchCard(cardId, (c) => {
-            const on = c.memberIds.includes(memberId);
-            const name = get().members.find((m) => m.id === memberId)?.name ?? 'Et medlem';
-            const text = memberId === ME ? (on ? 'forlod kortet' : 'tog kortet') : on ? `fjernede ${name}` : `tildelte kortet til ${name}`;
-            return { memberIds: on ? c.memberIds.filter((x) => x !== memberId) : [...c.memberIds, memberId], activity: [...c.activity, event(text)] };
-          }),
-
-        addCheckItem: (cardId, text) => patchCard(cardId, (c) => ({ checklist: [...c.checklist, { id: uid('ci_'), text: text.trim(), done: false }] })),
-        updateCheckItem: (cardId, itemId, patch) => patchCard(cardId, (c) => ({ checklist: c.checklist.map((i) => (i.id === itemId ? { ...i, ...patch } : i)) })),
-        removeCheckItem: (cardId, itemId) => patchCard(cardId, (c) => ({ checklist: c.checklist.filter((i) => i.id !== itemId) })),
-        addComment: (cardId, text) =>
-          patchCard(cardId, (c) => ({ activity: [...c.activity, { id: uid('a_'), ts: Date.now(), memberId: ME, kind: 'comment', text: text.trim() }] })),
+        toggleLabel: (cardId, labelId) => {
+          const c = get().cards[cardId];
+          if (c) op({ type: 'setLabel', cardId, labelId, on: !c.labelIds.includes(labelId) });
+        },
+        toggleMember: (cardId, memberId) => {
+          const c = get().cards[cardId];
+          if (c) op({ type: 'setMember', cardId, memberId, on: !c.memberIds.includes(memberId) });
+        },
+        addCheckItem: (cardId, text) => void op({ type: 'addCheckItem', cardId, item: { id: uid('ci_'), text: text.trim(), done: false } }),
+        updateCheckItem: (cardId, itemId, patch) => void op({ type: 'updateCheckItem', cardId, itemId, patch }),
+        removeCheckItem: (cardId, itemId) => void op({ type: 'removeCheckItem', cardId, itemId }),
+        addComment: (cardId, text) => void op({ type: 'addComment', cardId, text }),
 
         addLabel: (boardId, name, color) => {
-          const id = uid('lb_');
-          patchBoard(boardId, (b) => ({ labels: [...b.labels, { id, name: name.trim(), color }] }));
-          return id;
+          const label = { id: uid('lb_'), name: name.trim(), color };
+          op({ type: 'addLabel', boardId, label });
+          return label.id;
         },
-        updateLabel: (boardId, labelId, patch) => patchBoard(boardId, (b) => ({ labels: b.labels.map((l) => (l.id === labelId ? { ...l, ...patch } : l)) })),
-        deleteLabel: (boardId, labelId) =>
-          set((s) => ({
-            boards: s.boards.map((b) => (b.id === boardId ? { ...b, labels: b.labels.filter((l) => l.id !== labelId) } : b)),
-            cards: Object.fromEntries(Object.entries(s.cards).map(([id, c]) => [id, c.labelIds.includes(labelId) ? { ...c, labelIds: c.labelIds.filter((x) => x !== labelId) } : c])),
-          })),
-
+        updateLabel: (boardId, labelId, patch) => void op({ type: 'updateLabel', boardId, labelId, patch }),
+        deleteLabel: (boardId, labelId) => void op({ type: 'deleteLabel', boardId, labelId }),
         addMember: (name, role) =>
-          set((s) => ({ members: [...s.members, { id: uid('m_'), name: name.trim(), role: role?.trim() || undefined, color: MEMBER_COLORS[s.members.length % MEMBER_COLORS.length]! }] })),
-        updateMember: (memberId, patch) => set((s) => ({ members: s.members.map((m) => (m.id === memberId ? { ...m, ...patch } : m)) })),
-        removeMember: (memberId) =>
-          set((s) =>
-            memberId === ME
-              ? s
-              : {
-                  members: s.members.filter((m) => m.id !== memberId),
-                  cards: Object.fromEntries(Object.entries(s.cards).map(([id, c]) => [id, c.memberIds.includes(memberId) ? { ...c, memberIds: c.memberIds.filter((x) => x !== memberId) } : c])),
-                },
-          ),
+          void op({
+            type: 'addMember',
+            member: { id: uid('m_'), name: name.trim(), role: role?.trim() || undefined, color: MEMBER_COLORS[get().members.length % MEMBER_COLORS.length]! },
+          }),
+        updateMember: (memberId, patch) => void op({ type: 'updateMember', memberId, patch }),
+        removeMember: (memberId) => {
+          if (memberId !== get().meId) op({ type: 'removeMember', memberId });
+        },
+
+        applyRemote: (ops, version, drop = []) => {
+          const s = get();
+          if (!s.team) return;
+          let confirmed = s.confirmed;
+          for (const o of ops) confirmed = applyOp(confirmed, o);
+          const done = new Set([...ops.map((o) => o.id), ...drop]);
+          commit({ confirmed, pending: s.pending.filter((p) => !done.has(p.id)), team: { ...s.team, version } });
+        },
+        resetConfirmed: (data, version) => {
+          const s = get();
+          if (s.team) commit({ confirmed: data, team: { ...s.team, version } });
+        },
+        setTeam: (team, data, meId, pending = []) => commit({ team, confirmed: data, meId, pending, preview: null, status: team ? 'connecting' : 'local', statusDetail: null }),
+        setStatus: (status, detail = null) => set({ status, statusDetail: detail }),
       };
     },
-    { name: 'bac.board', version: 1 },
+    {
+      name: 'bac.board',
+      version: 2,
+      partialize: ({ confirmed, pending, meId, team }) => ({ confirmed, pending, meId, team }),
+      // v2: changes became ops (shared with the team through Cloudflare).
+      migrate: (persisted, version) => {
+        if (version < 2) {
+          const p = persisted as Partial<BoardData>;
+          const data = p.boards && p.cards && p.members ? { boards: p.boards, cards: p.cards, members: p.members } : seed();
+          return { confirmed: data, pending: [], meId: LOCAL_ME, team: null };
+        }
+        return persisted as BoardState;
+      },
+      merge: (persisted, current) => {
+        const next = { ...current, ...(persisted as Partial<BoardState>) };
+        return { ...next, ...derive(next), status: next.team ? 'connecting' : 'local' };
+      },
+    },
   ),
 );
 
-export function initialsOf(name: string) {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?';
-}
-
-/** Due-date state for the badge colour. */
-export function dueState(card: Pick<Card, 'due' | 'done'>, today = new Date()): 'none' | 'done' | 'overdue' | 'soon' | 'later' {
-  if (!card.due) return 'none';
-  if (card.done) return 'done';
-  const t = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-  const [y, m, d] = card.due.split('-').map(Number) as [number, number, number];
-  const due = new Date(y, m - 1, d).getTime();
-  if (due < t) return 'overdue';
-  if (due - t <= 86_400_000) return 'soon';
-  return 'later';
-}
-
-export function fmtDue(due: string) {
-  const [y, m, d] = due.split('-').map(Number) as [number, number, number];
-  return new Date(y, m - 1, d).toLocaleDateString('da-DK', { day: 'numeric', month: 'short' });
-}
-
-/** Open cards claimed by me across all boards (badge in the sidebar). */
-export function myOpenCards(s: Pick<BoardState, 'cards'>, boardId?: string) {
-  return Object.values(s.cards).filter((c) => !c.archived && !c.done && c.memberIds.includes(ME) && (!boardId || c.boardId === boardId)).length;
+/** Open cards the user has taken (badge in the sidebar). */
+export function myOpenCards(s: Pick<BoardState, 'cards' | 'meId'>, boardId?: string) {
+  return Object.values(s.cards).filter((c) => !c.archived && !c.done && c.memberIds.includes(s.meId) && (!boardId || c.boardId === boardId)).length;
 }

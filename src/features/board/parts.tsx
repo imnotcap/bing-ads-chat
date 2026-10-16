@@ -6,12 +6,13 @@ import { useState } from 'react';
 import { EASE } from '@/components/motion';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { LABEL_COLORS, ME, initialsOf, useBoard, type Board, type BoardLabel, type LabelColor, type Member } from '@/stores/board';
+import { LABEL_COLORS, initialsOf, useBoard, type Board, type BoardLabel, type LabelColor, type Member } from '@/stores/board';
 
 export function Avatar({ member, size = 26, ring }: { member: Member; size?: number; ring?: boolean }) {
+  const meId = useBoard((s) => s.meId);
   return (
     <span
-      title={member.id === ME ? `${member.name} (dig)` : member.role ? `${member.name} · ${member.role}` : member.name}
+      title={member.id === meId ? `${member.name} (dig)` : member.role ? `${member.name} · ${member.role}` : member.name}
       className={cn('grid shrink-0 place-items-center rounded-full font-semibold text-white', ring && 'ring-2 ring-white')}
       style={{ width: size, height: size, background: member.color, fontSize: Math.round(size * 0.4) }}
     >
@@ -209,6 +210,7 @@ export function LabelPicker({ board, selected, onToggle }: { board: Board; selec
 
 export function MemberPicker({ selected, onToggle }: { selected: string[]; onToggle: (memberId: string) => void }) {
   const members = useBoard((s) => s.members);
+  const meId = useBoard((s) => s.meId);
   const [q, setQ] = useState('');
   const list = members.filter((m) => !q || m.name.toLowerCase().includes(q.toLowerCase()) || m.role?.toLowerCase().includes(q.toLowerCase()));
   return (
@@ -226,7 +228,7 @@ export function MemberPicker({ selected, onToggle }: { selected: string[]; onTog
             <Avatar member={m} size={24} />
             <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
               {m.name}
-              {m.id === ME && <span className="text-subtle"> (dig)</span>}
+              {m.id === meId && <span className="text-subtle"> (dig)</span>}
               {m.role && <span className="text-subtle"> · {m.role}</span>}
             </span>
             {on && <Check className="size-4 text-brand" />}

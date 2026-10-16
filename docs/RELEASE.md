@@ -9,7 +9,10 @@ fra Cloudflare, så ingen skal hente en ny exe-fil efter den første installatio
 | Opdateringsfeed (signeret) | https://bing-ads-chat.casperjohansen.workers.dev/updates/latest.json |
 | Kildekode + byggeri | https://github.com/imnotcap/bing-ads-chat (GitHub Actions bygger Windows) |
 
-* Cloudflare: **din egen konto** (Workers Free – ikke Inventarlands) · Worker `bing-ads-chat` (kun statiske filer, ingen database).
+* Cloudflare: **din egen konto** (Workers Free – ikke Inventarlands) · Worker `bing-ads-chat`: statiske filer + `/api/teams`
+  til delte planlægningstavler (`cloudflare/src/worker.ts`, én Durable Object med SQLite pr. team – med i Free-planen).
+  Et team åbnes med sin invitationskode; kun en hash af koden gemmes. Lokal test: `npx wrangler@4 dev --config cloudflare/wrangler.jsonc`
+  og `VITE_SITE_URL=http://localhost:8787 pnpm dev`.
 * Kontoen og dens workers.dev-adresse findes automatisk ud fra API-tokenet (`scripts/resolve-site.mjs`)
   og bages ind i appen ved hvert build. Har kontoen ingen workers.dev-adresse endnu, oprettes en.
 * Appen tjekker for opdateringer 3 sek. efter start, hver halve time og når du vender tilbage til den.

@@ -163,6 +163,7 @@ export function DashboardSidebar() {
   const openBoard = useUi((s) => s.openBoard);
   const boards = useBoard((s) => s.boards);
   const cards = useBoard((s) => s.cards);
+  const meId = useBoard((s) => s.meId);
   const collapsed = useSettings((s) => s.appearance.navCollapsed);
   const hidden = useSettings((s) => s.appearance.navHidden);
   const setAppearance = useSettings((s) => s.setAppearance);
@@ -199,11 +200,11 @@ export function DashboardSidebar() {
           swatch: LABEL_COLORS[b.accent].solid,
           active: view === 'board' && boardId === b.id,
           onSelect: () => openBoard(b.id),
-          badge: myOpenCards({ cards }, b.id),
+          badge: myOpenCards({ cards, meId }, b.id),
         })),
       },
     ];
-  }, [view, boardId, boards, cards, go, openBoard]);
+  }, [view, boardId, boards, cards, meId, go, openBoard]);
 
   const q = query.trim().toLowerCase();
   const visible = categories

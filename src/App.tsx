@@ -22,6 +22,7 @@ import { SignInDialog } from '@/features/settings/SignInDialog';
 import { useAutoUpdate } from '@/hooks/useAutoUpdate';
 import { useDesktopShell } from '@/hooks/useDesktopShell';
 import { useBootstrap } from '@/hooks/useBootstrap';
+import { useBoardSync } from '@/board/sync';
 import { useBudgetWatch } from '@/hooks/useBudgetWatch';
 import { navigate, useNavigationHistory } from '@/hooks/useNavigationHistory';
 import { queryClient } from '@/lib/queryClient';
@@ -76,6 +77,7 @@ function Shell() {
   useAutoUpdate();
   useDesktopShell();
   useNavigationHistory();
+  useBoardSync();
 
   return (
     <div className="flex h-full flex-col bg-surface">

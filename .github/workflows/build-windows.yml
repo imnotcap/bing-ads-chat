@@ -88,6 +88,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
           VITE_MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
           VITE_MS_DEVELOPER_TOKEN: ${{ secrets.MS_DEVELOPER_TOKEN }}
+          # Where shared planning boards live (the Worker's /api/teams); set by resolve-site.mjs.
+          VITE_SITE_URL: ${{ env.BING_ADS_CHAT_SITE_URL }}
         run: |
           if [ "${{ steps.site.outputs.release }}" = "true" ]; then
             # Signed build with the updater pointed at the Cloudflare address.
