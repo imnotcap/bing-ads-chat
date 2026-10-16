@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Bot, Building2, Cpu, Database, Download, ExternalLink, Info, Loader2, OctagonPause, Palette, Plug, Search, ShieldCheck, Users, Wallet, X, type LucideIcon } from 'lucide-react';
+import { Bot, Building2, Cpu, Database, Download, ExternalLink, FlaskConical, Info, Loader2, OctagonPause, Palette, Plug, Search, ShieldCheck, Users, Wallet, X, type LucideIcon } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
@@ -31,6 +31,7 @@ import { monthTotal, useUsage } from '@/stores/usage';
 import { goDemo, goLive } from '@/workspace/shared';
 import { useAccount } from '@/stores/account';
 import { ModelsTab } from './ModelsTab';
+import { startFollowUpTest } from '@/features/chat/followUpTest';
 import { UsersTab } from './UsersTab';
 import { AdsConnectionForm, ApprovalModePicker, ClaudeKeyForm, InventarlandForm, MicrosoftSetupGuide } from './forms';
 
@@ -81,7 +82,7 @@ function ConnectionsTab() {
         <Users className="mt-0.5 size-4 shrink-0 text-brand" />
         <span>
           Forbindelserne er <b>fælles for alle i appen</b>. De gemmes på jeres Cloudflare, så alle i afdelingen arbejder på de samme data – og alle kan ændre dem. Dit eget
-          Microsoft-login bruges kun til din konto og din Outlook-kalender.
+          Microsoft-login bruges kun til din konto, din Outlook-kalender og opfølgningsmails til dig selv.
         </span>
       </div>
       <Card title="Claude (AI)" description="Assistenten bruger Anthropics Claude API. Forbruget betales via den Anthropic-konto, nøglen hører til.">
@@ -342,6 +343,15 @@ function AiTab() {
             checked={ai.followUps}
             onCheckedChange={(followUps) => setAi({ followUps })}
           />
+          <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <div className="grid gap-0.5">
+              <span className="text-sm font-medium text-ink">Test opfølgningen</span>
+              <span className="text-[12.5px] leading-relaxed text-muted">Laver et kort i Min planlægning, en påmindelse i Outlook og en mail til dig – uden Microsoft Ads og AI. Kan også skrives som /test i chatten.</span>
+            </div>
+            <Button size="sm" variant="secondary" onClick={startFollowUpTest}>
+              <FlaskConical /> Test nu
+            </Button>
+          </div>
         </div>
       </Card>
 

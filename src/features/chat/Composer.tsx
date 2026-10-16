@@ -152,13 +152,19 @@ export const Composer = forwardRef<
     const m = /^\/(\S*)$/.exec(text);
     if (!m) return [];
     const q = m[1]!.toLowerCase();
-    return SLASH_COMMANDS.filter((c) => c.command.slice(1).startsWith(q) || c.label.toLowerCase().includes(q));
-  }, [text]);
+    // Without an AI key only the commands that work without the AI.
+    return SLASH_COMMANDS.filter((c) => (!disabled || c.run) && (c.command.slice(1).startsWith(q) || c.label.toLowerCase().includes(q)));
+  }, [text, disabled]);
 
   useEffect(() => setActive(0), [slash.length]);
 
   const canSend = (text.trim().length > 0 || attachments.length > 0) && !reading && !running && !disabled;
   const submit = () => {
+    const command = SLASH_COMMANDS.find((c) => c.run && c.command === text.trim());
+    if (command && !running) {
+      setText('');
+      return command.run!();
+    }
     if (!canSend) return;
     onSend(text.trim(), attachments);
     setText('');
@@ -168,6 +174,10 @@ export const Composer = forwardRef<
   const pick = (i: number) => {
     const cmd = slash[i];
     if (!cmd) return;
+    if (cmd.run) {
+      setText('');
+      return cmd.run();
+    }
     setText(cmd.prompt);
     requestAnimationFrame(() => ref.current?.focus());
   };
@@ -279,7 +289,6 @@ export const Composer = forwardRef<
             ref={ref}
             value={text}
             rows={1}
-            disabled={disabled}
             onChange={(e) => setText(e.target.value)}
             onPaste={(e) => {
               const files = [...e.clipboardData.files];
@@ -309,7 +318,7 @@ export const Composer = forwardRef<
                 submit();
               }
             }}
-            placeholder={disabled ? 'Tilføj din Claude API-nøgle under Indstillinger for at chatte …' : dictation.listening ? 'Lytter … tal nu' : 'Spørg om hvad som helst, eller bed mig ændre noget …'}
+            placeholder={disabled ? 'Tilføj din Claude API-nøgle under Indstillinger for at chatte (eller skriv /test) …' : dictation.listening ? 'Lytter … tal nu' : 'Spørg om hvad som helst, eller bed mig ændre noget …'}
             className="block max-h-[220px] min-h-9 flex-1 resize-none bg-transparent px-1.5 py-[7px] text-[15px] leading-[22px] text-ink outline-none placeholder:text-subtle"
             aria-label="Besked til assistenten"
           />

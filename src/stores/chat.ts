@@ -76,11 +76,24 @@ export interface AssistantItem {
   costUsd?: number;
   /** The follow-up offered after changes in this reply (see FollowUpCard). */
   followUp?: FollowUpState;
+  /** Made by "/test" in the app – never sent to the AI. Shows a follow-up without real changes. */
+  test?: boolean;
 }
 
 export type FollowUpState =
   | { status: 'dismissed' }
-  | { status: 'created'; boardId: string; cardId: string; due: string; time: string; outlookLink?: string | null; outlookError?: string };
+  | {
+      status: 'created';
+      boardId: string;
+      cardId: string;
+      due: string;
+      time: string;
+      outlookLink?: string | null;
+      outlookError?: string;
+      /** The address the follow-up was mailed to. */
+      mailTo?: string;
+      mailError?: string;
+    };
 
 export type ChatItem = UserItem | AssistantItem;
 

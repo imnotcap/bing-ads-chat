@@ -81,11 +81,11 @@ export function ChatView() {
         />
       )}
 
-      <div ref={ref} onScroll={onScroll} className="relative z-0 flex-1 overflow-y-auto">
+      <div ref={ref} onScroll={onScroll} className="relative z-0 flex-1 overflow-y-auto overflow-x-hidden">
         {empty ? (
           <EmptyState onPick={(p) => startChat(p)} />
         ) : (
-          <div className="mx-auto grid w-full max-w-[760px] gap-7 px-6 pb-10 pt-8">
+          <div className="fit-width mx-auto grid w-full max-w-[760px] gap-7 px-6 pb-10 pt-8">
             {items.map((it, i) =>
               it.kind === 'user' ? <UserMessage key={it.id} item={it} /> : <AssistantMessage key={it.id} item={it} currency={currency} isLast={i === items.length - 1} />,
             )}

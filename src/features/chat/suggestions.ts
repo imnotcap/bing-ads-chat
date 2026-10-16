@@ -1,4 +1,5 @@
-import { BarChart3, Coins, FileText, Lightbulb, PenLine, Scale, Search, ShieldCheck, Wallet, type LucideIcon } from 'lucide-react';
+import { BarChart3, Coins, FileText, FlaskConical, Lightbulb, PenLine, Scale, Search, ShieldCheck, Wallet, type LucideIcon } from 'lucide-react';
+import { TEST_COMMAND, startFollowUpTest } from './followUpTest';
 
 export interface Suggestion {
   icon: LucideIcon;
@@ -18,7 +19,8 @@ export const SUGGESTIONS: Suggestion[] = [
   { icon: Coins, title: 'Forbrug og prognose', prompt: 'Hvor meget har vi brugt denne måned, og hvad bliver prognosen for hele måneden?', tone: 'amber' },
 ];
 
-export const SLASH_COMMANDS: { command: string; label: string; prompt: string; icon: LucideIcon }[] = [
+/** `prompt` is put in the chat field; `run` does something in the app instead (no AI). */
+export const SLASH_COMMANDS: { command: string; label: string; prompt: string; icon: LucideIcon; run?: () => void }[] = [
   { command: '/overblik', label: 'Overblik over kontoen', prompt: SUGGESTIONS[0]!.prompt, icon: BarChart3 },
   { command: '/spild', label: 'Find spildte søgetermer', prompt: SUGGESTIONS[1]!.prompt, icon: Search },
   { command: '/budget', label: 'Budgetbegrænsede kampagner', prompt: SUGGESTIONS[2]!.prompt, icon: Wallet },
@@ -28,4 +30,5 @@ export const SLASH_COMMANDS: { command: string; label: string; prompt: string; i
   { command: '/rapport', label: 'Ugerapport med grafer', prompt: SUGGESTIONS[6]!.prompt, icon: FileText },
   { command: '/forbrug', label: 'Forbrug og prognose', prompt: SUGGESTIONS[7]!.prompt, icon: Coins },
   { command: '/ændringer', label: 'Hvad er der ændret?', prompt: 'Hvilke ændringer er der lavet for nylig, og hvordan har de påvirket resultaterne?', icon: ShieldCheck },
+  { command: TEST_COMMAND, label: 'Test opfølgning: planlægning, Outlook og mail (uden Microsoft Ads og AI)', prompt: TEST_COMMAND, icon: FlaskConical, run: startFollowUpTest },
 ];
