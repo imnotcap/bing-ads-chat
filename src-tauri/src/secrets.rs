@@ -1,10 +1,11 @@
-//! Secrets (Claude API key, Microsoft refresh token, developer token) live in the
+//! Secrets (the workspace session, the Outlook calendar sign-in, older keys) live in the
 //! OS credential store – Windows Credential Manager on Windows – never on disk.
 
 const SERVICE: &str = "dk.bingadschat.app";
 
 /// Only these names can be read or written from the web layer.
 const ALLOWED: &[&str] = &[
+    "app_session",
     "anthropic_api_key",
     "ms_refresh_token",
     "ms_graph_refresh_token",

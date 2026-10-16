@@ -6,13 +6,22 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri, msFetch, openExternal, startOAuthListener } from '@/lib/platform';
+import { ADS_SCOPE } from '@/workspace/types';
 
-export const MS_SCOPE = 'https://ads.microsoft.com/msads.manage offline_access';
-/** Outlook calendar (Microsoft Graph) – asked for separately the first time a reminder is added. */
+/**
+ * Signing in to the app: who you are (ID token for the workspace) and your own
+ * Outlook calendar – nothing else of yours.
+ */
+export const LOGIN_SCOPE = 'openid profile email offline_access https://graph.microsoft.com/Calendars.ReadWrite';
+/** Outlook calendar (Microsoft Graph), from the login's refresh token. */
 export const GRAPH_CALENDAR_SCOPE = 'https://graph.microsoft.com/Calendars.ReadWrite offline_access';
+/** The workspace's shared Microsoft Advertising connection. */
+const MS_SCOPE = ADS_SCOPE;
 
 export interface TokenResponse {
   access_token: string;
+  /** With the openid scope: who signed in (checked by the workspace). */
+  id_token?: string;
   refresh_token?: string;
   expires_in?: number;
 }

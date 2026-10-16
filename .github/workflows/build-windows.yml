@@ -11,9 +11,12 @@
 #                                template). The account and its workers.dev address are found
 #                                from the token (scripts/resolve-site.mjs).
 # Without them the build still runs; it just isn't signed or published.
-# Optional – one-click "Log ind med Microsoft" (built into the app, see src/bing/credentials.ts):
-#   MS_CLIENT_ID               – Application (client) ID of the Microsoft Entra app registration
-#   MS_DEVELOPER_TOKEN         – Microsoft Advertising developer token
+# For signing in (accounts in the app, see cloudflare/src/workspace.ts):
+#   MS_CLIENT_ID               – Application (client) ID of the Microsoft Entra app registration;
+#                                built into the app and given to the Cloudflare Worker
+# Optional:
+#   MS_DEVELOPER_TOKEN         – Microsoft Advertising developer token (pre-filled when someone
+#                                connects the shared Microsoft Advertising account)
 name: Build Windows app
 
 on:
@@ -177,5 +180,6 @@ jobs:
       - name: Publish update feed + download page
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
           RELEASE_NOTES: ${{ github.event.head_commit.message }}
         run: node scripts/publish.mjs release

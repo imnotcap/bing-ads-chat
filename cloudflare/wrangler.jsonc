@@ -3,14 +3,28 @@
   //   /                         download page (finds the latest version in /version.json)
   //   /Bing-Ads-Chat-Setup.exe  latest Windows installer
   //   /updates/latest.json      signed update feed the app checks (tauri-plugin-updater)
-  //   /api/teams/…              shared planning boards (src/worker.ts, one Durable Object per team)
-  // Deployed by GitHub Actions (.github/workflows/build-windows.yml → scripts/publish.mjs).
+  //   /api/…                    shared workspace: accounts, shared connections, planning boards
+  //                             (src/workspace.ts, one Durable Object for the whole department)
+  // Deployed by GitHub Actions (.github/workflows/build-windows.yml → scripts/publish.mjs), which
+  // also sets MS_CLIENT_ID from the GitHub secret of the same name.
   "name": "bing-ads-chat",
   "main": "src/worker.ts",
   "compatibility_date": "2025-09-01",
   "workers_dev": true,
   "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "404-page", "run_worker_first": ["/api/*"] },
-  "durable_objects": { "bindings": [{ "name": "TEAMS", "class_name": "TeamBoard" }] },
+  "vars": {
+    // People with an e-mail address on these domains get in without an admin's approval.
+    "ALLOWED_DOMAINS": "inventarland.dk"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "WORKSPACE", "class_name": "Workspace" },
+      { "name": "TEAMS", "class_name": "TeamBoard" }
+    ]
+  },
   // SQLite-backed Durable Objects are included in the Workers Free plan.
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamBoard"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["TeamBoard"] },
+    { "tag": "v2", "new_sqlite_classes": ["Workspace"] }
+  ]
 }

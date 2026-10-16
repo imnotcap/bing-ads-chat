@@ -3,10 +3,11 @@ import { z } from 'zod';
 import type { AnyTool } from './context';
 import { displayTools } from './display';
 export { TERMINAL_TOOLS } from './display';
+import { inventarlandTools } from './inventarland';
 import { readTools } from './read';
 import { writeTools } from './write';
 
-export const ALL_TOOLS: AnyTool[] = [...readTools, ...writeTools, ...displayTools];
+export const ALL_TOOLS: AnyTool[] = [...readTools, ...inventarlandTools, ...writeTools, ...displayTools];
 
 const byName = new Map(ALL_TOOLS.map((t) => [t.name, t]));
 

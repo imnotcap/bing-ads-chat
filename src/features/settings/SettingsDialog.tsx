@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Bot, Building2, Cpu, Database, Download, ExternalLink, Info, Loader2, OctagonPause, Palette, Plug, Search, ShieldCheck, Wallet, X, type LucideIcon } from 'lucide-react';
+import { Bot, Building2, Cpu, Database, Download, ExternalLink, Info, Loader2, OctagonPause, Palette, Plug, Search, ShieldCheck, Users, Wallet, X, type LucideIcon } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
@@ -28,9 +28,11 @@ import { useConnection, useCurrentAccount } from '@/stores/connection';
 import { DEFAULT_SPEND_RULES, useSettings } from '@/stores/settings';
 import { useUi, type SettingsTab } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
-import { switchToDemo } from './connection';
+import { goDemo, goLive } from '@/workspace/shared';
+import { useAccount } from '@/stores/account';
 import { ModelsTab } from './ModelsTab';
-import { ApprovalModePicker, ClaudeKeyForm, MicrosoftConnectForm, MicrosoftSetupGuide } from './forms';
+import { UsersTab } from './UsersTab';
+import { AdsConnectionForm, ApprovalModePicker, ClaudeKeyForm, InventarlandForm, MicrosoftSetupGuide } from './forms';
 
 interface TabDef {
   id: SettingsTab;
@@ -42,7 +44,8 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  { id: 'connections', label: 'Forbindelser', icon: Plug, group: 'Konto', keywords: 'claude api nøgle microsoft advertising bing login developer token client id tenant demo' },
+  { id: 'connections', label: 'Forbindelser', icon: Plug, group: 'Konto', keywords: 'claude api nøgle microsoft advertising bing developer token client id tenant demo fælles cloudflare inventarland magento webshop salg google ads meta daisycon' },
+  { id: 'users', label: 'Brugere', icon: Users, group: 'Konto', keywords: 'konto log ud login microsoft administrator admin godkend adgang kolleger team' },
   { id: 'business', label: 'Virksomhed', icon: Building2, group: 'Konto', keywords: 'profil mål cpa roas dækningsgrad tone of voice instruktioner website' },
   { id: 'spend', label: 'Forbrug', icon: Wallet, group: 'Assistent', keywords: 'budget månedsbudget grænser godkendelse autopilot nødstop beskyttede kampagner cpc bud budgetvagt' },
   { id: 'ai', label: 'AI-assistent', icon: Bot, group: 'Assistent', keywords: 'model opus sonnet haiku fable effort tænkning forbrug pris tokens cache' },
@@ -71,20 +74,28 @@ function Card({ title, description, children, className, action }: { title: stri
 
 function ConnectionsTab() {
   const mode = useConnection((s) => s.mode);
+  const adsConnected = useAccount((s) => !!s.workspace?.ads.connected);
   return (
     <div className="grid gap-5">
-      <Card title="Claude (AI)" description="Assistenten bruger Anthropics Claude API. Du betaler selv for forbruget via din Anthropic-konto.">
+      <div className="flex items-start gap-3 rounded-2xl bg-brand-50/70 px-4 py-3 text-[13px] leading-relaxed text-ink-2">
+        <Users className="mt-0.5 size-4 shrink-0 text-brand" />
+        <span>
+          Forbindelserne er <b>fælles for alle i appen</b>. De gemmes på jeres Cloudflare, så alle i afdelingen arbejder på de samme data – og alle kan ændre dem. Dit eget
+          Microsoft-login bruges kun til din konto og din Outlook-kalender.
+        </span>
+      </div>
+      <Card title="Claude (AI)" description="Assistenten bruger Anthropics Claude API. Forbruget betales via den Anthropic-konto, nøglen hører til.">
         <ClaudeKeyForm />
       </Card>
       <Card
         title="Microsoft Advertising"
-        description="Forbind din rigtige Bing Ads-konto. Indtil da bruger appen en realistisk demo-konto, så du kan prøve alt af uden risiko."
+        description="Afdelingens annoncekonti. Indtil den er forbundet, bruger appen en realistisk demo-konto, så alt kan prøves uden risiko."
         action={
           <Segmented
             layoutId="mode-switch"
             size="sm"
             value={mode}
-            onChange={(m) => (m === 'demo' ? switchToDemo() : toast('Log ind med Microsoft nedenfor for at bruge din rigtige konto'))}
+            onChange={(m) => (m === 'demo' ? goDemo() : adsConnected ? goLive() : toast('Forbind Microsoft Advertising nedenfor for at bruge de rigtige data'))}
             options={[
               { value: 'demo', label: 'Demo' },
               { value: 'live', label: 'Rigtig konto' },
@@ -93,12 +104,18 @@ function ConnectionsTab() {
         }
       >
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-          <MicrosoftConnectForm />
+          <AdsConnectionForm />
           <div className="rounded-2xl bg-line-2/70 p-4">
-            <div className="mb-3 text-[13px] font-semibold text-ink">Sådan får du adgang</div>
+            <div className="mb-3 text-[13px] font-semibold text-ink">Sådan forbinder I</div>
             <MicrosoftSetupGuide />
           </div>
         </div>
+      </Card>
+      <Card
+        title="Inventarland (webshop og andre kanaler)"
+        description="Giver assistenten webshoppens faktiske salg og produkter fra Magento samt Google Ads, Meta og Daisycon – hentet fra Inventarlands API. Kun læseadgang; intet ændres i Inventarland."
+      >
+        <InventarlandForm />
       </Card>
     </div>
   );
@@ -627,6 +644,8 @@ function DataTab() {
 
 function TabContent({ id }: { id: SettingsTab }) {
   switch (id) {
+    case 'users':
+      return <UsersTab />;
     case 'connections':
       return <ConnectionsTab />;
     case 'spend':
@@ -724,7 +743,7 @@ export function SettingsDialog() {
                   </div>
                   <div className="m-3 mt-0 flex items-start gap-2 rounded-xl border border-line bg-surface px-3 py-2.5 text-[12px] leading-snug text-muted">
                     <ShieldCheck className="mt-px size-4 shrink-0 text-positive" />
-                    Nøgler gemmes i Windows Credential Manager.
+                    Forbindelser gemmes fælles på jeres Cloudflare.
                   </div>
                 </nav>
 

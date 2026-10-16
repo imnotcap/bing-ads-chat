@@ -3,7 +3,7 @@
  * Gemini API key and the Gemini models with their prices.
  */
 import { CheckCircle2, ExternalLink, KeyRound, Loader2, RefreshCw, Sparkles } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { listGeminiModels, type GeminiModelListing } from '@/ai/gemini';
 import { CLAUDE_MODELS, allModels, type ModelInfo } from '@/ai/models';
 import { toast } from '@/components/notifications/toast';
@@ -11,9 +11,11 @@ import { Button } from '@/components/ui/button';
 import { Badge, Switch } from '@/components/ui/controls';
 import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
 import { Field, Input } from '@/components/ui/input';
-import { deleteSecret, getSecret, openExternal, setSecret } from '@/lib/platform';
+import { openExternal } from '@/lib/platform';
 import { cn, errorMessage } from '@/lib/utils';
+import { useAccount } from '@/stores/account';
 import { useSettings } from '@/stores/settings';
+import { saveSharedKey, sharedKey } from '@/workspace/shared';
 
 function Section({ title, description, children, action, brand }: { title: string; description?: React.ReactNode; children: React.ReactNode; action?: React.ReactNode; brand?: Brand }) {
   return (
@@ -87,14 +89,11 @@ function ModelRow({ m, enabled, onToggle, extra, isDefault, onDefault }: { m: Mo
 export function ModelsTab() {
   const ai = useSettings((s) => s.ai);
   const setAi = useSettings((s) => s.setAi);
-  const [hasKey, setHasKey] = useState(false);
+  const shared = useAccount((s) => s.workspace?.keys.google ?? null);
+  const hasKey = !!shared;
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [listing, setListing] = useState<GeminiModelListing[] | null>(null);
-
-  useEffect(() => {
-    void getSecret('google_api_key').then((k) => setHasKey(!!k));
-  }, []);
 
   // Empty list = all models allowed; make it explicit as soon as the admin edits it.
   const enabledIds = ai.enabledModels.length ? ai.enabledModels : allModels().map((m) => m.id);
@@ -108,12 +107,11 @@ export function ModelsTab() {
   const fetchModels = async (apiKey?: string) => {
     setBusy(true);
     try {
-      const k = apiKey ?? (await getSecret('google_api_key'));
+      const k = apiKey ?? (await sharedKey('google'));
       if (!k) throw new Error('Indtast først en Gemini API-nøgle.');
       const list = await listGeminiModels(k);
       if (apiKey) {
-        await setSecret('google_api_key', apiKey);
-        setHasKey(true);
+        await saveSharedKey('google', apiKey);
         setKey('');
       }
       setListing(list);
@@ -157,7 +155,7 @@ export function ModelsTab() {
             <button type="button" className="font-medium text-brand hover:underline" onClick={() => void openExternal('https://aistudio.google.com/apikey')}>
               Google AI Studio <ExternalLink className="inline size-3" />
             </button>
-            . Nøglen gemmes i Windows Credential Manager.
+            . Nøglen gemmes fælles på jeres Cloudflare, så alle i appen bruger den samme.
           </>
         }
         action={
@@ -171,16 +169,15 @@ export function ModelsTab() {
         <div className="grid gap-4">
           {hasKey ? (
             <div className="flex flex-wrap items-center gap-3 rounded-xl bg-positive-bg px-3.5 py-2.5 text-[13px] text-positive">
-              <CheckCircle2 className="size-4" /> Gemini-nøglen er gemt.
+              <CheckCircle2 className="size-4" /> Fælles nøgle …{shared?.hint} · sat af {shared?.by}
               <Button
                 size="xs"
                 variant="ghost"
                 className="ml-auto text-positive hover:bg-white/60"
                 onClick={() =>
-                  void deleteSecret('google_api_key').then(() => {
-                    setHasKey(false);
-                    setListing(null);
-                  })
+                  void saveSharedKey('google', null)
+                    .then(() => setListing(null))
+                    .catch((e: unknown) => toast.error('Nøglen kunne ikke fjernes', { description: errorMessage(e) }))
                 }
               >
                 Fjern nøgle

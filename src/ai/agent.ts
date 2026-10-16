@@ -13,7 +13,7 @@ import { getBackend } from '@/bing/backend';
 import { getSpendStatus, invalidateSpendCache } from '@/bing/spend';
 import { toContentBlocks, toMeta, type Attachment } from '@/lib/attachments';
 import { DATE_PRESET_LABELS, presetRange } from '@/lib/format';
-import { getSecret } from '@/lib/platform';
+import { sharedKey } from '@/workspace/shared';
 import { queryClient } from '@/lib/queryClient';
 import { errorMessage, uid } from '@/lib/utils';
 import { useActivity } from '@/stores/activity';
@@ -157,12 +157,12 @@ export async function sendMessage(convId: string, text: string, attachments: Att
   const fail = (message: string) => updateAssistant(convId, itemId, (it) => ({ ...it, status: 'error', error: message }));
 
   const provider = modelInfo(model).provider;
-  const apiKey = await getSecret(provider === 'google' ? 'google_api_key' : 'anthropic_api_key');
+  const apiKey = await sharedKey(provider === 'google' ? 'google' : 'anthropic').catch(() => null);
   if (!apiKey) {
     return fail(
       provider === 'google'
-        ? 'Der er ingen Gemini API-nøgle. Tilføj den under Indstillinger → AI-modeller.'
-        : 'Der er ingen Claude API-nøgle. Tilføj den under Indstillinger → Forbindelser.',
+        ? 'Der er ingen fælles Gemini API-nøgle (eller serveren kunne ikke nås). Tilføj den under Indstillinger → AI-modeller.'
+        : 'Der er ingen fælles Claude API-nøgle (eller serveren kunne ikke nås). Tilføj den under Indstillinger → Forbindelser.',
     );
   }
   const cap = settings.ai.monthlyAiBudgetUsd;

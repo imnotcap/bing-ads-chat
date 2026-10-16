@@ -7,7 +7,6 @@
  * Docs: https://learn.microsoft.com/advertising/guides/migrate-to-rest
  */
 import { msFetch } from '@/lib/platform';
-import { refreshAccessToken, type OAuthConfig } from './oauth';
 import type { MsService } from './types';
 
 export const SERVICE_URLS: Record<MsService, string> = {
@@ -52,11 +51,16 @@ export function extractErrorMessages(payload: unknown, out: string[] = [], depth
   return out;
 }
 
-export interface MsCredentials {
-  oauth: OAuthConfig;
+export interface MsAccess {
+  accessToken: string;
+  /** ms since epoch */
+  expiresAt: number;
   developerToken: string;
-  getRefreshToken: () => Promise<string | null>;
-  saveRefreshToken: (token: string) => Promise<void>;
+}
+
+export interface MsCredentials {
+  /** A current access token + developer token. `fresh` asks for a new token (the last one was rejected). */
+  getAccess: (fresh: boolean) => Promise<MsAccess>;
 }
 
 export interface CallOptions {
@@ -68,22 +72,19 @@ export interface CallOptions {
 }
 
 export class MsAdsClient {
-  private token: { value: string; expiresAt: number } | null = null;
-  private pending: Promise<string> | null = null;
+  private access: MsAccess | null = null;
+  private stale = false;
+  private pending: Promise<MsAccess> | null = null;
 
   constructor(private readonly creds: MsCredentials) {}
 
-  async accessToken(): Promise<string> {
-    if (this.token && this.token.expiresAt > Date.now() + 60_000) return this.token.value;
+  private async current(): Promise<MsAccess> {
+    if (this.access && !this.stale && this.access.expiresAt > Date.now() + 60_000) return this.access;
     this.pending ??= (async () => {
       try {
-        const refresh = await this.creds.getRefreshToken();
-        if (!refresh) throw new Error('Microsoft Advertising er ikke forbundet. Log ind under Indstillinger → Forbindelser.');
-        const res = await refreshAccessToken(this.creds.oauth, refresh);
-        // Microsoft rotates refresh tokens – always keep the newest one.
-        if (res.refresh_token && res.refresh_token !== refresh) await this.creds.saveRefreshToken(res.refresh_token);
-        this.token = { value: res.access_token, expiresAt: Date.now() + (res.expires_in ?? 3600) * 1000 };
-        return res.access_token;
+        this.access = await this.creds.getAccess(this.stale);
+        this.stale = false;
+        return this.access;
       } finally {
         this.pending = null;
       }
@@ -93,9 +94,10 @@ export class MsAdsClient {
 
   async call<T = unknown>(service: MsService, path: string, opts: CallOptions = {}): Promise<T> {
     const url = `${SERVICE_URLS[service]}/${path.replace(/^\/+/, '')}`;
+    const access = await this.current();
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${await this.accessToken()}`,
-      DeveloperToken: this.creds.developerToken,
+      Authorization: `Bearer ${access.accessToken}`,
+      DeveloperToken: access.developerToken,
       'Content-Type': 'application/json',
       Accept: 'application/json',
     };
@@ -127,7 +129,7 @@ export class MsAdsClient {
         lastError = json;
         continue;
       }
-      if (res.status === 401) this.token = null;
+      if (res.status === 401) this.stale = true;
       throw new MsApiError(
         `Microsoft Advertising (${res.status}): ${messages.join(' · ') || (typeof json === 'string' && json ? json.slice(0, 300) : res.statusText)}`,
         res.status,

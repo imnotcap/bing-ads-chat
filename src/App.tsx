@@ -1,6 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, WifiOff } from 'lucide-react';
 import { useEffect } from 'react';
 import { Toaster } from 'sonner';
 import { ClickSpark } from '@/components/reactbits';
@@ -16,17 +16,20 @@ import { BoardPage } from '@/features/board/BoardPage';
 import { ChatView } from '@/features/chat/ChatView';
 import { InsightsPanel } from '@/features/insights/InsightsPanel';
 import { Onboarding } from '@/features/onboarding/Onboarding';
+import { AccountGate } from '@/features/account/LoginScreen';
 import { SettingsDialog } from '@/features/settings/SettingsDialog';
 import { UpdateDialog } from '@/components/layout/UpdatePrompt';
 import { SignInDialog } from '@/features/settings/SignInDialog';
 import { useAutoUpdate } from '@/hooks/useAutoUpdate';
 import { useDesktopShell } from '@/hooks/useDesktopShell';
 import { useBootstrap } from '@/hooks/useBootstrap';
+import { useAccountSync } from '@/hooks/useAccountSync';
 import { useBoardSync } from '@/board/sync';
 import { useBudgetWatch } from '@/hooks/useBudgetWatch';
 import { navigate, useNavigationHistory } from '@/hooks/useNavigationHistory';
 import { queryClient } from '@/lib/queryClient';
 import { ensureFrameless } from '@/lib/window';
+import { useAccount } from '@/stores/account';
 import { useSettings } from '@/stores/settings';
 import { isDashboardView, useUi } from '@/stores/ui';
 
@@ -68,6 +71,8 @@ function Shell() {
   const dashMode = isDashboardView(view);
   const insights = useSettings((s) => s.appearance.insightsPanel);
   const onboarded = useSettings((s) => s.onboarded);
+  const signedIn = useAccount((s) => s.status === 'ready');
+  const offline = useAccount((s) => s.offline);
   const { error } = useBootstrap();
   const go = useUi((s) => s.go);
   const sidebarCollapsed = useSettings((s) => s.appearance.sidebarCollapsed);
@@ -77,6 +82,7 @@ function Shell() {
   useAutoUpdate();
   useDesktopShell();
   useNavigationHistory();
+  useAccountSync();
   useBoardSync();
 
   return (
@@ -110,6 +116,12 @@ function Shell() {
           )}
         </AnimatePresence>
         <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#fbfbfc]">
+          {offline && (
+            <div className="relative z-30 flex items-center gap-2 bg-line-2 px-6 py-2 text-[13px] text-muted">
+              <WifiOff className="size-4 shrink-0" />
+              Ingen forbindelse til jeres Cloudflare – du arbejder med det, denne PC husker.
+            </div>
+          )}
           {error && (
             <button
               type="button"
@@ -140,7 +152,8 @@ function Shell() {
       <SettingsDialog />
       <UpdateDialog />
       <SignInDialog />
-      <AnimatePresence>{!onboarded && <Onboarding key="onboarding" />}</AnimatePresence>
+      <AnimatePresence>{signedIn && !onboarded && <Onboarding key="onboarding" />}</AnimatePresence>
+      <AccountGate />
     </div>
   );
 }

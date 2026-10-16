@@ -1,33 +1,26 @@
 import { useEffect, useState } from 'react';
-import { effectiveDeveloperToken } from '@/bing/credentials';
 import { DEMO_ACCOUNTS } from '@/bing/demo/seed';
 import { getBackend } from '@/bing/backend';
-import { getSecret } from '@/lib/platform';
 import { errorMessage } from '@/lib/utils';
+import { useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
 
-/** Reads which credentials exist and makes sure an account is selected. */
+/** Makes sure an ad account is selected (demo, or the workspace's shared Microsoft Advertising). */
 export function useBootstrap(): { ready: boolean; error: string | null } {
   const mode = useConnection((s) => s.mode);
   const revision = useConnection((s) => s.revision);
+  const signedIn = useAccount((s) => s.status === 'ready');
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [anthropic, refresh, dev] = await Promise.all([
-        getSecret('anthropic_api_key').catch(() => null),
-        getSecret('ms_refresh_token').catch(() => null),
-        effectiveDeveloperToken(),
-      ]);
-      if (cancelled) return;
       const set = useConnection.getState().set;
-      set({ hasAnthropicKey: !!anthropic, hasMsRefreshToken: !!refresh, hasDeveloperToken: !!dev });
-
-      if (mode === 'demo') {
+      if (mode === 'demo' || !signedIn) {
         const { accountId } = useConnection.getState();
         set({ accounts: DEMO_ACCOUNTS, accountId: DEMO_ACCOUNTS.some((a) => a.id === accountId) ? accountId : DEMO_ACCOUNTS[0]!.id });
+        setError(null);
         setReady(true);
         return;
       }
@@ -45,7 +38,7 @@ export function useBootstrap(): { ready: boolean; error: string | null } {
     return () => {
       cancelled = true;
     };
-  }, [mode, revision]);
+  }, [mode, revision, signedIn]);
 
   return { ready, error };
 }

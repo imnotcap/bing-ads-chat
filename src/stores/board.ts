@@ -1,9 +1,10 @@
 /**
  * Planning boards (Trello-style). Every change is an op from board/model.ts:
  * - Alone on this PC, ops are applied straight away and saved locally.
- * - Shared with a team (board/sync.ts), ops are applied at once on top of the team's
- *   confirmed copy ("pending") and sent to the Cloudflare Worker, which orders them
- *   for everyone. What is shown = confirmed + pending (+ the card being dragged).
+ * - Linked to the department's workspace (board/sync.ts), ops are applied at once on
+ *   top of the workspace's confirmed copy ("pending") and sent to the Cloudflare
+ *   Worker, which orders them for everyone. What is shown = confirmed + pending
+ *   (+ the card being dragged).
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -26,15 +27,15 @@ import {
 
 export * from '@/board/model';
 
-/** Member id of the user on this PC before a team is set up. */
+/** Member id of the user on this PC before the boards are linked to the workspace. */
 export const LOCAL_ME = 'me';
 
+/** This PC's link to the workspace's boards (board/sync.ts). */
 export interface TeamInfo {
-  id: string;
-  secret: string;
-  name: string;
-  /** Last version of the team's boards this PC has. */
+  /** Last version of the workspace's boards this PC has. */
   version: number;
+  /** The workspace user the boards were linked for. */
+  userId: string;
 }
 
 export type SyncStatus = 'local' | 'connecting' | 'online' | 'offline' | 'error';
@@ -341,7 +342,7 @@ export const useBoard = create<BoardState>()(
     },
     {
       name: 'bac.board',
-      version: 2,
+      version: 3,
       partialize: ({ confirmed, pending, meId, team }) => ({ confirmed, pending, meId, team }),
       // v2: changes became ops (shared with the team through Cloudflare).
       migrate: (persisted, version) => {
@@ -349,6 +350,13 @@ export const useBoard = create<BoardState>()(
           const p = persisted as Partial<BoardData>;
           const data = p.boards && p.cards && p.members ? { boards: p.boards, cards: p.cards, members: p.members } : seed();
           return { confirmed: data, pending: [], meId: LOCAL_ME, team: null };
+        }
+        // v3: teams with invite codes became the workspace; this PC's boards come along when it first connects.
+        if (version < 3) {
+          const p = persisted as Pick<BoardState, 'confirmed' | 'pending' | 'meId'>;
+          let data = p.confirmed;
+          for (const o of p.pending ?? []) data = applyOp(data, o);
+          return { confirmed: data, pending: [], meId: p.meId, team: null };
         }
         return persisted as BoardState;
       },

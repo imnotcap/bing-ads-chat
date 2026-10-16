@@ -1,5 +1,4 @@
-import { getSecret, setSecret } from '@/lib/platform';
-import { effectiveClientId, effectiveDeveloperToken } from './credentials';
+import { adsAccess } from '@/workspace/shared';
 import { useConnection } from '@/stores/connection';
 import { DemoBackend } from './demo/backend';
 import { LiveBackend } from './live';
@@ -7,27 +6,17 @@ import type { AdsBackend } from './types';
 
 let cached: { key: string; backend: AdsBackend } | null = null;
 
-/** Builds a LiveBackend from the stored credentials (refresh token, developer token). */
-export async function createLiveBackend(clientId: string, tenant: string): Promise<LiveBackend> {
-  const developerToken = await effectiveDeveloperToken();
-  clientId = effectiveClientId(clientId);
-  if (!developerToken) throw new Error('Mangler Microsoft Advertising developer token. Indtast det under Indstillinger → Forbindelser.');
-  if (!clientId) throw new Error('Mangler Application (client) ID. Indtast det under Indstillinger → Forbindelser.');
-  const clientSecret = await getSecret('ms_client_secret');
-  return new LiveBackend({
-    oauth: { clientId, tenant, clientSecret },
-    developerToken,
-    getRefreshToken: () => getSecret('ms_refresh_token'),
-    saveRefreshToken: (t) => setSecret('ms_refresh_token', t),
-  });
+/** Microsoft Advertising through the workspace's shared sign-in (tokens come from Cloudflare). */
+export function createLiveBackend(): LiveBackend {
+  return new LiveBackend({ getAccess: adsAccess });
 }
 
 /** The backend for the current connection mode (demo or live). */
 export async function getBackend(): Promise<AdsBackend> {
-  const { mode, msClientId, msTenant, revision } = useConnection.getState();
-  const key = `${mode}:${msClientId}:${msTenant}:${revision}`;
+  const { mode, revision } = useConnection.getState();
+  const key = `${mode}:${revision}`;
   if (cached?.key === key) return cached.backend;
-  const backend = mode === 'demo' ? new DemoBackend() : await createLiveBackend(msClientId, msTenant);
+  const backend = mode === 'demo' ? new DemoBackend() : createLiveBackend();
   cached = { key, backend };
   return backend;
 }

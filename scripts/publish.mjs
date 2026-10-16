@@ -71,7 +71,12 @@ writeFileSync(join(pub, 'version.json'), `${JSON.stringify({ version, date: pubD
 
 if (deploy) {
   if (!process.env.CLOUDFLARE_API_TOKEN) throw new Error('CLOUDFLARE_API_TOKEN mangler – tilføj den som GitHub-secret (se docs/RELEASE.md).');
-  execSync('npx --yes wrangler@4 deploy --config cloudflare/wrangler.jsonc', {
+  // The workspace accepts Microsoft logins made with the app's own registration.
+  // Without it nobody could sign in to the new version – stop before anything is deployed.
+  const clientId = (process.env.MS_CLIENT_ID ?? '').trim();
+  if (!clientId) throw new Error('MS_CLIENT_ID mangler – tilføj den som GitHub-secret (se docs/RELEASE.md). Intet er udgivet.');
+  if (!/^[0-9a-f-]{36}(,[0-9a-f-]{36})*$/i.test(clientId)) throw new Error('MS_CLIENT_ID ligner ikke et Application (client) ID. Intet er udgivet.');
+  execSync(`npx --yes wrangler@4 deploy --config cloudflare/wrangler.jsonc --var MS_CLIENT_ID:${clientId}`, {
     cwd: root,
     stdio: 'inherit',
     env: { ...process.env, CI: '1' },
