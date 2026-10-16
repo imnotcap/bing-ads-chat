@@ -10,11 +10,16 @@
  * - Planning boards: every op in order, with a WebSocket ping to all open apps.
  * - Inventarland: read-only views of Inventarland's API (webshop sales, other ad
  *   channels), fetched with a shared Inventarland user whose password stays here.
+ * - Data sources (connectors.ts): Google Ads, Meta, LinkedIn, Daisycon, Search
+ *   Console, GA4, Ahrefs, Serper, Magento, Klaviyo and the PIM – credentials kept
+ *   here, tested against the real API when saved and again every night.
  */
 import { DurableObject } from 'cloudflare:workers';
 import { applyOp, boardOfOp, canSeeBoard, dataFor, isBoardData, mayApply, memberIdOf, type BoardData, type BoardOp } from '../../src/board/model';
 import { ADS_SCOPE, INVENTARLAND_URL, INVENTARLAND_VIEWS, type AdsAccess, type InventarlandView, type SharedKeyName, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
+import { CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isConnectorId, type ConnectorId, type ConnectorSaveResult } from '../../src/workspace/connectors';
 import { AuthError, verifyMicrosoftIdToken, type MicrosoftIdentity } from './auth';
+import { ConnectorError, daisyconAuthorizeUrl, daisyconExchange, emptyState, mergeInput, pkcePair, runTest, toSummary, type ConnState } from './connectors';
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
@@ -118,6 +123,8 @@ export class Workspace extends DurableObject<Env> {
     const url = new URL(req.url);
     const path = url.pathname.replace(/^\/api/, '');
     try {
+      // From the Worker's nightly schedule only (requests from outside always start with /api).
+      if (url.pathname === '/internal/check-connections') return json(await this.checkConnections());
       return await this.route(req, url, path);
     } catch (e) {
       if (e instanceof AuthError) return fail(e.message, e.status);
@@ -227,6 +234,14 @@ export class Workspace extends DurableObject<Env> {
       const body: AdsAccess = { accessToken, expiresAt: this.adsToken?.expiresAt ?? Date.now() + 600_000, developerToken: ads.developerToken };
       return json(body);
     }
+
+    /* ------------------------------- data sources ------------------------------- */
+    if (path === '/connections' && method === 'GET') {
+      const rows = await this.ctx.storage.get<ConnState>(CONNECTOR_IDS.map((id) => `conn:${id}`));
+      return json({ connectors: CONNECTOR_IDS.map((id) => toSummary(id, rows.get(`conn:${id}`))) });
+    }
+    const cm = path.match(/^\/connections\/([a-z0-9_]+)(\/test|\/login\/start|\/login\/complete)?$/);
+    if (cm && isConnectorId(cm[1]!)) return this.connectionRoute(req, cm[1], cm[2] ?? '', user);
 
     /* ------------------------------- Inventarland ------------------------------- */
     if (path === '/workspace/inventarland' && method === 'PUT') {
@@ -399,6 +414,90 @@ export class Workspace extends DurableObject<Env> {
       }
     })();
     return this.adsPending;
+  }
+
+  /* ------------------------------- data sources ------------------------------- */
+
+  private async connectionRoute(req: Request, id: ConnectorId, action: string, user: WorkspaceUser): Promise<Response> {
+    const key = `conn:${id}`;
+    const def = connectorDef(id);
+    const state = (await this.ctx.storage.get<ConnState>(key)) ?? emptyState();
+    const reply = async (next: ConnState, ok: boolean, message: string) => {
+      await this.ctx.storage.put(key, next);
+      const body: ConnectorSaveResult = { connector: toSummary(id, next), ok, message };
+      return json(body);
+    };
+    const test = async (s: ConnState) => {
+      const r = await runTest(id, s, (input, init) => fetch(input, init));
+      return reply(r.state, r.ok, r.message);
+    };
+
+    if (req.method === 'PUT' && !action) {
+      const body = (await req.json()) as { config?: Record<string, unknown>; secrets?: Record<string, unknown> };
+      let merged: { config: Record<string, string>; secrets: Record<string, string> };
+      try {
+        merged = mergeInput(def, state, body);
+      } catch (e) {
+        if (e instanceof ConnectorError) return fail(e.message, 400);
+        throw e;
+      }
+      const next: ConnState = { ...state, ...merged, connectedBy: user.name, connectedAt: state.connectedAt ?? Date.now() };
+      // Daisycon: the refresh token comes from the login that follows.
+      if (def.oauth && !next.secrets.refreshToken) return reply({ ...next, status: 'needs_login', lastError: null }, false, `Gemt. Klik "Log ind hos ${def.name}" for at afslutte.`);
+      return test(next);
+    }
+    if (req.method === 'POST' && action === '/test') {
+      if (state.status === 'not_connected') return fail(`${def.name} er ikke sat op endnu.`, 409);
+      return test(state);
+    }
+    if (req.method === 'DELETE' && !action) {
+      await this.ctx.storage.delete([key, `oauth:${id}`]);
+      return json({ connector: toSummary(id, undefined), ok: true, message: `${def.name} er afbrudt.` } satisfies ConnectorSaveResult);
+    }
+    if (req.method === 'POST' && action === '/login/start' && id === 'daisycon') {
+      if (!state.secrets.clientId) return fail('Gem først client ID.', 400);
+      const { verifier, challenge } = await pkcePair();
+      const stateToken = randomToken(24);
+      await this.ctx.storage.put(`oauth:${id}`, { verifier, state: stateToken, expires: Date.now() + 10 * 60_000 });
+      return json({ url: daisyconAuthorizeUrl(state.secrets.clientId, challenge, stateToken, DAISYCON_REDIRECT_URI) });
+    }
+    if (req.method === 'POST' && action === '/login/complete' && id === 'daisycon') {
+      const { code } = (await req.json()) as { code?: string };
+      const pending = await this.ctx.storage.get<{ verifier: string; expires: number }>(`oauth:${id}`);
+      await this.ctx.storage.delete(`oauth:${id}`);
+      if (!pending || pending.expires < Date.now()) return fail('Login er udløbet eller ikke startet – klik "Log ind hos Daisycon" igen.', 400);
+      // Daisycon's page may show the whole redirect URL – take the code from it.
+      const raw = (code ?? '').trim();
+      const cleaned = raw.includes('code=') ? (new URL(raw, 'https://x').searchParams.get('code') ?? raw) : raw;
+      try {
+        const refreshToken = await daisyconExchange((input, init) => fetch(input, init), {
+          clientId: state.secrets.clientId ?? '',
+          clientSecret: state.secrets.clientSecret,
+          code: cleaned,
+          verifier: pending.verifier,
+          redirectUri: DAISYCON_REDIRECT_URI,
+        });
+        return test({ ...state, secrets: { ...state.secrets, refreshToken }, connectedBy: user.name });
+      } catch (e) {
+        if (e instanceof ConnectorError) return fail(e.message, 400);
+        throw e;
+      }
+    }
+    return fail('Ikke fundet.', 404);
+  }
+
+  /** Every night: tests every saved connection again (keeps refresh tokens alive, shows broken ones). */
+  private async checkConnections() {
+    const results: Record<string, string> = {};
+    for (const id of CONNECTOR_IDS) {
+      const state = await this.ctx.storage.get<ConnState>(`conn:${id}`);
+      if (!state || state.status === 'not_connected' || (state.status === 'needs_login' && !state.secrets.refreshToken && connectorDef(id).oauth)) continue;
+      if (connectorDef(id).paidTest) continue;
+      const r = await runTest(id, state, (input, init) => fetch(input, init));
+      await this.ctx.storage.put(`conn:${id}`, r.state);
+      results[id] = r.ok ? 'ok' : r.state.status;
+    }
+    return results;
   }
 
   /* ------------------------------- Inventarland ------------------------------- */
