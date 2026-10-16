@@ -75,7 +75,7 @@ export function DropdownMenuItem({ className, inset, ...props }: React.Component
 }
 
 export function DropdownMenuLabel({ className, ...props }: React.ComponentProps<typeof Menu.Label>) {
-  return <Menu.Label className={cn('px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-subtle', className)} {...props} />;
+  return <Menu.Label className={cn('px-2.5 pb-1 pt-2 text-[12px] font-medium text-muted', className)} {...props} />;
 }
 
 export function DropdownMenuSeparator({ className, ...props }: React.ComponentProps<typeof Menu.Separator>) {

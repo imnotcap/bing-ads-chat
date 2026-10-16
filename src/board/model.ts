@@ -23,6 +23,15 @@ export const LABEL_COLORS: Record<LabelColor, { solid: string; soft: string; tex
   gray: { solid: '#8b8b98', soft: '#f0f0f3', text: '#4a4a55', name: 'Grå' },
 };
 
+export type Priority = 'highest' | 'high' | 'medium' | 'low';
+
+export const PRIORITIES: Record<Priority, { label: string; color: string }> = {
+  highest: { label: 'Højeste', color: '#e5484d' },
+  high: { label: 'Høj', color: '#f08a24' },
+  medium: { label: 'Mellem', color: '#3b82f6' },
+  low: { label: 'Lav', color: '#22a06b' },
+};
+
 export const MEMBER_COLORS = ['#6d5cf6', '#14b8a6', '#f08a24', '#ec4899', '#3b82f6', '#22a06b', '#e5484d', '#8b5cf6'];
 
 export interface BoardLabel {
@@ -67,6 +76,8 @@ export interface Card {
   checklist: ChecklistItem[];
   activity: CardActivity[];
   cover: LabelColor | null;
+  /** Missing on cards made before priorities existed. */
+  priority?: Priority | null;
   archived: boolean;
   createdAt: number;
 }
@@ -92,7 +103,7 @@ export interface BoardData {
   members: Member[];
 }
 
-export type CardPatch = Partial<Pick<Card, 'title' | 'description' | 'due' | 'done' | 'cover'>>;
+export type CardPatch = Partial<Pick<Card, 'title' | 'description' | 'due' | 'done' | 'cover' | 'priority'>>;
 
 type OpBody =
   | { type: 'createBoard'; board: Board }
@@ -217,6 +228,7 @@ export function applyOp(d: BoardData, op: BoardOp): BoardData {
       const p = op.patch;
       if (p.done !== undefined && p.done !== card.done) log.push(event(p.done ? 'markerede kortet som færdigt' : 'genåbnede kortet'));
       if (p.due !== undefined && p.due !== card.due) log.push(event(p.due ? `satte forfaldsdato til ${fmtDate(p.due)}` : 'fjernede forfaldsdatoen'));
+      if (p.priority !== undefined && p.priority !== (card.priority ?? null)) log.push(event(p.priority ? `satte prioritet til ${PRIORITIES[p.priority].label.toLowerCase()}` : 'fjernede prioriteten'));
       return setCard({ ...card, ...p, title: p.title !== undefined ? p.title.trim() || card.title : card.title, activity: [...card.activity, ...log] });
     }
     case 'moveCard': {

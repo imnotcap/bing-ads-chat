@@ -7,7 +7,7 @@
  * positive (green) / negative (red) / neutral (grey).
  */
 @theme {
-  --font-sans: 'Funnel Sans Variable', 'Funnel Sans', 'Segoe UI Variable Text', 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Figtree Variable', 'Figtree', 'Segoe UI Variable Text', 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
 
   /* Calm lavender accent, near-black primary actions (inspired by clean SaaS dashboards). */
   --color-brand: #6d5cf6;
@@ -81,7 +81,7 @@
 
   body {
     @apply bg-canvas text-ink antialiased;
-    letter-spacing: -0.005em;
+    letter-spacing: 0;
     overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
@@ -221,7 +221,7 @@
     @apply w-full border-separate border-spacing-0 overflow-hidden rounded-xl border border-line text-[13.5px];
   }
   .prose-chat thead th {
-    @apply bg-line-2 px-3 py-2 text-left text-[12px] font-semibold uppercase tracking-wide text-muted;
+    @apply bg-line-2 px-3 py-2 text-left text-[12px] font-medium text-muted;
   }
   .prose-chat tbody td {
     @apply border-t border-line px-3 py-2 tabular;

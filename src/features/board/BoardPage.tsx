@@ -23,18 +23,14 @@ import { motion } from 'motion/react';
 import {
   Archive,
   ArrowDownUp,
-  CalendarDays,
-  CheckSquare,
-  CircleCheck,
   Filter,
-  Hand,
-  MessageSquare,
+  LayoutList,
   MoreHorizontal,
   Plus,
   RotateCcw,
+  Rows3,
   Search,
   SquareKanban,
-  Text,
   Trash2,
   UserPlus,
   Users,
@@ -44,13 +40,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { EASE, pageTransition } from '@/components/motion';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/controls';
+import { Segmented, Switch } from '@/components/ui/controls';
+import { useSettings } from '@/stores/settings';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { cn } from '@/lib/utils';
 import { inviteCode } from '@/board/sync';
-import { LABEL_COLORS, dueState, fmtDue, useBoard, type Board, type BoardList, type Card, type Member } from '@/stores/board';
+import { LABEL_COLORS, dueState, useBoard, type Board, type BoardList, type Card, type Member } from '@/stores/board';
 import { useUi } from '@/stores/ui';
 import { CardDialog } from './CardDialog';
+import { CardView, type CardStyle } from './CardView';
 import { CodeBox, ShareButton, ShareDialog, useShareDialog } from './ShareDialog';
 import { Avatar, ColorGrid, LabelPill, Pop } from './parts';
 
@@ -88,122 +86,12 @@ function matches(card: Card, f: Filters) {
 
 /* ---------------------------------- card ---------------------------------- */
 
-const DUE_TONE = {
-  overdue: 'bg-negative text-white',
-  soon: 'bg-warning-bg text-warning',
-  done: 'bg-positive text-white',
-  later: 'text-muted',
-  none: '',
-} as const;
-
-function CardView({ card, board, dragging, overlay, onOpen }: { card: Card; board: Board; dragging?: boolean; overlay?: boolean; onOpen?: () => void }) {
-  const members = useBoard((s) => s.members);
-  const st = useBoard.getState;
-  const labels = board.labels.filter((l) => card.labelIds.includes(l.id));
-  const cardMembers = members.filter((m) => card.memberIds.includes(m.id));
-  const checkDone = card.checklist.filter((i) => i.done).length;
-  const comments = card.activity.filter((a) => a.kind === 'comment').length;
-  const due = dueState(card);
-  const meId = useBoard((s) => s.meId);
-  const claimed = card.memberIds.includes(meId);
-
-  return (
-    <div
-      onClick={onOpen}
-      className={cn(
-        'group/card relative cursor-pointer overflow-hidden rounded-xl border border-black/[0.05] bg-white text-left shadow-[0_1px_2px_rgb(18_18_22/0.06)] transition-[box-shadow,border-color,opacity]',
-        'hover:border-brand/30 hover:shadow-[0_6px_18px_-8px_rgb(109_92_246/0.35)]',
-        dragging && 'opacity-40',
-        overlay && 'rotate-[3deg] cursor-grabbing border-brand/30 shadow-[0_18px_40px_-12px_rgb(18_18_22/0.35)]',
-      )}
-    >
-      {card.cover && <div className="h-7" style={{ background: `linear-gradient(120deg, ${LABEL_COLORS[card.cover].solid}, ${LABEL_COLORS[card.cover].soft})` }} />}
-      <div className="px-3 pb-2.5 pt-2.5">
-        {labels.length > 0 && (
-          <div className="mb-1.5 flex flex-wrap gap-1">
-            {labels.map((l) => (
-              <LabelPill key={l.id} label={l} className="h-5 text-[11px]" />
-            ))}
-          </div>
-        )}
-        <div className="flex items-start gap-1.5">
-          <button
-            type="button"
-            aria-label={card.done ? 'Markér som ikke færdig' : 'Markér som færdig'}
-            onClick={(e) => {
-              e.stopPropagation();
-              st().updateCard(card.id, { done: !card.done });
-            }}
-            className={cn(
-              'mt-[1px] shrink-0 overflow-hidden transition-[width,opacity] duration-200',
-              card.done ? 'w-4 opacity-100' : 'w-0 opacity-0 group-hover/card:w-4 group-hover/card:opacity-100',
-            )}
-          >
-            <CircleCheck className={cn('size-4', card.done ? 'fill-positive text-white' : 'text-subtle hover:text-positive')} />
-          </button>
-          <span className={cn('min-w-0 flex-1 text-[13.5px] leading-snug', card.done ? 'text-muted' : 'text-ink')}>{card.title}</span>
-        </div>
-
-        {(card.due || card.description || card.checklist.length > 0 || comments > 0 || cardMembers.length > 0) && (
-          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-muted">
-            {card.due && (
-              <span className={cn('inline-flex h-5 items-center gap-1 rounded-md px-1.5 font-medium', DUE_TONE[due])}>
-                <CalendarDays className="size-3" /> {fmtDue(card.due)}
-              </span>
-            )}
-            {card.description && (
-              <Tooltip content="Kortet har en beskrivelse">
-                <Text className="size-3.5" />
-              </Tooltip>
-            )}
-            {comments > 0 && (
-              <span className="inline-flex items-center gap-1">
-                <MessageSquare className="size-3.5" /> {comments}
-              </span>
-            )}
-            {card.checklist.length > 0 && (
-              <span className={cn('inline-flex h-5 items-center gap-1 rounded-md px-1.5', checkDone === card.checklist.length && 'bg-positive text-white')}>
-                <CheckSquare className="size-3.5" /> {checkDone}/{card.checklist.length}
-              </span>
-            )}
-            {cardMembers.length > 0 && (
-              <span className="ml-auto flex -space-x-1.5">
-                {cardMembers.slice(0, 4).map((m) => (
-                  <Avatar key={m.id} member={m} size={22} ring />
-                ))}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-      {!overlay && (
-        <Tooltip content={claimed ? 'Slip opgaven' : 'Tag opgaven'}>
-          <button
-            type="button"
-            aria-label={claimed ? 'Slip opgaven' : 'Tag opgaven'}
-            onClick={(e) => {
-              e.stopPropagation();
-              st().toggleMember(card.id, meId);
-            }}
-            className={cn(
-              'absolute right-1.5 grid size-7 place-items-center rounded-lg bg-white/90 text-muted opacity-0 shadow-sm ring-1 ring-black/5 backdrop-blur transition-opacity hover:text-brand group-hover/card:opacity-100',
-              card.cover ? 'top-1' : 'top-1.5',
-              claimed && 'text-brand',
-            )}
-          >
-            <Hand className="size-3.5" />
-          </button>
-        </Tooltip>
-      )}
-    </div>
-  );
-}
-
 function SortableCard({ card, board, onOpen }: { card: Card; board: Board; onOpen: (id: string) => void }) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: card.id, data: { type: 'card', listId: card.listId } });
+  const variant = useSettings((s) => s.appearance.boardCards);
   return (
     <div ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition }} {...attributes} {...listeners} className="outline-none">
-      <CardView card={card} board={board} dragging={isDragging} onOpen={() => onOpen(card.id)} />
+      <CardView card={card} board={board} variant={variant} dragging={isDragging} onOpen={() => onOpen(card.id)} />
     </div>
   );
 }
@@ -354,7 +242,7 @@ function ListPreview({ board, list, cards, filters }: { board: Board; list: Boar
       </div>
       <div className="mt-2 grid gap-2">
         {visible.map((c) => (
-          <CardView key={c.id} card={c} board={board} overlay />
+          <CardView key={c.id} card={c} board={board} variant={useSettings.getState().appearance.boardCards} overlay />
         ))}
       </div>
     </div>
@@ -814,6 +702,8 @@ function BoardView({ board }: { board: Board }) {
   const [openCard, setOpenCard] = useState<string | null>(null);
   const [active, setActive] = useState<{ id: string; type: 'card' | 'list' } | null>(null);
   const origin = useRef<{ listId: string; index: number } | null>(null);
+  const cardStyle = useSettings((s) => s.appearance.boardCards);
+  const setAppearance = useSettings((s) => s.setAppearance);
   const meId = useBoard((s) => s.meId);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
@@ -942,6 +832,16 @@ function BoardView({ board }: { board: Board }) {
             <Users /> Mine kort
             {stats.mine > 0 && <span className={cn('text-[12px] font-normal tabular', filters.mine ? 'text-white/75' : 'text-muted')}>{stats.mine}</span>}
           </Button>
+          <Segmented<CardStyle>
+            layoutId="card-style"
+            size="sm"
+            value={cardStyle}
+            onChange={(v) => setAppearance({ boardCards: v })}
+            options={[
+              { value: 'simple', label: <span className="inline-flex items-center gap-1.5"><Rows3 className="size-3.5" /> Simpel</span>, title: 'Kun titel og ikoner' },
+              { value: 'detailed', label: <span className="inline-flex items-center gap-1.5"><LayoutList className="size-3.5" /> Detaljeret</span>, title: 'Beskrivelse, etiketter, tjekliste og personer' },
+            ]}
+          />
           <FilterPop board={board} filters={filters} setFilters={setFilters} />
           <BoardMenu board={board} />
         </div>
@@ -962,7 +862,7 @@ function BoardView({ board }: { board: Board }) {
           <DragOverlay dropAnimation={{ duration: 220, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }}>
             {activeCard ? (
               <div className="w-[268px]">
-                <CardView card={activeCard} board={board} overlay />
+                <CardView card={activeCard} board={board} variant={cardStyle} overlay />
               </div>
             ) : activeList ? (
               <ListPreview board={board} list={activeList} cards={cards} filters={filters} />

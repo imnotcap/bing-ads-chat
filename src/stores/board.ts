@@ -139,6 +139,7 @@ function seed(): BoardData {
   add(0, 'Blogindlæg: guide til at vælge den rigtige størrelse', { labelIds: [seo, content] });
   add(1, 'Titel-optimér de nye kampagner', {
     labelIds: [paid],
+    priority: 'high',
     due: isoDay(2),
     description: 'Gennemgå titlerne på de nye kampagner, så de matcher søgeordene og produktnavnene.',
     checklist: [
@@ -147,9 +148,23 @@ function seed(): BoardData {
       { id: uid('ci_'), text: 'Godkend i chatten', done: false },
     ],
   });
-  add(1, 'Tilføj negative søgeord på brand-kampagnen', { labelIds: [paid, urgent], due: isoDay(-1) });
-  add(1, 'Tjek meta-titler på kategorisiderne', { labelIds: [seo] });
-  add(2, 'Månedsrapport til ledelsen', { labelIds: [analysis], memberIds: [LOCAL_ME], due: isoDay(5), cover: 'blue' });
+  add(1, 'Tilføj negative søgeord på brand-kampagnen', { labelIds: [paid, urgent], due: isoDay(-1), priority: 'highest', description: 'Brand-kampagnen betaler for søgninger på konkurrenternes navne. Tilføj dem som negative søgeord.' });
+  add(1, 'Tjek meta-titler på kategorisiderne', {
+    labelIds: [seo],
+    priority: 'medium',
+    checklist: [
+      { id: uid('ci_'), text: 'Kontorstole', done: true },
+      { id: uid('ci_'), text: 'Hæve-sænkeborde', done: false },
+      { id: uid('ci_'), text: 'Belysning', done: false },
+    ],
+  });
+  add(2, 'Månedsrapport til ledelsen', {
+    labelIds: [analysis],
+    memberIds: [LOCAL_ME],
+    due: isoDay(5),
+    priority: 'low',
+    description: 'Forbrug, omsætning og ROAS for måneden, med de tre vigtigste læringer.',
+  });
   add(3, 'Ny landingsside til efterårskollektionen', { labelIds: [content, seo] });
   add(4, 'Opsæt konverteringssporing', { labelIds: [analysis, paid], done: true });
   return {

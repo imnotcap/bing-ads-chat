@@ -1,12 +1,12 @@
 /** Small building blocks shared by the board and the card dialog. */
 import { AnimatePresence, motion } from 'motion/react';
-import { Check, Pencil, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, ChevronsUp, Equal, Pencil, Trash2, X } from 'lucide-react';
 import { Popover } from 'radix-ui';
 import { useState } from 'react';
 import { EASE } from '@/components/motion';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { LABEL_COLORS, initialsOf, useBoard, type Board, type BoardLabel, type LabelColor, type Member } from '@/stores/board';
+import { LABEL_COLORS, PRIORITIES, initialsOf, useBoard, type Priority, type Board, type BoardLabel, type LabelColor, type Member } from '@/stores/board';
 
 export function Avatar({ member, size = 26, ring }: { member: Member; size?: number; ring?: boolean }) {
   const meId = useBoard((s) => s.meId);
@@ -25,10 +25,43 @@ export function LabelPill({ label, expanded = true, className }: { label: BoardL
   const c = LABEL_COLORS[label.color];
   if (!expanded) return <span title={label.name} className={cn('h-2 w-10 rounded-full', className)} style={{ background: c.solid }} />;
   return (
-    <span className={cn('inline-flex h-[22px] max-w-full items-center gap-1.5 rounded-md px-2 text-[11.5px] font-semibold', className)} style={{ background: c.soft, color: c.text }}>
-      <span className="size-1.5 shrink-0 rounded-full" style={{ background: c.solid }} />
+    <span
+      className={cn('inline-flex h-[22px] max-w-full items-center rounded-md px-2 text-[11.5px] font-semibold leading-none', className)}
+      style={{ background: c.soft, color: c.text, boxShadow: `inset 0 0 0 1px ${c.solid}26` }}
+    >
       <span className="truncate">{label.name || c.name}</span>
     </span>
+  );
+}
+
+const PRIORITY_ICONS = { highest: ChevronsUp, high: ChevronUp, medium: Equal, low: ChevronDown } as const;
+
+export function PriorityTag({ priority, showLabel = true, className }: { priority: Priority; showLabel?: boolean; className?: string }) {
+  const Icon = PRIORITY_ICONS[priority];
+  const p = PRIORITIES[priority];
+  return (
+    <span title={`Prioritet: ${p.label}`} className={cn('inline-flex items-center gap-1 text-[12px] font-medium', className)} style={{ color: p.color }}>
+      <Icon className="size-3.5" strokeWidth={2.4} />
+      {showLabel && p.label}
+    </span>
+  );
+}
+
+export function PriorityPicker({ value, onChange }: { value: Priority | null; onChange: (p: Priority | null) => void }) {
+  return (
+    <div className="grid gap-0.5">
+      {(Object.keys(PRIORITIES) as Priority[]).map((p) => (
+        <button key={p} type="button" onClick={() => onChange(p)} className="flex h-8 items-center justify-between rounded-lg px-2 hover:bg-line-2">
+          <PriorityTag priority={p} />
+          {value === p && <Check className="size-4 text-brand" />}
+        </button>
+      ))}
+      {value && (
+        <Button size="xs" variant="ghost" className="mt-1" onClick={() => onChange(null)}>
+          Fjern prioritet
+        </Button>
+      )}
+    </div>
   );
 }
 

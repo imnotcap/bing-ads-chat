@@ -10,6 +10,7 @@ import {
   CheckSquare,
   CircleCheck,
   Copy,
+  Flag,
   Hand,
   MessageSquare,
   Palette,
@@ -32,7 +33,7 @@ import { startChat } from '@/features/chat/startChat';
 import { cn } from '@/lib/utils';
 import { LABEL_COLORS, dueState, fmtDue, useBoard, type Card } from '@/stores/board';
 import { useUi } from '@/stores/ui';
-import { Avatar, ColorGrid, FadeIn, LabelPicker, LabelPill, MemberPicker, Pop } from './parts';
+import { Avatar, ColorGrid, FadeIn, LabelPicker, LabelPill, MemberPicker, Pop, PriorityPicker, PriorityTag } from './parts';
 
 function timeAgo(ts: number) {
   const s = Math.round((Date.now() - ts) / 1000);
@@ -404,7 +405,7 @@ export function CardDialog({ cardId, onClose }: { cardId: string | null; onClose
                           <div className="mb-1.5 text-[11.5px] font-semibold text-muted">Etiketter</div>
                           <div className="flex flex-wrap items-center gap-1">
                             {labels.map((l) => (
-                              <LabelPill key={l.id} label={l} className="h-[30px] px-2.5 text-[12.5px]" />
+                              <LabelPill key={l.id} label={l} className="h-[30px] px-3 text-[12.5px]" />
                             ))}
                             <Pop
                               title="Etiketter"
@@ -417,6 +418,21 @@ export function CardDialog({ cardId, onClose }: { cardId: string | null; onClose
                               <LabelPicker board={board} selected={card.labelIds} onToggle={(id) => st().toggleLabel(card.id, id)} />
                             </Pop>
                           </div>
+                        </div>
+                      )}
+                      {card.priority && (
+                        <div>
+                          <div className="mb-1.5 text-[11.5px] font-semibold text-muted">Prioritet</div>
+                          <Pop
+                            title="Prioritet"
+                            trigger={
+                              <button type="button" className="flex h-[30px] items-center rounded-md bg-line-2 px-2.5 hover:bg-[#ebebf0]">
+                                <PriorityTag priority={card.priority} />
+                              </button>
+                            }
+                          >
+                            <PriorityPicker value={card.priority} onChange={(p) => st().updateCard(card.id, { priority: p })} />
+                          </Pop>
                         </div>
                       )}
                       {card.due && (
@@ -500,6 +516,9 @@ export function CardDialog({ cardId, onClose }: { cardId: string | null; onClose
                           </Button>
                         )}
                       </div>
+                    </Pop>
+                    <Pop title="Prioritet" trigger={<SideButton icon={Flag}>Prioritet</SideButton>}>
+                      <PriorityPicker value={card.priority ?? null} onChange={(p) => st().updateCard(card.id, { priority: p })} />
                     </Pop>
                     <Pop title="Cover" trigger={<SideButton icon={Palette}>Cover</SideButton>}>
                       <div className="grid gap-2.5">

@@ -69,6 +69,8 @@ export interface Appearance {
   navCollapsed: Record<string, boolean>;
   /** Dashboard sidebar: categories hidden with the eye (e.g. Paid for the SEO team). */
   navHidden: string[];
+  /** Planning board cards: compact (text and icons) or detailed (description, checklist, people). */
+  boardCards: 'simple' | 'detailed';
 }
 
 export const DEFAULT_SPEND_RULES: SpendRules = {
@@ -125,6 +127,7 @@ export const useSettings = create<SettingsState>()(
         closeToTray: true,
         navCollapsed: {},
         navHidden: [],
+        boardCards: 'detailed',
       },
       datePreset: 'last30',
       onboarded: false,

@@ -78,7 +78,7 @@ function CategoryBlock({ cat, collapsed, onToggle, onHide }: { cat: Category; co
           type="button"
           onClick={onToggle}
           aria-expanded={!collapsed}
-          className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded-md px-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-subtle transition-colors hover:text-ink-2"
+          className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded-md px-2 text-[12.5px] font-medium text-muted transition-colors hover:text-ink"
         >
           <ChevronDown className={cn('size-3.5 shrink-0 transition-transform duration-200', collapsed && '-rotate-90')} />
           <span className="truncate">{cat.label}</span>
