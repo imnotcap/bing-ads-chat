@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createLiveBackend, resetBackendCache } from '@/bing/backend';
 import { effectiveClientId, effectiveDeveloperToken } from '@/bing/credentials';
 import { signInInteractive } from '@/bing/oauth';
+import { MsApiError } from '@/bing/client';
 import { DEMO_ACCOUNTS } from '@/bing/demo/seed';
 import { deleteSecret, getSecret, setSecret } from '@/lib/platform';
 import { queryClient } from '@/lib/queryClient';
@@ -53,7 +54,17 @@ async function activateLive() {
   const { msClientId, msTenant } = useConnection.getState();
   resetBackendCache();
   const backend = await createLiveBackend(msClientId, msTenant);
-  const me = await backend.whoAmI();
+  const me = await backend.whoAmI().catch((e: unknown) => {
+    // 105 = Microsoft accepted the sign-in, but Microsoft Advertising rejects the combination.
+    if (e instanceof MsApiError && (e.status === 401 || /\(105\)/.test(e.message))) {
+      throw new Error(
+        'Microsoft godkendte dit login, men Microsoft Advertising afviste det (fejl 105). Det skyldes næsten altid én af to ting: ' +
+          '1) Du loggede ind med en anden Microsoft-konto end den, du bruger på ads.microsoft.com – log ind igen og vælg den rigtige konto. ' +
+          '2) Developer tokenet er forkert eller ikke aktivt – tjek det på developers.ads.microsoft.com og indsæt det under Indstillinger → Forbindelser.',
+      );
+    }
+    throw e;
+  });
   const accounts = await backend.listAccounts();
   if (!accounts.length) throw new Error('Login lykkedes, men brugeren har ingen annoncekonti i Microsoft Advertising.');
   const { accountId, set, bump } = useConnection.getState();

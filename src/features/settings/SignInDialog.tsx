@@ -87,12 +87,10 @@ export function SignInDialog() {
             Brug den Microsoft-konto, du logger ind på ads.microsoft.com med. Alle annoncekonti, du har adgang til, bliver tilgængelige, og du kan skifte mellem dem i
             kontomenuen nederst til venstre.
           </p>
-          {!hasBuiltinMicrosoft && (
-            <button type="button" onClick={() => setShowSetup((v) => !v)} className="flex items-center gap-1 text-[12.5px] font-medium text-brand hover:underline">
-              Skift developer token eller client ID <ChevronDown className={cn('size-3.5 transition-transform', showSetup && 'rotate-180')} />
-            </button>
-          )}
-          {showSetup && <MicrosoftConnectForm compact onDone={() => setOpen(false)} />}
+          <button type="button" onClick={() => setShowSetup((v) => !v)} className="flex items-center gap-1 text-[12.5px] font-medium text-brand hover:underline">
+            Skift developer token eller client ID <ChevronDown className={cn('size-3.5 transition-transform', showSetup && 'rotate-180')} />
+          </button>
+          {showSetup && <MicrosoftConnectForm onDone={() => setOpen(false)} />}
         </div>
       ) : (
         <div className="grid gap-5">
