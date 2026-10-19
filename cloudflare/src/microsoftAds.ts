@@ -15,6 +15,9 @@ export interface AdsKeys {
   clientSecret?: string;
   refreshToken: string;
   tenant: string;
+  /** Like Inventarland: the ad account (Konto-ID) and its customer (Kunde-ID). */
+  accountId?: string;
+  customerId?: string;
 }
 
 export class AdsKeyError extends Error {
@@ -27,23 +30,36 @@ export class AdsKeyError extends Error {
   }
 }
 
-/** Fills in what was left empty from the stored connection (secrets are never shown again). */
+/**
+ * Fills in what was left empty from the stored connection (secrets are never shown again).
+ * Whitespace is removed: none of these values contain any, and a token copied from a
+ * wrapped text box often picks up spaces or line breaks.
+ */
 export function mergeAdsKeys(old: Partial<AdsKeys> | undefined, input: Partial<Record<keyof AdsKeys, string | null>>): AdsKeys {
-  const pick = (key: keyof AdsKeys) => input[key]?.trim() || old?.[key] || '';
+  const clean = (v: string | null | undefined) => (v ?? '').replace(/\s+/g, '');
+  const pick = (key: keyof AdsKeys) => clean(input[key]) || old?.[key] || '';
+  // Konto-ID and Kunde-ID are settings, not secrets: what is sent replaces what was stored.
+  const setting = (key: 'accountId' | 'customerId') => (key in input ? clean(input[key]) : (old?.[key] ?? ''));
   const keys: AdsKeys = {
     developerToken: pick('developerToken'),
     clientId: pick('clientId'),
     clientSecret: input.clientSecret === null ? '' : pick('clientSecret'),
     refreshToken: pick('refreshToken'),
-    tenant: input.tenant?.trim() || 'common',
+    tenant: clean(input.tenant) || 'common',
+    accountId: setting('accountId'),
+    customerId: setting('customerId'),
   };
   const missing = [
     !keys.developerToken && 'Developer token',
-    !keys.clientId && 'Application (client) ID',
-    !keys.refreshToken && 'Refresh token',
+    !keys.clientId && 'OAuth client ID',
+    !keys.refreshToken && 'OAuth refresh token',
   ].filter(Boolean);
   if (missing.length) throw new AdsKeyError(`Udfyld: ${missing.join(', ')}.`);
-  if (!keys.clientSecret) delete keys.clientSecret;
+  for (const [key, label] of [['accountId', 'Konto-ID'], ['customerId', 'Kunde-ID']] as const) {
+    if (keys[key] && !/^\d+$/.test(keys[key]!)) throw new AdsKeyError(`${label} skal være et tal (fx 187654321) – ikke kontonummeret med bogstaver (fx F149XXXX).`);
+  }
+  if (!!keys.accountId !== !!keys.customerId) throw new AdsKeyError('Udfyld både Konto-ID og Kunde-ID (eller ingen af dem).');
+  for (const key of ['clientSecret', 'accountId', 'customerId'] as const) if (!keys[key]) delete keys[key];
   return keys;
 }
 
@@ -64,17 +80,24 @@ export async function adsRefresh(fetchFn: FetchLike, keys: AdsKeys): Promise<{ a
   const body = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; expires_in?: number; error?: string; error_description?: string };
   if (res.ok && body.access_token) return { accessToken: body.access_token, refreshToken: body.refresh_token || keys.refreshToken, expiresIn: body.expires_in ?? 3600 };
   const reason = body.error_description?.split(/\r?\n/)[0] ?? body.error ?? `HTTP ${res.status}`;
-  if (body.error === 'invalid_grant') throw new AdsKeyError(`Refresh tokenet er udløbet eller tilbagekaldt – indsæt et nyt. (${reason})`, 'auth');
+  if (body.error === 'invalid_grant')
+    throw new AdsKeyError(
+      `Microsoft afviste refresh tokenet: det er ufuldstændigt, udstedt til et andet OAuth client ID, eller udløbet. Brug præcis samme client ID, client secret og tenant, som tokenet blev hentet med – fx de samme værdier som i Inventarland. (${reason})`,
+      'auth',
+    );
   if (body.error === 'invalid_client' || body.error === 'unauthorized_client') throw new AdsKeyError(`Microsoft afviste app-registreringen – tjek client ID, client secret og tenant. (${reason})`, 'auth');
   throw new AdsKeyError(`Microsoft afviste refresh tokenet. (${reason})`, res.status === 400 || res.status === 401 ? 'auth' : 'other');
 }
 
-async function customer<T>(fetchFn: FetchLike, keys: AdsKeys, accessToken: string, path: string, body: unknown): Promise<T> {
+async function customer<T>(fetchFn: FetchLike, keys: AdsKeys, accessToken: string, path: string, body: unknown, account = false): Promise<T> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}`, DeveloperToken: keys.developerToken, 'Content-Type': 'application/json', Accept: 'application/json' };
+  // Like Inventarland: the account's own headers when the test asks for that account.
+  if (account && keys.accountId && keys.customerId) Object.assign(headers, { CustomerId: keys.customerId, CustomerAccountId: keys.accountId });
   let res: Response;
   try {
     res = await fetchFn(`${CUSTOMER}/${path}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, DeveloperToken: keys.developerToken, 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers,
       body: JSON.stringify(body),
     });
   } catch {
@@ -98,10 +121,19 @@ async function customer<T>(fetchFn: FetchLike, keys: AdsKeys, accessToken: strin
   throw new AdsKeyError(`Microsoft Advertising svarede med en fejl. (${detail})`);
 }
 
-/** Tests the keys: who they sign in as and how many ad accounts that user has. */
+/**
+ * Tests the keys. With Konto-ID and Kunde-ID it reads that account (Account/Query – the
+ * same test as Inventarland Dashboard); without, who the keys sign in as and their accounts.
+ */
 export async function adsProbe(fetchFn: FetchLike, keys: AdsKeys) {
   const token = await adsRefresh(fetchFn, keys);
   type Json = Record<string, unknown>;
+  if (keys.accountId && keys.customerId) {
+    const res = await customer<{ Account?: { Name?: string; CurrencyCode?: string } }>(fetchFn, keys, token.accessToken, 'Account/Query', { AccountId: Number(keys.accountId) }, true);
+    if (!res.Account) throw new AdsKeyError(`Nøglerne virker, men konto ${keys.accountId} kunne ikke læses – tjek Konto-ID og Kunde-ID.`);
+    const name = `${res.Account.Name ?? 'Microsoft Ads-konto'}${res.Account.CurrencyCode ? ` (${res.Account.CurrencyCode})` : ''}`;
+    return { ...token, name, accounts: 1 };
+  }
   const me = await customer<{ User?: { Id?: number | string; UserName?: string; Name?: { FirstName?: string; LastName?: string } } }>(fetchFn, keys, token.accessToken, 'User/Query', { UserId: null });
   const user = me.User ?? {};
   const name = [user.Name?.FirstName, user.Name?.LastName].filter(Boolean).join(' ') || user.UserName || 'Microsoft-bruger';

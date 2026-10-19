@@ -37,6 +37,9 @@ export interface WorkspaceInfo {
     hasDeveloperToken: boolean;
     hasClientSecret: boolean;
     hasRefreshToken: boolean;
+    /** Konto-ID and Kunde-ID (like Inventarland), when set. */
+    accountId: string | null;
+    customerId: string | null;
     /** Ad accounts the user behind the keys had when they were saved. */
     accounts: number | null;
     connectedBy: string | null;

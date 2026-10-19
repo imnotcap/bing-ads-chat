@@ -80,11 +80,24 @@ export const CONNECTORS: ConnectorDef[] = [
     group: 'ads',
     fields: [
       { key: 'customerId', label: 'Kunde-ID', required: true, placeholder: '123-456-7890' },
-      { key: 'loginCustomerId', label: 'Manager-konto (MCC) ID', placeholder: '987-654-3210', help: 'Kun hvis adgangen går gennem en managerkonto.' },
-      { key: 'clientId', label: 'OAuth client ID', secret: true, required: true },
+      { key: 'loginCustomerId', label: 'Manager-konto (MCC) ID', placeholder: '987-654-3210', help: 'Kun nødvendig hvis adgang sker via en managerkonto.' },
+      {
+        key: 'apiVersion',
+        label: 'API-version',
+        placeholder: 'tom = automatisk (v25)',
+        help: 'Lad feltet stå tomt – appen bruger en understøttet version og skifter selv, hvis Google lukker den.',
+      },
+      // Same as Inventarland: no developer token – Google retired it on 9 Sep 2026; access follows
+      // the Google Cloud project that owns the OAuth client.
+      {
+        key: 'clientId',
+        label: 'OAuth client ID',
+        secret: true,
+        required: true,
+        help: 'Fra det Google Cloud-projekt, hvor Google Ads API er aktiveret med mindst Explorer-adgang (Google Ads API › Overview).',
+      },
       { key: 'clientSecret', label: 'OAuth client secret', secret: true, required: true },
       { key: 'refreshToken', label: 'OAuth refresh token', secret: true, required: true },
-      { key: 'developerToken', label: 'Developer token', secret: true, help: 'Kun hvis jeres Google Cloud-projekt stadig kræver det.' },
     ],
     setup: [
       'Aktivér Google Ads API i et Google Cloud-projekt, og opret et OAuth-klient-ID (typen "Desktop").',
@@ -102,7 +115,7 @@ export const CONNECTORS: ConnectorDef[] = [
     fields: [
       { key: 'adAccountId', label: 'Annoncekonto-ID', required: true, placeholder: 'act_1234567890' },
       { key: 'apiVersion', label: 'Graph API-version', placeholder: 'v23.0' },
-      { key: 'accessToken', label: 'System user access token', secret: true, required: true, help: 'Langtidsgyldigt token fra en systembruger med ads_read på annoncekontoen.' },
+      { key: 'accessToken', label: 'System user access token', secret: true, required: true, help: 'Brug et langtidsgyldigt token fra en systembruger i Meta Business Manager.' },
     ],
     setup: ['Business Manager → Brugere → Systembrugere → opret en systembruger.', 'Tildel annoncekontoen, og generér et token med tilladelsen ads_read.'],
     docs: 'https://developers.facebook.com/docs/marketing-api/overview/authorization',
@@ -133,8 +146,15 @@ export const CONNECTORS: ConnectorDef[] = [
     oauth: true,
     fields: [
       { key: 'advertiserId', label: 'Annoncør-ID', required: true },
+      { key: 'apiBaseUrl', label: 'API-adresse', placeholder: 'https://services.daisycon.com' },
       { key: 'clientId', label: 'OAuth client ID', secret: true, required: true },
       { key: 'clientSecret', label: 'OAuth client secret', secret: true },
+      {
+        key: 'refreshToken',
+        label: 'OAuth refresh token',
+        secret: true,
+        help: 'Udfyldes automatisk, når du klikker "Log ind hos Daisycon" og logger ind – eller indsæt et, der virker (fx fra Inventarland).',
+      },
     ],
     setup: [
       'my.daisycon.com → Indstillinger → API-apps: opret en app med redirect-URI https://login.daisycon.com/oauth/cli.',
@@ -193,12 +213,44 @@ export const CONNECTORS: ConnectorDef[] = [
     vendor: 'Adobe Commerce',
     group: 'shop',
     fields: [
-      { key: 'baseUrl', label: 'Magento-adresse', required: true, placeholder: 'https://m2.inventarland.dk', help: 'Adressen til selve Magento-installationen (admin/API).' },
+      {
+        key: 'baseUrl',
+        label: 'Magento-adresse',
+        required: true,
+        placeholder: 'https://m2.inventarland.dk',
+        help: 'Adressen til selve Magento-installationen (samme som bruges til API og admin) – ikke webshoppens forside, hvis den kører separat.',
+      },
       { key: 'storeCode', label: 'Store code', placeholder: 'tom = standardbutik' },
-      { key: 'consumerKey', label: 'Consumer Key', secret: true, required: true },
+      {
+        key: 'orderStatuses',
+        label: 'Ordrestatusser der tæller som omsætning',
+        placeholder: 'pending_xal, complete',
+        help: 'Magentos statuskoder adskilt med komma. Tom = Pending XAL og Complete. Annullerede ordrer tæller aldrig med.',
+      },
+      // Same names and order as Magento shows under System › Integrationer › (integration) › Integrationsoplysninger.
+      {
+        key: 'consumerKey',
+        label: 'Consumer Key',
+        secret: true,
+        required: true,
+        help: 'Opret en integration i Magento-admin under System › Integrationer med læseadgang til ordrer og butikker, aktivér den, og kopiér de fire nøgler.',
+      },
       { key: 'consumerSecret', label: 'Consumer Secret', secret: true, required: true },
       { key: 'accessToken', label: 'Access Token', secret: true, required: true },
       { key: 'accessTokenSecret', label: 'Access Token Secret', secret: true, required: true },
+      {
+        key: 'gaPropertyId',
+        label: 'Google Analytics 4 – property-ID',
+        placeholder: '123456789',
+        help: 'Valgfri – giver besøgende, konverteringsrate og "aktive nu". Findes i GA4 under Administrator › Ejendomsoplysninger.',
+      },
+      {
+        key: 'gaServiceAccount',
+        label: 'Google Analytics – service account-nøgle (JSON)',
+        secret: true,
+        multiline: true,
+        help: 'Indsæt hele indholdet af JSON-nøglefilen for en service account, der er tilføjet som "Seer" på GA4-ejendommen.',
+      },
     ],
     setup: ['Magento-admin → System → Integrationer → Tilføj ny integration med læseadgang til Salg › Ordrer og Butikker.', 'Aktivér integrationen, og kopiér de fire nøgler.'],
     docs: 'https://developer.adobe.com/commerce/webapi/get-started/authentication/gs-authentication-oauth/',

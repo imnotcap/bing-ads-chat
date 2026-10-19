@@ -79,6 +79,8 @@ export const ERROR_105 =
   'eller refresh tokenet tilhører en Microsoft-bruger uden adgang til annoncekontiene.';
 
 export interface AdsKeysInput {
+  accountId: string;
+  customerId: string;
   developerToken: string;
   clientId: string;
   /** Empty keeps the stored one; null removes it. */
@@ -95,6 +97,8 @@ export interface AdsKeysInput {
 export async function saveSharedAds(input: AdsKeysInput): Promise<{ name: string; accounts: number }> {
   const info = await api<WorkspaceInfo>('/workspace/ads', { method: 'PUT', body: JSON.stringify(input) });
   applyWorkspace(info);
+  // The chosen Konto-ID becomes the account the app opens on.
+  if (info.ads.accountId) useConnection.getState().set({ accountId: info.ads.accountId });
   goLive();
   return { name: info.ads.accountName ?? 'Microsoft-bruger', accounts: info.ads.accounts ?? 0 };
 }

@@ -140,6 +140,8 @@ export function AdsConnectionForm({ onDone }: { compact?: boolean; onDone?: () =
   const mode = useConnection((s) => s.mode);
   const accounts = useConnection((s) => s.accounts.length);
   const connected = !!ads?.connected;
+  const [accountId, setAccountId] = useState(ads?.accountId ?? '');
+  const [customerId, setCustomerId] = useState(ads?.customerId ?? '');
   const [developerToken, setDeveloperToken] = useState('');
   const [clientId, setClientId] = useState(ads?.clientId ?? '');
   const [clientSecret, setClientSecret] = useState('');
@@ -155,7 +157,7 @@ export function AdsConnectionForm({ onDone }: { compact?: boolean; onDone?: () =
     setBusy('save');
     setError(null);
     try {
-      const res = await saveSharedAds({ developerToken, clientId, clientSecret, refreshToken, tenant });
+      const res = await saveSharedAds({ accountId, customerId, developerToken, clientId, clientSecret, refreshToken, tenant });
       setDeveloperToken('');
       setClientSecret('');
       setRefreshToken('');
@@ -191,20 +193,29 @@ export function AdsConnectionForm({ onDone }: { compact?: boolean; onDone?: () =
         </div>
       )}
 
+      {/* Same fields, order and names as Inventarland Dashboard. */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Konto-ID" htmlFor="ms-account" hint="Tallet i adressen på ads.microsoft.com: aid=…">
+          <Input id="ms-account" value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="fx 187654321" inputMode="numeric" autoComplete="off" spellCheck={false} />
+        </Field>
+        <Field label="Kunde-ID" htmlFor="ms-customer" hint="Tallet i adressen på ads.microsoft.com: cid=…">
+          <Input id="ms-customer" value={customerId} onChange={(e) => setCustomerId(e.target.value)} placeholder="fx 251234567" inputMode="numeric" autoComplete="off" spellCheck={false} />
+        </Field>
+      </div>
+      <Field label="Azure tenant" htmlFor="ms-tenant" hint='Tom = "common". Brug samme som i Inventarland.'>
+        <Input id="ms-tenant" value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="common" autoComplete="off" spellCheck={false} />
+      </Field>
       <Field label="Developer token" htmlFor="ms-dev" hint="ads.microsoft.com → Indstillinger → Developer settings.">
         <SecretInput id="ms-dev" value={developerToken} onChange={setDeveloperToken} placeholder={ads?.hasDeveloperToken ? saved : 'fx 1A2B3C4D5E6F7G8H'} />
       </Field>
-      <Field label="Application (client) ID" htmlFor="ms-client" hint="Fra app-registreringen i Microsoft Entra ID (Azure).">
+      <Field label="OAuth client ID" htmlFor="ms-client" hint="Skal være den app-registrering, refresh tokenet er hentet med.">
         <Input id="ms-client" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" className="font-mono text-[13px] placeholder:font-sans" autoComplete="off" spellCheck={false} />
       </Field>
-      <Field label="Client secret (valgfri)" htmlFor="ms-secret" hint='Kun hvis app-registreringen er af typen "Web".'>
+      <Field label="OAuth client secret (valgfri)" htmlFor="ms-secret" hint='Kun hvis app-registreringen er af typen "Web".'>
         <SecretInput id="ms-secret" value={clientSecret} onChange={setClientSecret} placeholder={ads?.hasClientSecret ? saved : ''} />
       </Field>
-      <Field label="Refresh token" htmlFor="ms-refresh" hint="Fra en Microsoft-bruger med adgang til annoncekontiene. Microsoft fornyer det – appen gemmer altid det nyeste.">
+      <Field label="OAuth refresh token" htmlFor="ms-refresh" hint="Mellemrum og linjeskift fjernes automatisk. Microsoft fornyer tokenet – appen gemmer altid det nyeste.">
         <SecretInput id="ms-refresh" value={refreshToken} onChange={setRefreshToken} placeholder={ads?.hasRefreshToken ? saved : ''} />
-      </Field>
-      <Field label="Tenant (valgfri)" htmlFor="ms-tenant" hint='Tom = "common".'>
-        <Input id="ms-tenant" value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="common" autoComplete="off" spellCheck={false} />
       </Field>
 
       {error && (
@@ -366,7 +377,10 @@ const MS_STEPS = [
   </>,
   <>
     <b>Refresh token:</b> hent det én gang for en Microsoft-bruger med adgang til annoncekontiene (scope <code className="text-[12px]">https://ads.microsoft.com/msads.manage offline_access</code>
-    ). Er Inventarland Dashboard allerede forbundet, kan I bruge de samme værdier derfra.
+    ). Er Inventarland Dashboard allerede forbundet, så brug præcis de samme værdier derfra – refresh token, client ID, client secret og tenant hører sammen.
+  </>,
+  <>
+    <b>Konto-ID og Kunde-ID:</b> åbn kontoen på ads.microsoft.com – adressen indeholder <code className="text-[12px]">aid=</code> (Konto-ID) og <code className="text-[12px]">cid=</code> (Kunde-ID).
   </>,
   <>Gem: Cloudflare tester nøglerne, og alle i appen arbejder på de samme konti. Refresh tokenet holdes friskt hver nat.</>,
 ];

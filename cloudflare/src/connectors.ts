@@ -244,6 +244,8 @@ export async function daisyconExchange(fetchFn: FetchLike, input: { clientId: st
 type Tester = (ctx: TestContext) => Promise<string>;
 
 const digits = (v: string) => v.replace(/\D/g, '');
+const GOOGLE_ADS_VERSION = 'v25';
+const DAISYCON_API = 'https://services.daisycon.com';
 
 export const TESTERS: Record<ConnectorId, Tester> = {
   async google_ads(ctx) {
@@ -256,21 +258,28 @@ export const TESTERS: Record<ConnectorId, Tester> = {
     const customer = digits(need(ctx.config, 'customerId', name));
     const headers: Record<string, string> = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
     if (ctx.config.loginCustomerId) headers['login-customer-id'] = digits(ctx.config.loginCustomerId);
-    if (ctx.secrets.developerToken) headers['developer-token'] = ctx.secrets.developerToken;
-    // Google sunsets API versions; a 404 HTML page means "try a newer one".
-    for (const v of [25, 26, 27, 28]) {
-      const res = await ctx.fetch(`https://googleads.googleapis.com/v${v}/customers/${customer}/googleAds:searchStream`, {
+    // Like Inventarland: the configured version first, then v25 and three newer ones – Google
+    // sunsets versions, and a 404 HTML page means "try a newer one".
+    const start = ctx.config.apiVersion?.trim() || GOOGLE_ADS_VERSION;
+    const base = Math.max(Number(/^v(\d+)$/.exec(start)?.[1] ?? 0), Number(GOOGLE_ADS_VERSION.slice(1)));
+    const versions = [...new Set([start, ...Array.from({ length: 4 }, (_, i) => `v${base + i}`)])];
+    const tried: string[] = [];
+    for (const v of versions) {
+      const res = await ctx.fetch(`https://googleads.googleapis.com/${v}/customers/${customer}/googleAds:searchStream`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ query: 'SELECT customer.descriptive_name, customer.currency_code FROM customer LIMIT 1' }),
       });
       const text = await res.text();
-      if (res.status === 404 && !/^\s*[[{]/.test(text)) continue;
+      if (res.status === 404 && !/^\s*[[{]/.test(text)) {
+        tried.push(v);
+        continue;
+      }
       if (!res.ok) throw httpError(name, res.status, text);
       const c = (JSON.parse(text) as { results?: { customer?: { descriptiveName?: string; currencyCode?: string } }[] }[])[0]?.results?.[0]?.customer;
       return `${c?.descriptiveName ?? `Kunde ${ctx.config.customerId}`}${c?.currencyCode ? ` (${c.currencyCode})` : ''}`;
     }
-    throw new ConnectorError(`${name}: ingen understøttet API-version svarer.`);
+    throw new ConnectorError(`${name}: ingen af API-versionerne ${tried.join(', ')} svarer. Opdatér feltet "API-version" (eller lad det stå tomt).`, 'config');
   },
 
   async meta_ads(ctx) {
@@ -313,7 +322,8 @@ export const TESTERS: Record<ConnectorId, Tester> = {
       token = await refreshToken(ctx, name, DAISYCON_TOKEN, form);
     }
     const id = need(ctx.config, 'advertiserId', name);
-    const list = await call<{ id?: number | string; name?: string }[]>(ctx, name, 'https://services.daisycon.com/advertisers', { headers: { Authorization: `Bearer ${token}` } });
+    const api = (ctx.config.apiBaseUrl?.trim() || DAISYCON_API).replace(/\/+$/, '');
+    const list = await call<{ id?: number | string; name?: string }[]>(ctx, name, `${api}/advertisers`, { headers: { Authorization: `Bearer ${token}` } });
     const match = Array.isArray(list) ? list.find((a) => String(a.id) === id) : undefined;
     if (!match) throw new ConnectorError(`${name}: annoncør-ID ${id} findes ikke på denne bruger.`, 'config');
     return String(match.name ?? `Annoncør ${id}`);
@@ -370,19 +380,30 @@ export const TESTERS: Record<ConnectorId, Tester> = {
   },
 
   async magento(ctx) {
+    // Same requests as Inventarland: the orders (the real permission check), then the store's
+    // currency (optional – integrations often only have access to sales).
     const name = 'Magento';
     const raw = need(ctx.config, 'baseUrl', name).replace(/\/+$/, '');
     if (!/^https:\/\//i.test(raw)) throw new ConnectorError(`${name}: adressen skal starte med https://`, 'config');
     const store = ctx.config.storeCode?.trim();
-    const url = `${raw}/rest/${store ? `${encodeURIComponent(store)}/` : ''}V1/orders?searchCriteria[pageSize]=1&fields=total_count`;
-    const auth = await oauth1Header('GET', url, {
+    const api = store ? `${raw}/rest/${encodeURIComponent(store)}/V1` : `${raw}/rest/V1`;
+    const creds = {
       consumerKey: need(ctx.secrets, 'consumerKey', name),
       consumerSecret: need(ctx.secrets, 'consumerSecret', name),
       token: need(ctx.secrets, 'accessToken', name),
       tokenSecret: need(ctx.secrets, 'accessTokenSecret', name),
-    });
-    const res = await call<{ total_count?: number }>(ctx, name, url, { headers: { Authorization: auth } });
-    return `${new URL(raw).host}${res.total_count !== undefined ? ` · ${res.total_count.toLocaleString('da-DK')} ordrer` : ''}`;
+    };
+    const get = async <T>(url: string) => call<T>(ctx, name, url, { headers: { Accept: 'application/json', Authorization: await oauth1Header('GET', url, creds) } });
+    const res = await get<{ total_count?: number }>(`${api}/orders?searchCriteria[pageSize]=1&searchCriteria[currentPage]=1&fields=total_count`);
+    let currency: string | undefined;
+    try {
+      const stores = await get<{ code?: string; base_currency_code?: string }[]>(`${api}/store/storeConfigs`);
+      currency = (stores.find((x) => x.code === (store || 'default')) ?? stores[0])?.base_currency_code;
+    } catch (e) {
+      if (!(e instanceof ConnectorError && e.kind !== 'api')) throw e;
+    }
+    const orders = res.total_count !== undefined ? ` · ${res.total_count.toLocaleString('da-DK')} ordrer` : '';
+    return `${new URL(raw).host}${currency ? ` (${currency})` : ''}${orders}`;
   },
 
   async klaviyo(ctx) {
