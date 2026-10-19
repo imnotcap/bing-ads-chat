@@ -13,6 +13,7 @@ import { queryClient } from '@/lib/queryClient';
 import { useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
 import { api, ApiError, getSession, loadConfig, setSession } from './api';
+import { loadLimits } from './limits';
 import { moveLocalConnections, refreshWorkspace } from './shared';
 import type { SessionResponse, UserStatus, WorkspaceUser } from './types';
 
@@ -26,6 +27,7 @@ async function started(res: SessionResponse) {
 async function afterSignIn() {
   await refreshWorkspace();
   await moveLocalConnections().catch(() => {});
+  void loadLimits();
 }
 
 export async function signIn(): Promise<WorkspaceUser> {

@@ -20,7 +20,7 @@ describe('editable approvals', () => {
     expect(input.changes[1]!.name).toBe('B');
   });
 
-  it('marks renamed titles as editable and always asks for approval, even on autopilot', async () => {
+  it('marks renamed titles as editable and always asks for approval', async () => {
     const tool = getTool('update_campaigns')!;
     if (tool.kind !== 'write') throw new Error('unexpected');
     const campaigns = await new DemoBackend(0).listCampaigns('1000001');
@@ -28,7 +28,7 @@ describe('editable approvals', () => {
     const { plan } = await tool.plan(tool.schema.parse({ changes: [{ campaignId: id, name: 'Search | Test | DK' }], reason: 'Klarere navn' }), ctx());
     if (!plan) throw new Error('no plan');
     expect(plan.changes[0]!.edit?.path).toEqual(['changes', 0, 'name']);
-    const decision = evaluateGuardrails(plan, { ...DEFAULT_SPEND_RULES, approvalMode: 'none' }, spendCtx);
+    const decision = evaluateGuardrails(plan, DEFAULT_SPEND_RULES, spendCtx);
     expect(decision.verdict).toBe('approve');
   });
 

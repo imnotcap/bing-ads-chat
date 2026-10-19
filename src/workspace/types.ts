@@ -35,6 +35,10 @@ export interface WorkspaceInfo {
     clientId: string | null;
     tenant: string;
     hasDeveloperToken: boolean;
+    hasClientSecret: boolean;
+    hasRefreshToken: boolean;
+    /** Ad accounts the user behind the keys had when they were saved. */
+    accounts: number | null;
     connectedBy: string | null;
     connectedAt: number | null;
     /** Set when Microsoft stopped accepting the stored sign-in. */

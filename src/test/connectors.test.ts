@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { emptyState, linkedinVersion, mergeInput, runTest, toSummary, type ConnState, type FetchLike } from '../../cloudflare/src/connectors';
+import { adsProbe, adsRefresh, mergeAdsKeys } from '../../cloudflare/src/microsoftAds';
 import { CONNECTORS, CONNECTOR_IDS, connectorDef } from '@/workspace/connectors';
 
 /** A fake API: answers by URL, remembers the requests. */
@@ -140,5 +141,39 @@ describe('connection tests', () => {
     expect(ga.state.accountLabel).toBe('Property 123 · 4.321 besøg sidste 7 dage');
     const bad = await runTest('ga4', state({ propertyId: '123' }, { serviceAccount: '{nope' }), api.fn);
     expect(bad.message).toMatch(/gyldig JSON/);
+  });
+});
+
+describe('Microsoft Advertising with typed-in keys', () => {
+  const keys = { developerToken: 'dev', clientId: 'app', refreshToken: 'r1', tenant: 'common' };
+  const msApi = (customer: (path: string) => { status?: number; body: unknown }) =>
+    fakeFetch([
+      [/login\.microsoftonline\.com\/common\/oauth2\/v2\.0\/token/, () => ({ body: { access_token: 'acc', refresh_token: 'r2', expires_in: 3600 } })],
+      [/CustomerManagement\/v13\/User\/Query/, () => customer('user')],
+      [/CustomerManagement\/v13\/Accounts\/Search/, () => customer('accounts')],
+    ]);
+
+  it('keeps stored secrets when the fields are left empty and asks for what is missing', () => {
+    expect(mergeAdsKeys({ ...keys, clientSecret: 's' }, { developerToken: '', clientId: 'app2', refreshToken: '' })).toEqual({ ...keys, clientId: 'app2', clientSecret: 's' });
+    expect(mergeAdsKeys({ ...keys, clientSecret: 's' }, { clientSecret: null })).toEqual(keys);
+    expect(() => mergeAdsKeys(undefined, { developerToken: 'dev' })).toThrow('Udfyld: Application (client) ID, Refresh token.');
+  });
+
+  it('tests the keys: refresh, who the user is and the ad accounts', async () => {
+    const api = msApi((what) => (what === 'user' ? { body: { User: { Id: 42, Name: { FirstName: 'Casper', LastName: 'Johansen' } } } } : { body: { Accounts: [{ Id: 1 }, { Id: 2 }] } }));
+    const r = await adsProbe(api.fn, { ...keys, clientSecret: 'sec' });
+    expect(r).toMatchObject({ accessToken: 'acc', refreshToken: 'r2', name: 'Casper Johansen', accounts: 2 });
+    const form = new URLSearchParams(String(api.calls[0]!.init?.body));
+    expect(form.get('client_secret')).toBe('sec');
+    expect(form.get('scope')).toMatch(/msads\.manage/);
+    expect(header(api.calls[1]!.init, 'DeveloperToken')).toBe('dev');
+    expect(JSON.parse(String(api.calls[2]!.init?.body)).Predicates[0].Value).toBe('42');
+  });
+
+  it('explains a rejected developer token (105) and an expired refresh token', async () => {
+    const bad = msApi(() => ({ status: 400, body: { Errors: [{ Code: 105, Message: 'Authentication failed.' }] } }));
+    await expect(adsProbe(bad.fn, keys)).rejects.toMatchObject({ kind: 'auth', message: expect.stringMatching(/developer tokenet er forkert.*\(105\)/) });
+    const expired = fakeFetch([[/oauth2\/v2\.0\/token/, () => ({ status: 400, body: { error: 'invalid_grant', error_description: 'AADSTS70000: expired' } })]]);
+    await expect(adsRefresh(expired.fn, keys)).rejects.toMatchObject({ kind: 'auth', message: expect.stringMatching(/udløbet.*AADSTS70000/) });
   });
 });

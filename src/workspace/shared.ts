@@ -1,18 +1,16 @@
 /**
  * The connections everyone in the app shares, stored in the workspace on Cloudflare:
- * the AI keys and the Microsoft Advertising sign-in. Anyone signed in may change them.
+ * the AI keys and the Microsoft Advertising keys. Anyone signed in may change them.
  */
 import { BUILTIN_MS } from '@/bing/credentials';
 import { DEMO_ACCOUNTS } from '@/bing/demo/seed';
-import { LiveBackend } from '@/bing/live';
-import { MsApiError, type MsAccess } from '@/bing/client';
-import { signInInteractive } from '@/bing/oauth';
+import type { MsAccess } from '@/bing/client';
 import { deleteSecret, getSecret } from '@/lib/platform';
 import { queryClient } from '@/lib/queryClient';
 import { useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
-import { api, loadConfig } from './api';
-import { ADS_SCOPE, type InventarlandView, type SharedKeyName, type WorkspaceInfo } from './types';
+import { api } from './api';
+import { type InventarlandView, type SharedKeyName, type WorkspaceInfo } from './types';
 
 /* --------------------------------- overview --------------------------------- */
 
@@ -77,56 +75,28 @@ export function adsAccess(fresh: boolean): Promise<MsAccess> {
 }
 
 export const ERROR_105 =
-  'Microsoft godkendte login, men Microsoft Advertising afviste det (fejl 105). Det skyldes næsten altid én af to ting: ' +
-  '1) Der blev logget ind med en anden Microsoft-konto end den, der bruges på ads.microsoft.com – prøv igen og vælg den rigtige konto. ' +
-  '2) Developer tokenet er forkert eller ikke aktivt – tjek det på developers.ads.microsoft.com.';
+  'Microsoft Advertising afviste nøglerne (fejl 105): developer tokenet er forkert eller ikke aktivt, ' +
+  'eller refresh tokenet tilhører en Microsoft-bruger uden adgang til annoncekontiene.';
 
-/** Loads who the shared sign-in is and its ad accounts, and switches to live data. */
-async function loadAccounts(backend: LiveBackend) {
-  const me = await backend.whoAmI().catch((e: unknown) => {
-    if (e instanceof MsApiError && (e.status === 401 || /\(105\)/.test(e.message))) throw new Error(ERROR_105);
-    throw e;
-  });
-  const accounts = await backend.listAccounts();
-  if (!accounts.length) throw new Error('Login lykkedes, men brugeren har ingen annoncekonti i Microsoft Advertising.');
-  return { me, accounts };
+export interface AdsKeysInput {
+  developerToken: string;
+  clientId: string;
+  /** Empty keeps the stored one; null removes it. */
+  clientSecret: string | null;
+  refreshToken: string;
+  tenant: string;
 }
 
 /**
- * Connects the workspace's Microsoft Advertising account: someone signs in with the
- * Microsoft user that has access on ads.microsoft.com, and everyone in the app uses it.
+ * Connects the workspace's Microsoft Advertising with typed-in keys (like Inventarland
+ * Dashboard – no sign-in in the app). Cloudflare tests them before saving; empty
+ * secret fields keep the stored ones. Everyone in the app then works on the same accounts.
  */
-export async function connectSharedAds(opts: { developerToken?: string; clientId?: string; tenant?: string } = {}): Promise<{ name: string; accounts: number }> {
-  const config = await loadConfig();
-  const clientId = opts.clientId?.trim() || config.clientId || BUILTIN_MS.clientId;
-  const tenant = opts.tenant?.trim() || config.tenant || 'common';
-  if (!clientId) throw new Error('Appen mangler et Application (client) ID. Det sættes som MS_CLIENT_ID (se docs/RELEASE.md).');
-  let developerToken = opts.developerToken?.trim() || BUILTIN_MS.developerToken;
-  if (!developerToken && useAccount.getState().workspace?.ads.connected) developerToken = (await adsAccess(false).catch(() => null))?.developerToken ?? '';
-  if (!developerToken) throw new Error('Indtast developer token fra Microsoft Advertising.');
-
-  const tokens = await signInInteractive({ clientId, tenant }, ADS_SCOPE);
-  if (!tokens.refresh_token) throw new Error('Microsoft returnerede intet refresh token. Tjek at app-registreringen tillader "offline_access".');
-  // Check the sign-in works before everyone starts using it.
-  const probe = new LiveBackend({ getAccess: async () => ({ accessToken: tokens.access_token, expiresAt: Date.now() + (tokens.expires_in ?? 3600) * 1000, developerToken }) });
-  const { me, accounts } = await loadAccounts(probe);
-
-  applyWorkspace(
-    await api<WorkspaceInfo>('/workspace/ads', {
-      method: 'PUT',
-      body: JSON.stringify({ refreshToken: tokens.refresh_token, developerToken, clientId, tenant, accountName: me.name }),
-    }),
-  );
-  const { accountId, set } = useConnection.getState();
-  set({ accounts, accountId: accounts.some((a) => a.id === accountId) ? accountId : accounts[0]!.id, msUserName: me.name });
+export async function saveSharedAds(input: AdsKeysInput): Promise<{ name: string; accounts: number }> {
+  const info = await api<WorkspaceInfo>('/workspace/ads', { method: 'PUT', body: JSON.stringify(input) });
+  applyWorkspace(info);
   goLive();
-  return { name: me.name, accounts: accounts.length };
-}
-
-export async function setSharedDeveloperToken(developerToken: string) {
-  if (!developerToken.trim()) throw new Error('Indtast et developer token.');
-  applyWorkspace(await api<WorkspaceInfo>('/workspace/ads', { method: 'PATCH', body: JSON.stringify({ developerToken: developerToken.trim() }) }));
-  changed();
+  return { name: info.ads.accountName ?? 'Microsoft-bruger', accounts: info.ads.accounts ?? 0 };
 }
 
 /** Disconnects Microsoft Advertising for everyone (back to demo data). */

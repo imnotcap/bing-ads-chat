@@ -37,7 +37,8 @@ function fmtValue(v: string | number | null | undefined) {
 
 /** The changes in a reply that were carried out. */
 export function completedChanges(item: AssistantItem): ToolPart[] {
-  return item.parts.filter((p): p is ToolPart => p.type === 'tool' && p.status === 'done' && !!p.plan && p.plan.kind !== 'raw');
+  // Account changes only – a new training rule needs no follow-up.
+  return item.parts.filter((p): p is ToolPart => p.type === 'tool' && p.status === 'done' && !!p.plan && p.plan.kind !== 'raw' && p.name !== 'train_playbook');
 }
 
 function describe(changes: ToolPart[]) {

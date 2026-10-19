@@ -360,11 +360,21 @@ Rows contain dimensions plus impressions, clicks, spend, conversions, revenue, c
       if (input.minSpend) rows = rows.filter((r) => (r.spend ?? 0) >= input.minSpend!);
       if (input.onlyWithoutConversions) rows = rows.filter((r) => (r.spend ?? 0) > 0 && !(r.conversions ?? 0));
       if (aggregation === 'Summary' || input.sortBy) rows = sortRows(rows, input.sortBy ?? 'spend', input.sortDirection ?? 'desc');
-      const limit = input.limit ?? 100;
+      // The team's limit per query (Budget og grænser → Data): summaries, never everything.
+      const limit = Math.min(input.limit ?? 100, ctx.rules.maxRows ?? 200);
       const dims = DIMENSION_COLUMNS[input.kind as ReportKind] ?? [];
       const out = rows.slice(0, limit).map((r) => compact(r as Record<string, unknown>));
       return {
-        result: { kind: input.kind, period, aggregation, currency: ctx.currency, totalRows: rows.length, totalsAllRows: totals, rows: out },
+        result: {
+          kind: input.kind,
+          period,
+          aggregation,
+          currency: ctx.currency,
+          totalRows: rows.length,
+          totalsAllRows: totals,
+          rows: out,
+          ...(rows.length > limit ? { note: `Showing ${limit} of ${rows.length} rows (team limit ${ctx.rules.maxRows ?? 200} per query) – filter or sort to see others.` } : {}),
+        },
         summary: `${rows.length} rækker · ${period.label}`,
         preview: {
           columns: [...(aggregation !== 'Summary' ? [{ key: 'date', label: 'Periode', format: 'date' as const }] : []), ...dims, ...METRIC_COLS],
@@ -448,7 +458,7 @@ Rows contain dimensions plus impressions, clicks, spend, conversions, revenue, c
           forecastByRunRate: round(s.forecastByRunRate),
           forecastByBudgets: round(s.forecastByBudgets),
           spendingRules: {
-            approvalMode: r.approvalMode,
+            approval: 'every change needs the user’s approval',
             monthlyBudget: r.monthlyBudget,
             maxDailyBudgetPerCampaign: r.maxDailyBudgetPerCampaign,
             maxTotalDailyBudget: r.maxTotalDailyBudget,

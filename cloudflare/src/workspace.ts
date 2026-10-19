@@ -3,22 +3,29 @@
  * - Accounts: people sign in with Microsoft (the app sends the ID token, we check it
  *   in auth.ts). The first person becomes admin; people from ALLOWED_DOMAINS get in
  *   at once, everyone else waits until an admin lets them in.
- * - Shared connections: the Microsoft Advertising sign-in (refresh token + developer
- *   token) and the AI keys. Everyone in the app uses – and may change – the same ones.
- *   The Advertising refresh token never leaves Cloudflare: the app asks for a
- *   short-lived access token instead.
+ * - Shared connections: the Microsoft Advertising keys (developer token, app
+ *   registration, refresh token – typed in, see microsoftAds.ts) and the AI keys.
+ *   Everyone in the app uses – and may change – the same ones. The Advertising
+ *   refresh token never leaves Cloudflare: the app asks for a short-lived access
+ *   token instead.
  * - Planning boards: every op in order, with a WebSocket ping to all open apps.
  * - Inventarland: read-only views of Inventarland's API (webshop sales, other ad
  *   channels), fetched with a shared Inventarland user whose password stays here.
+ * - Budget and limits per branch (src/ai/branchLimits.ts): only the changed fields.
+ * - Playbooks ("træning", src/ai/playbooks.ts): each branch's guidelines as the team
+ *   changed them – the defaults live in the app, only the changes are stored here.
  * - Data sources (connectors.ts): Google Ads, Meta, LinkedIn, Daisycon, Search
  *   Console, GA4, Ahrefs, Serper, Magento, Klaviyo and the PIM – credentials kept
  *   here, tested against the real API when saved and again every night.
  */
 import { DurableObject } from 'cloudflare:workers';
 import { applyOp, boardOfOp, canSeeBoard, dataFor, isBoardData, mayApply, memberIdOf, type BoardData, type BoardOp } from '../../src/board/model';
-import { ADS_SCOPE, INVENTARLAND_URL, INVENTARLAND_VIEWS, type AdsAccess, type InventarlandView, type SharedKeyName, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
+import { INVENTARLAND_URL, INVENTARLAND_VIEWS, type AdsAccess, type InventarlandView, type SharedKeyName, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
+import { LIMIT_BRANCH_IDS, cleanLimits, isLimitBranchId, type StoredLimits } from '../../src/ai/branchLimits';
+import { BRANCH_IDS, MAX_SECTION_CHARS, SECTION_IDS, cleanSections, defaultPlaybook, isBranchId, type PlaybookSections, type SectionId, type StoredPlaybook } from '../../src/ai/playbooks';
 import { CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isConnectorId, type ConnectorId, type ConnectorSaveResult } from '../../src/workspace/connectors';
 import { AuthError, verifyMicrosoftIdToken, type MicrosoftIdentity } from './auth';
+import { AdsKeyError, adsProbe, adsRefresh, mergeAdsKeys, type AdsKeys } from './microsoftAds';
 import { ConnectorError, daisyconAuthorizeUrl, daisyconExchange, emptyState, mergeInput, pkcePair, runTest, toSummary, type ConnState } from './connectors';
 
 export interface Env {
@@ -38,12 +45,10 @@ interface Session {
   expires: number;
 }
 
-interface AdsConnection {
-  refreshToken: string;
-  developerToken: string;
-  clientId: string;
-  tenant: string;
+interface AdsConnection extends AdsKeys {
   accountName: string;
+  /** How many ad accounts the user behind the keys had when they were saved. */
+  accounts?: number;
   connectedBy: string;
   connectedAt: number;
   error: string | null;
@@ -196,30 +201,20 @@ export class Workspace extends DurableObject<Env> {
       return json(await this.info());
     }
     if (path === '/workspace/ads' && method === 'PUT') {
-      const body = (await req.json()) as { refreshToken?: string; developerToken?: string; clientId?: string; tenant?: string; accountName?: string };
+      // Keys typed in like in Inventarland Dashboard; empty secrets keep the stored ones.
+      // Tested before they're saved, so a typo never breaks a working connection.
+      const body = (await req.json()) as Partial<Record<keyof AdsKeys, string | null>>;
       const old = await this.ctx.storage.get<AdsConnection>('ads');
-      const developerToken = body.developerToken?.trim() || old?.developerToken || '';
-      if (!body.refreshToken || !body.clientId) return fail('Mangler Microsoft-login.', 400);
-      if (!developerToken) return fail('Mangler developer token.', 400);
-      const ads: AdsConnection = {
-        refreshToken: body.refreshToken,
-        developerToken,
-        clientId: body.clientId.trim(),
-        tenant: body.tenant?.trim() || 'common',
-        accountName: (body.accountName ?? '').trim().slice(0, 120),
-        connectedBy: user.name,
-        connectedAt: Date.now(),
-        error: null,
-      };
-      await this.ctx.storage.put('ads', ads);
-      this.adsToken = null;
-      return json(await this.info());
-    }
-    if (path === '/workspace/ads' && method === 'PATCH') {
-      const body = (await req.json()) as { developerToken?: string };
-      const ads = await this.ctx.storage.get<AdsConnection>('ads');
-      if (!ads) return fail('Microsoft Advertising er ikke forbundet.', 409);
-      if (body.developerToken?.trim()) await this.ctx.storage.put('ads', { ...ads, developerToken: body.developerToken.trim() });
+      try {
+        const keys = mergeAdsKeys(old, body);
+        const probe = await adsProbe((input, init) => fetch(input, init), keys);
+        const ads: AdsConnection = { ...keys, refreshToken: probe.refreshToken, accountName: probe.name.slice(0, 120), accounts: probe.accounts, connectedBy: user.name, connectedAt: Date.now(), error: null };
+        await this.ctx.storage.put('ads', ads);
+        this.adsToken = { value: probe.accessToken, expiresAt: Date.now() + probe.expiresIn * 1000 };
+      } catch (e) {
+        if (e instanceof AdsKeyError) return fail(e.message, 400);
+        throw e;
+      }
       return json(await this.info());
     }
     if (path === '/workspace/ads' && method === 'DELETE') {
@@ -242,6 +237,55 @@ export class Workspace extends DurableObject<Env> {
     }
     const cm = path.match(/^\/connections\/([a-z0-9_]+)(\/test|\/login\/start|\/login\/complete)?$/);
     if (cm && isConnectorId(cm[1]!)) return this.connectionRoute(req, cm[1], cm[2] ?? '', user);
+
+    /* ------------------------- budget and limits per branch ------------------------- */
+    if (path === '/limits' && method === 'GET') {
+      const rows = await this.ctx.storage.get<StoredLimits>(LIMIT_BRANCH_IDS.map((id) => `limits:${id}`));
+      return json({ limits: Object.fromEntries(LIMIT_BRANCH_IDS.map((id) => [id, rows.get(`limits:${id}`) ?? null])) });
+    }
+    const lm = path.match(/^\/limits\/([a-z0-9_]+)$/);
+    if (lm && isLimitBranchId(lm[1]!) && method === 'PUT') {
+      // Only the changed fields are sent, and merged here – two people editing different
+      // limits at the same time don't overwrite each other.
+      const body = (await req.json()) as { values?: unknown };
+      const key = `limits:${lm[1]}`;
+      const stored = (await this.ctx.storage.get<StoredLimits>(key)) ?? { values: {}, updatedBy: null, updatedAt: null };
+      const next: StoredLimits = { values: { ...stored.values, ...cleanLimits(body.values) }, updatedBy: user.name, updatedAt: Date.now() };
+      await this.ctx.storage.put(key, next);
+      return json({ limits: next });
+    }
+
+    /* --------------------------- playbooks ("træning") --------------------------- */
+    if (path === '/playbooks' && method === 'GET') {
+      const rows = await this.ctx.storage.get<StoredPlaybook>(BRANCH_IDS.map((id) => `playbook:${id}`));
+      return json({ playbooks: Object.fromEntries(BRANCH_IDS.map((id) => [id, rows.get(`playbook:${id}`) ?? null])) });
+    }
+    const pb = path.match(/^\/playbooks\/([a-z0-9_]+)$/);
+    if (pb && isBranchId(pb[1]!) && method === 'PUT') {
+      // sections: whole sections (null = back to the default); append: one line added to a
+      // section (what the chat proposes and the user approves) – appended here, so two
+      // people adding at the same time don't overwrite each other.
+      const body = (await req.json()) as { sections?: unknown; append?: { section?: string; text?: string } };
+      const key = `playbook:${pb[1]}`;
+      const stored = (await this.ctx.storage.get<StoredPlaybook>(key)) ?? { sections: {}, updatedBy: null, updatedAt: null };
+      const sections: Partial<PlaybookSections> = { ...stored.sections };
+      for (const [id, v] of Object.entries(cleanSections(body.sections)) as [SectionId, string | null][]) {
+        if (v === null) delete sections[id];
+        else sections[id] = v;
+      }
+      const append = body.append;
+      if (append) {
+        const id = append.section as SectionId;
+        const text = (append.text ?? '').trim().slice(0, 1000);
+        if (!SECTION_IDS.includes(id) || !text) return fail('Ugyldig tilføjelse.', 400);
+        const current = sections[id] ?? defaultPlaybook(pb[1])[id];
+        const line = /^[-*\d]/.test(text) ? text : `- ${text}`;
+        sections[id] = `${current.trimEnd()}${current.trim() ? '\n' : ''}${line}`.slice(-MAX_SECTION_CHARS);
+      }
+      const next: StoredPlaybook = { sections, updatedBy: user.name, updatedAt: Date.now() };
+      await this.ctx.storage.put(key, next);
+      return json({ playbook: next });
+    }
 
     /* ------------------------------- Inventarland ------------------------------- */
     if (path === '/workspace/inventarland' && method === 'PUT') {
@@ -364,6 +408,9 @@ export class Workspace extends DurableObject<Env> {
         clientId: ads?.clientId ?? null,
         tenant: ads?.tenant ?? 'common',
         hasDeveloperToken: !!ads?.developerToken,
+        hasClientSecret: !!ads?.clientSecret,
+        hasRefreshToken: !!ads?.refreshToken,
+        accounts: ads?.accounts ?? null,
         connectedBy: ads?.connectedBy ?? null,
         connectedAt: ads?.connectedAt ?? null,
         error: ads?.error ?? null,
@@ -387,28 +434,25 @@ export class Workspace extends DurableObject<Env> {
       try {
         const ads = await this.ctx.storage.get<AdsConnection>('ads');
         if (!ads) throw new AuthError('Microsoft Advertising er ikke forbundet.', 409);
-        const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(ads.tenant || 'common')}/oauth2/v2.0/token`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ client_id: ads.clientId, grant_type: 'refresh_token', refresh_token: ads.refreshToken, scope: ADS_SCOPE }),
-        });
-        const body = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; expires_in?: number; error?: string; error_description?: string };
-        if (!res.ok || !body.access_token) {
-          const reason = body.error_description?.split('\r\n')[0] ?? body.error ?? `HTTP ${res.status}`;
-          if (body.error === 'invalid_grant') {
-            const error = `Microsoft-login for annoncekontoen er udløbet eller tilbagekaldt – forbind igen under Indstillinger → Forbindelser. (${reason})`;
+        let token: Awaited<ReturnType<typeof adsRefresh>>;
+        try {
+          token = await adsRefresh((input, init) => fetch(input, init), ads);
+        } catch (e) {
+          if (!(e instanceof AdsKeyError)) throw e;
+          if (e.kind === 'auth') {
+            const error = `${e.message} Ret det under Indstillinger → Forbindelser → Microsoft Advertising.`;
             await this.ctx.storage.put('ads', { ...ads, error });
             throw new AuthError(error, 409);
           }
-          throw new AuthError(`Microsoft-login fejlede: ${reason}`, 502);
+          throw new AuthError(e.message, 502);
         }
         // Microsoft rotates refresh tokens – keep the newest one.
         const current = await this.ctx.storage.get<AdsConnection>('ads');
         if (current && current.refreshToken === ads.refreshToken) {
-          await this.ctx.storage.put('ads', { ...current, refreshToken: body.refresh_token || current.refreshToken, error: null });
+          await this.ctx.storage.put('ads', { ...current, refreshToken: token.refreshToken, error: null });
         }
-        this.adsToken = { value: body.access_token, expiresAt: Date.now() + (body.expires_in ?? 3600) * 1000 };
-        return body.access_token;
+        this.adsToken = { value: token.accessToken, expiresAt: Date.now() + token.expiresIn * 1000 };
+        return token.accessToken;
       } finally {
         this.adsPending = null;
       }
@@ -489,6 +533,8 @@ export class Workspace extends DurableObject<Env> {
   /** Every night: tests every saved connection again (keeps refresh tokens alive, shows broken ones). */
   private async checkConnections() {
     const results: Record<string, string> = {};
+    // Microsoft Advertising: a refresh keeps the token alive (it lapses after 90 unused days).
+    if (await this.ctx.storage.get('ads')) results.microsoft_ads = await this.adsAccessToken(true).then(() => 'ok', (e: unknown) => (e instanceof Error ? e.message : 'fejl'));
     for (const id of CONNECTOR_IDS) {
       const state = await this.ctx.storage.get<ConnState>(`conn:${id}`);
       if (!state || state.status === 'not_connected' || (state.status === 'needs_login' && !state.secrets.refreshToken && connectorDef(id).oauth)) continue;
