@@ -297,7 +297,8 @@ export interface AdsBackend {
   updateAds(accountId: string, adGroupId: string, patches: AdPatch[]): Promise<MutationResult>;
 
   runReport(accountId: string, spec: ReportSpec, signal?: AbortSignal): Promise<ReportRow[]>;
-  keywordIdeas(accountId: string, input: { queries: string[]; url?: string; language?: string; limit?: number }): Promise<KeywordIdea[]>;
+  /** `location`: a country name in English (default Denmark). */
+  keywordIdeas(accountId: string, input: { queries: string[]; url?: string; language?: string; location?: string; limit?: number }): Promise<KeywordIdea[]>;
   budgetOpportunities(accountId: string, campaignId?: string): Promise<BudgetOpportunity[]>;
 
   /** Raw call to any Microsoft Advertising REST v13 operation (live only). */

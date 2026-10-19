@@ -102,6 +102,9 @@ export function normalizeReportDate(value: string): string {
   return value;
 }
 
+/** Microsoft's DayOfWeek aggregation numbers the days 1–7 starting with Sunday. */
+const DAY_NAMES: Record<string, string> = { '1': 'Søndag', '2': 'Mandag', '3': 'Tirsdag', '4': 'Onsdag', '5': 'Torsdag', '6': 'Fredag', '7': 'Lørdag' };
+
 const DIMENSION_MAP: Record<string, keyof ReportRow> = {
   CampaignId: 'campaignId',
   CampaignName: 'campaignName',
@@ -140,7 +143,7 @@ export function normalizeReportRows(kind: ReportKind, raw: Record<string, string
     for (const [col, value] of Object.entries(r)) {
       if (col === 'TimePeriod') {
         if (kind === 'hourofday') row.hour = toNumber(value);
-        else if (kind === 'dayofweek') row.dayOfWeek = value;
+        else if (kind === 'dayofweek') row.dayOfWeek = DAY_NAMES[value] ?? value;
         else row.date = normalizeReportDate(value);
       } else if (DIMENSION_MAP[col]) {
         row[DIMENSION_MAP[col]] = value as never;

@@ -144,6 +144,7 @@ export class LiveBackend implements AdsBackend {
   readonly mode = 'live' as const;
   private readonly client: MsAdsClient;
   private accounts: Account[] | null = null;
+  private geo: Promise<Map<string, string>> | null = null;
 
   constructor(creds: MsCredentials) {
     this.client = new MsAdsClient(creds);
@@ -440,20 +441,67 @@ export class LiveBackend implements AdsBackend {
     throw new Error('Microsoft Advertising: rapporten blev ikke klar inden for 80 sekunder. Prøv en kortere periode.');
   }
 
-  async keywordIdeas(accountId: string, input: { queries: string[]; url?: string; language?: string; limit?: number }): Promise<KeywordIdea[]> {
+  /**
+   * Country name (English, lower case) → Microsoft location id, from Microsoft's
+   * geographical locations file (GetGeoLocationsFileUrl). Location ids are not published
+   * anywhere else, so they are never hard-coded. Cached on this PC.
+   */
+  private async countryIds(accountId: string): Promise<Map<string, string>> {
+    const KEY = 'bac.ms-country-ids';
+    try {
+      const cached = JSON.parse(localStorage.getItem(KEY) ?? 'null') as { at: number; ids: Record<string, string> } | null;
+      if (cached && Date.now() - cached.at < 30 * 86_400_000) return new Map(Object.entries(cached.ids));
+    } catch {
+      /* no cache */
+    }
+    this.geo ??= (async () => {
+      const res = await this.cm<Json>(accountId, 'GeoLocationsFileUrl/Query', 'POST', { Version: '2.0', LanguageLocale: 'en' });
+      const url = str(res.FileUrl);
+      if (!url) throw new Error('Microsoft Advertising sendte ikke lokationsfilen.');
+      const rows = parseCsv(new TextDecoder().decode(await this.client.download(url)));
+      const ids: Record<string, string> = {};
+      for (const r of rows) {
+        if (r['Location Type'] === 'Country' && r['Status'] !== 'Deprecated' && r['Location Id']) ids[(r['Bing Display Name'] ?? '').toLowerCase()] = r['Location Id'];
+      }
+      try {
+        localStorage.setItem(KEY, JSON.stringify({ at: Date.now(), ids }));
+      } catch {
+        /* storage full or unavailable */
+      }
+      return new Map(Object.entries(ids));
+    })().catch((e: unknown) => {
+      this.geo = null;
+      throw e;
+    });
+    return this.geo;
+  }
+
+  async keywordIdeas(accountId: string, input: { queries: string[]; url?: string; language?: string; location?: string; limit?: number }): Promise<KeywordIdea[]> {
+    const country = (input.location ?? 'Denmark').trim();
+    const language = input.language ?? (country.toLowerCase() === 'denmark' ? 'Danish' : 'English');
+    const locationId = (await this.countryIds(accountId)).get(country.toLowerCase());
+    if (!locationId) throw new Error(`Microsoft Advertising kender ikke landet "${country}" – skriv landets engelske navn, fx Denmark, Germany eller United Kingdom.`);
+    // GetKeywordIdeas requires Language, Location and Network, plus a query, URL or category.
     const params: Json[] = [];
     if (input.queries.length) params.push({ Type: 'QuerySearchParameter', Queries: input.queries });
     if (input.url) params.push({ Type: 'UrlSearchParameter', Url: input.url });
-    params.push({ Type: 'LanguageSearchParameter', Languages: [{ Language: input.language ?? 'Danish' }] });
+    params.push({ Type: 'LanguageSearchParameter', Languages: [{ Language: language }] });
+    params.push({ Type: 'LocationSearchParameter', Locations: [{ LocationId: Number(locationId) }] });
     params.push({ Type: 'NetworkSearchParameter', Network: { Network: 'OwnedAndOperatedAndSyndicatedSearch' } });
-    const res = await this.client.call<Json>('adinsight', 'KeywordIdeas/Query', {
-      body: {
-        ExpandIdeas: true,
-        IdeaAttributes: ['Keyword', 'Competition', 'MonthlySearchCounts', 'SuggestedBid', 'Source'],
-        SearchParameters: params,
-      },
-      ...(await this.ctx(accountId)),
-    });
+    const res = await this.client
+      .call<Json>('adinsight', 'KeywordIdeas/Query', {
+        body: {
+          ExpandIdeas: true,
+          IdeaAttributes: ['Keyword', 'Competition', 'MonthlySearchCounts', 'SuggestedBid', 'Source'],
+          SearchParameters: params,
+        },
+        ...(await this.ctx(accountId)),
+      })
+      .catch((e: unknown) => {
+        throw new Error(
+          `Microsoft gav ingen søgeordsidéer for ${country} på ${language}: ${e instanceof Error ? e.message : String(e)} Ifølge Microsofts dokumentation findes søgeordsidéer via API'et kun for USA, Storbritannien, Canada, Australien, Frankrig og Tyskland.`,
+        );
+      });
     return arr<Json>(res.KeywordIdeas)
       .map((k) => {
         const counts = arr<number>(k.MonthlySearchCounts).map(Number);

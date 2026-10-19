@@ -510,7 +510,7 @@ export class DemoBackend implements AdsBackend {
       .sort((a, b) => (a.date && b.date && a.date !== b.date ? a.date.localeCompare(b.date) : (b.spend ?? 0) - (a.spend ?? 0)));
   }
 
-  async keywordIdeas(_accountId: string, input: { queries: string[]; url?: string; language?: string; limit?: number }): Promise<KeywordIdea[]> {
+  async keywordIdeas(_accountId: string, input: { queries: string[]; url?: string; language?: string; location?: string; limit?: number }): Promise<KeywordIdea[]> {
     await sleep(this.latencyMs * 2);
     const seeds = input.queries.length ? input.queries : input.url ? [input.url.replace(/^https?:\/\/(www\.)?/, '').split(/[/.]/)[0] ?? 'kontormøbler'] : ['kontormøbler'];
     const suffixes = ['', ' tilbud', ' pris', ' test', ' bedst i test', ' online', ' køb', ' til hjemmekontor', ' danmark', ' sort', ' hvid', ' udsalg'];

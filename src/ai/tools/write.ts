@@ -13,6 +13,7 @@
 import { z } from 'zod';
 import { presetRange } from '@/lib/format';
 import { activeDailyBudget } from '@/bing/spend';
+import { findOperation, isReadOperation, missingRequired, searchOperations } from '@/bing/msOperations';
 import type { AdGroup, Campaign, Keyword, MsService, NegativeKeyword } from '@/bing/types';
 import { useActivity, type ChangeLine } from '@/stores/activity';
 import type { ChangePlan } from '../guardrails';
@@ -56,6 +57,26 @@ const bidStrategySchema = z.object({
 });
 
 const MATCH_LABELS: Record<string, string> = { Exact: 'eksakt', Phrase: 'udtryk', Broad: 'bred' };
+
+/**
+ * Characters that count against an ad text limit: Microsoft counts the final text, so
+ * dynamic text such as {KeyWord:Kontorstole} counts as its default text.
+ */
+export function finalLength(text: string): number {
+  return text
+    .replace(/\{[^{}:]+:([^{}]*)\}/g, '$1')
+    .replace(/\{[^{}]*\}/g, '')
+    .trim().length;
+}
+
+const adText = (max: number, what: string) =>
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(1000)
+    .refine((t) => /[\p{L}\p{N}]/u.test(t), `${what} skal indeholde mindst ét ord`)
+    .refine((t) => finalLength(t) <= max, `${what} må højst være ${max} tegn (dynamisk tekst tæller som sin standardtekst)`);
 
 function isActive(status: string | undefined) {
   return status === 'Active';
@@ -1009,11 +1030,11 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
     schema: z.object({
       campaignId: z.string(),
       adGroupId: z.string(),
-      headlines: z.array(z.string().trim().min(1).max(30)).min(3).max(15),
-      descriptions: z.array(z.string().trim().min(1).max(90)).min(2).max(4),
+      headlines: z.array(adText(30, 'Overskrift')).min(3).max(15),
+      descriptions: z.array(adText(90, 'Beskrivelse')).min(2).max(4),
       finalUrl: z.string().url(),
-      path1: z.string().max(15).optional(),
-      path2: z.string().max(15).optional(),
+      path1: z.string().max(1000).refine((t) => finalLength(t) <= 15, 'Visningssti må højst være 15 tegn').optional(),
+      path2: z.string().max(1000).refine((t) => finalLength(t) <= 15, 'Visningssti må højst være 15 tegn').optional(),
       reason,
     }),
     label: () => 'Opretter responsiv søgeannonce',
@@ -1026,7 +1047,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
       if (dup(input.descriptions).length) throw new Error('Beskrivelserne skal være forskellige.');
       if (!/^https?:\/\//i.test(input.finalUrl)) throw new Error('Slut-URL skal starte med https://.');
       if (input.path2 && !input.path1) throw new Error('Visningssti 2 kræver visningssti 1.');
-      for (const p of [input.path1, input.path2]) if (p && /[\s/]/.test(p)) throw new Error(`Visningsstien "${p}" må ikke indeholde mellemrum eller skråstreg.`);
+      for (const p of [input.path1, input.path2]) if (p && p.includes('/')) throw new Error(`Visningsstien "${p}" må ikke indeholde skråstreg – brug path1 og path2 til hver sin del.`);
       const notes = await servingBlockers(ctx, c, g);
       if (input.headlines.some((h) => h.includes('!'))) notes.push('Microsofts redaktionelle regler tillader ikke udråbstegn i overskrifter – overskrifter med "!" risikerer at blive afvist.');
       if (input.headlines.length < 8) notes.push(`Kun ${input.headlines.length} overskrifter – med 8–15 forskellige har Microsoft flere kombinationer at teste.`);
@@ -1049,8 +1070,8 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
       otherHosts.delete('');
       if (host && otherHosts.size && !otherHosts.has(host)) notes.push(`Slut-URL'en peger på ${host}, men de andre annoncer i gruppen bruger ${[...otherHosts].join(', ')}. Tjek, at det er den rigtige side.`);
       const lines: ChangeLine[] = [
-        ...input.headlines.map((h, i) => ({ entity: 'Annonce', field: `Overskrift ${i + 1}`, after: h, edit: { path: ['headlines', i], maxLength: 30 } })),
-        ...input.descriptions.map((d, i) => ({ entity: 'Annonce', field: `Beskrivelse ${i + 1}`, after: d, edit: { path: ['descriptions', i], maxLength: 90 } })),
+        ...input.headlines.map((h, i) => ({ entity: 'Annonce', field: `Overskrift ${i + 1}`, after: h, edit: { path: ['headlines', i], maxLength: h.includes('{') ? undefined : 30 } })),
+        ...input.descriptions.map((d, i) => ({ entity: 'Annonce', field: `Beskrivelse ${i + 1}`, after: d, edit: { path: ['descriptions', i], maxLength: d.includes('{') ? undefined : 90 } })),
         { entity: 'Annonce', field: 'Slut-URL', after: input.finalUrl },
         ...(input.path1 ? [{ entity: 'Annonce', field: 'Visningssti', after: [input.path1, input.path2].filter(Boolean).join('/') }] : []),
       ];
@@ -1180,7 +1201,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
     name: 'microsoft_ads_api',
     kind: 'write',
     description: `Call any Microsoft Advertising REST API v13 operation directly – for everything the other tools do not cover (ad extensions/assets such as sitelinks and callouts, location and device targeting criteria and bid adjustments, audiences, conversion goals, UET tags, shared budgets and negative keyword lists, labels, Bulk …). Use the dedicated tools for campaigns, ad groups, keywords, negatives and ads – they check feasibility and verify the result.
-Path convention: SOAP operation Get<Entities>By<X> → POST '<Entities>/QueryBy<X>'; Add<Entities> → POST '<Entities>'; Update<Entities> → PUT '<Entities>'; Delete<Entities> → DELETE '<Entities>'. The JSON body mirrors the SOAP request elements; polymorphic objects need a "Type" field. CustomerId and CustomerAccountId headers are added automatically.
+ALWAYS look the operation up with find_api_operation first and use exactly the method and path it returns – paths do not always follow a pattern (e.g. GetNegativeKeywordsByEntityIds is POST 'NegativeKeywords/QueryByEntityIds'), and calls to operations that do not exist are refused. The JSON body uses the request element names it lists. Polymorphic objects need a "Type" field with the class name (e.g. BiddingScheme {"Type": "MaxConversionsBiddingScheme"}; ads use the ad type, e.g. "ResponsiveSearch"). Flag combinations are comma-separated. CustomerId and CustomerAccountId headers are added automatically.
 Reads (POST to …/Query…, …/Search, or GET) run immediately; every other call needs the user's approval. Writes are NOT verified automatically: after a write, read the entity back with a Query call before telling the user it is done. Account, user and billing administration (customer/billing services) is not allowed. Live accounts only.`,
     schema: z.object({
       service: z.enum(['campaign', 'reporting', 'customer', 'adinsight', 'bulk', 'billing']).describe('campaign = CampaignManagement, customer = CustomerManagement, billing = CustomerBilling'),
@@ -1193,9 +1214,19 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
     async plan(input, ctx) {
       const path = input.path.replace(/^\/+/, '');
       if (!/^[A-Za-z][A-Za-z0-9]*(\/[A-Za-z][A-Za-z0-9]*)*$/.test(path)) throw new Error(`Ugyldig sti "${input.path}" – brug fx 'AdExtensions/QueryByIds'.`);
-      const readOnly = input.method === 'GET' || (input.method === 'POST' && /(^|\/)(Query\w*|Search|Get\w*)$/i.test(path)) || /GenerateReport\/(Submit|Poll)$/i.test(path);
+      const op = findOperation(input.service, input.method, path);
+      if (!op) {
+        const samePath = searchOperations(path.replace(/\//g, ' '), 3);
+        const hint = samePath.map((o) => `${o.method} ${o.service}/${o.path} (${o.op})`).join('; ');
+        throw new Error(`Microsoft Advertising har ingen operation ${input.method} ${input.service}/${path} – kaldet ville fejle. ${hint ? `Mente du: ${hint}? ` : ''}Slå den rigtige operation op med find_api_operation.`);
+      }
+      const readOnly = isReadOperation(op);
+      const missing = missingRequired(op, input.body);
       const run = async () => {
-        const result = await ctx.backend.rawRequest(ctx.accountId, input.service as MsService, path, input.method, input.body);
+        const result = await ctx.backend.rawRequest(ctx.accountId, input.service as MsService, op.path, op.method as 'GET' | 'POST' | 'PUT' | 'DELETE', input.body).catch((e: unknown) => {
+          if (missing.length && e instanceof Error) e.message += ` (Dokumentationen for ${op.op} kræver også: ${missing.join(', ')}.)`;
+          throw e;
+        });
         if (!readOnly) fresh(ctx);
         const text = JSON.stringify(result ?? null);
         const body = text.length > 60_000 ? { truncated: true, json: text.slice(0, 60_000) } : result;
@@ -1218,7 +1249,8 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
       }
       const amounts = collectAmounts(input.body);
       const campaignIds = collectCampaignIds(input.body);
-      const notes: string[] = [];
+      const notes: string[] = [`Operation: ${op.op}${op.summary ? ` – ${op.summary}` : ''}`];
+      if (missing.length) notes.push(`Dokumentationen kræver disse felter, som mangler i kaldet: ${missing.join(', ')}.`);
       if (ctx.rules.protectedCampaignIds.length && !campaignIds.length) notes.push('Kaldet nævner ingen kampagne-id, så det kan ikke afgøres automatisk, om det rammer en beskyttet kampagne – tjek det selv.');
       return {
         plan: {

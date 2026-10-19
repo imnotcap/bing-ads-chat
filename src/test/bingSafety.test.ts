@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getTool, type ToolContext } from '@/ai/tools';
-import { negativeBlocks, normalizeKeyword, rawErrors, collectAmounts } from '@/ai/tools/write';
+import { collectAmounts, finalLength, negativeBlocks, normalizeKeyword, rawErrors } from '@/ai/tools/write';
+import { findOperation, isReadOperation, searchOperations } from '@/bing/msOperations';
+import { normalizeReportRows } from '@/bing/reports';
 import { DemoBackend } from '@/bing/demo/backend';
 import { batchResult, bidStrategyType, LiveBackend } from '@/bing/live';
 import type { AdsBackend } from '@/bing/types';
@@ -146,7 +148,7 @@ describe('raw API calls', () => {
   });
 
   it('refuses account and billing changes', async () => {
-    await expect(plan('microsoft_ads_api', { service: 'customer', path: 'Users', method: 'PUT', body: {}, reason: 'x' })).rejects.toThrow(/fakturering/);
+    await expect(plan('microsoft_ads_api', { service: 'customer', path: 'User', method: 'PUT', body: {}, reason: 'x' })).rejects.toThrow(/fakturering/);
     await expect(plan('microsoft_ads_api', { service: 'campaign', path: '../x', method: 'PUT', body: {}, reason: 'x' })).rejects.toThrow(/Ugyldig sti/);
   });
 });
@@ -204,5 +206,97 @@ describe('REST requests sent to Microsoft (checked against the v13 REST referenc
       'PUT AdGroups',
       'DELETE Campaigns',
     ]);
+  });
+});
+
+describe('operations from Microsoft’s documentation', () => {
+  it('knows every operation the app uses, with the documented method and path', () => {
+    const used: [string, string, string][] = [
+      ['campaign', 'POST', 'Campaigns/QueryByAccountId'],
+      ['campaign', 'PUT', 'Campaigns'],
+      ['campaign', 'POST', 'Campaigns'],
+      ['campaign', 'DELETE', 'Campaigns'],
+      ['campaign', 'POST', 'AdGroups/QueryByCampaignId'],
+      ['campaign', 'POST', 'AdGroups'],
+      ['campaign', 'PUT', 'AdGroups'],
+      ['campaign', 'POST', 'Keywords/QueryByAdGroupId'],
+      ['campaign', 'POST', 'Keywords'],
+      ['campaign', 'PUT', 'Keywords'],
+      ['campaign', 'DELETE', 'Keywords'],
+      ['campaign', 'POST', 'Ads/QueryByAdGroupId'],
+      ['campaign', 'POST', 'Ads'],
+      ['campaign', 'PUT', 'Ads'],
+      ['campaign', 'POST', 'NegativeKeywords/QueryByEntityIds'],
+      ['campaign', 'POST', 'EntityNegativeKeywords'],
+      ['campaign', 'POST', 'GeoLocationsFileUrl/Query'],
+      ['reporting', 'POST', 'GenerateReport/Submit'],
+      ['reporting', 'POST', 'GenerateReport/Poll'],
+      ['customer', 'POST', 'User/Query'],
+      ['customer', 'POST', 'Accounts/Search'],
+      ['adinsight', 'POST', 'KeywordIdeas/Query'],
+      ['adinsight', 'POST', 'BudgetOpportunities/Query'],
+    ];
+    for (const [service, method, path] of used) expect(findOperation(service, method, path), `${method} ${service}/${path}`).toBeDefined();
+    expect(findOperation('campaign', 'POST', 'EntityNegativeKeywords/QueryByEntityIds')).toBeUndefined();
+  });
+
+  it('tells reads from writes by the operation', () => {
+    expect(isReadOperation(findOperation('campaign', 'POST', 'NegativeKeywords/QueryByEntityIds')!)).toBe(true);
+    expect(isReadOperation(findOperation('campaign', 'POST', 'EntityNegativeKeywords')!)).toBe(false);
+    expect(isReadOperation(findOperation('reporting', 'POST', 'GenerateReport/Submit')!)).toBe(true);
+  });
+
+  it('finds operations by entity name', () => {
+    expect(searchOperations('GetNegativeKeywordsByEntityIds')[0]!.path).toBe('NegativeKeywords/QueryByEntityIds');
+    expect(searchOperations('ad extension associations').map((o) => o.op)).toContain('GetAdExtensionsAssociations');
+  });
+
+  it('refuses raw calls to operations that do not exist, with a suggestion', async () => {
+    await expect(plan('microsoft_ads_api', { service: 'campaign', path: 'EntityNegativeKeywords/QueryByEntityIds', method: 'POST', body: {}, reason: 'x' })).rejects.toThrow(
+      /ingen operation.*NegativeKeywords\/QueryByEntityIds/s,
+    );
+    const ok = await plan('microsoft_ads_api', { service: 'campaign', path: 'NegativeKeywords/QueryByEntityIds', method: 'POST', body: {}, reason: 'x' });
+    expect(ok.plan).toBeNull();
+  });
+});
+
+describe('ad text limits as Microsoft counts them', () => {
+  it('counts dynamic text as its default text', () => {
+    expect(finalLength('{KeyWord:Kontorstole} på tilbud')).toBe('Kontorstole på tilbud'.length);
+    expect(finalLength('Køb {param2} nu')).toBe('Køb  nu'.trim().length);
+    const t = writeTool('create_responsive_search_ad');
+    const base = { campaignId: '101', adGroupId: '1010', descriptions: ['Hurtig levering i hele Danmark', 'Stort udvalg af kontormøbler'], finalUrl: 'https://example.com', reason: 'x' };
+    expect(t.schema.safeParse({ ...base, headlines: ['{KeyWord:Ergonomiske stole} på tilbud', 'B b', 'C c'] }).success).toBe(true);
+    expect(t.schema.safeParse({ ...base, headlines: ['Denne overskrift er alt for lang til en annonce', 'B', 'C'] }).success).toBe(false);
+    expect(t.schema.safeParse({ ...base, headlines: ['!!!', 'B', 'C'] }).success).toBe(false);
+  });
+});
+
+describe('report rows', () => {
+  it('names the days of the week (Microsoft: 1 = Sunday)', () => {
+    const rows = normalizeReportRows('dayofweek', [{ TimePeriod: '1', Impressions: '1', Clicks: '0', Spend: '0', Conversions: '0', Revenue: '0' }, { TimePeriod: '2', Impressions: '1', Clicks: '0', Spend: '0', Conversions: '0', Revenue: '0' }]);
+    expect(rows.map((r) => r.dayOfWeek)).toEqual(['Søndag', 'Mandag']);
+  });
+});
+
+describe('keyword ideas request', () => {
+  it('sends the required language, location and network parameters', async () => {
+    const backend = new LiveBackend({ getAccess: async () => ({ accessToken: 't', expiresAt: Date.now() + 3600_000, developerToken: 'd' }) });
+    const calls: { path: string; body: Record<string, unknown> }[] = [];
+    const client = (backend as unknown as { client: { call: (s: string, p: string, o: { body?: unknown }) => Promise<unknown>; download: () => Promise<ArrayBuffer> } }).client;
+    client.call = async (_service, path, o) => {
+      calls.push({ path, body: (o.body ?? {}) as Record<string, unknown> });
+      if (path === 'User/Query') return { User: { Id: 1 } };
+      if (path === 'Accounts/Search') return { Accounts: [{ Id: 5, ParentCustomerId: 7 }] };
+      if (path === 'GeoLocationsFileUrl/Query') return { FileUrl: 'https://x.blob.core.windows.net/geo.csv' };
+      return { KeywordIdeas: [] };
+    };
+    client.download = async () => new TextEncoder().encode('Location Id,Bing Display Name,Location Type,Replaces,Status,AdWords Location Id\n59,Denmark,Country,,Active,2208\n1,Copenhagen|Denmark,City,,Active,\n').buffer as ArrayBuffer;
+    localStorage.removeItem('bac.ms-country-ids');
+    await backend.keywordIdeas('5', { queries: ['kontorstol'] });
+    const params = calls.find((c) => c.path === 'KeywordIdeas/Query')!.body.SearchParameters as { Type: string }[];
+    expect(params.map((p) => p.Type).sort()).toEqual(['LanguageSearchParameter', 'LocationSearchParameter', 'NetworkSearchParameter', 'QuerySearchParameter']);
+    expect(params.find((p) => p.Type === 'LocationSearchParameter')).toEqual({ Type: 'LocationSearchParameter', Locations: [{ LocationId: 59 }] });
+    await expect(backend.keywordIdeas('5', { queries: ['x'], location: 'Atlantis' })).rejects.toThrow(/kender ikke landet/);
   });
 });

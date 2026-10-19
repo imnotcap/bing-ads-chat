@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { change, derive, sumMetrics } from '@/bing/metrics';
 import { getSpendStatus } from '@/bing/spend';
 import type { ReportKind, ReportRow } from '@/bing/types';
+import { searchOperations } from '@/bing/msOperations';
 import { previousRange } from '@/lib/format';
 import { round } from '@/lib/utils';
 import { useActivity } from '@/stores/activity';
@@ -459,21 +460,50 @@ Rows contain dimensions plus impressions, clicks, spend, conversions, revenue, c
   }),
 
   defineRead({
+    name: 'find_api_operation',
+    kind: 'read',
+    description:
+      "Looks up Microsoft Advertising REST v13 operations in Microsoft's documentation (all 279 operations of the campaign, reporting, customer, billing, ad insight and bulk services): exact HTTP method and path for microsoft_ads_api, the request elements (required/optional, type, rules) and the response elements. Search by operation name (e.g. 'GetAdExtensionsAssociations'), by entity (e.g. 'sitelink', 'location criterion', 'shared budget', 'conversion goal') or by path.",
+    schema: z.object({ query: z.string().min(2).describe('Operation name, entity or path'), limit: z.number().int().min(1).max(10).optional() }),
+    label: (i) => `Slår op i Microsofts API: ${i.query}`,
+    async run(input) {
+      const hits = searchOperations(input.query, input.limit ?? 5);
+      return {
+        result: {
+          operations: hits.map((o) => ({
+            operation: o.op,
+            service: o.service,
+            method: o.method,
+            path: o.path,
+            summary: o.summary,
+            request: o.request.map((r) => ({ name: r.name, type: r.type, required: !r.optional, rules: r.note })),
+            response: o.response,
+          })),
+          ...(hits.length ? {} : { note: 'No operation matched – try another word (e.g. the entity name in English).' }),
+        },
+        summary: hits.length ? hits.map((o) => o.op).slice(0, 3).join(', ') : 'Ingen operation fundet',
+      };
+    },
+  }),
+
+  defineRead({
     name: 'get_keyword_ideas',
     kind: 'read',
-    description: 'Keyword research via Microsoft Advertising Ad Insight: ideas with average monthly searches, competition and suggested bid, from seed queries and/or a landing page URL.',
+    description:
+      "Keyword research via Microsoft Advertising's keyword planner (Ad Insight): ideas with average monthly searches, competition and suggested bid, from seed queries and/or a landing page URL, for one country. Microsoft documents keyword ideas only for the United States, United Kingdom, Canada, Australia, France and Germany – for Denmark the result may be empty or refused; then say so and use the search term report and the shop's product data instead of inventing volumes.",
     schema: z.object({
       queries: z.array(z.string()).max(20).describe('Seed keywords'),
       url: z.string().optional().describe('Landing page URL to get ideas from'),
-      language: z.string().optional().describe('Language name as Microsoft expects, e.g. Danish (default), English, German, Swedish'),
+      language: z.string().optional().describe('Language as Microsoft expects it, e.g. Danish (default for Denmark), English, German, French'),
+      location: z.string().optional().describe("Country in English, e.g. Denmark (default), Germany, United Kingdom"),
       limit: z.number().int().min(1).max(200).optional(),
     }),
     label: () => 'Finder søgeordsidéer',
     async run(input, ctx) {
-      const ideas = await ctx.backend.keywordIdeas(ctx.accountId, { queries: input.queries, url: input.url, language: input.language, limit: input.limit });
+      const ideas = await ctx.backend.keywordIdeas(ctx.accountId, { queries: input.queries, url: input.url, language: input.language, location: input.location, limit: input.limit });
       return {
-        result: { ideas },
-        summary: `${ideas.length} idéer`,
+        result: { ideas, ...(ideas.length ? {} : { note: 'Microsoft returned no keyword ideas for this country/language. Say so – do not invent search volumes.' }) },
+        summary: ideas.length ? `${ideas.length} idéer` : 'Ingen idéer fra Microsoft',
         preview: {
           columns: [
             { key: 'keyword', label: 'Søgeord' },
