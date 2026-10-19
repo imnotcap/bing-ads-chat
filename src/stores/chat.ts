@@ -1,7 +1,8 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { del, get, set as idbSet } from 'idb-keyval';
 import { create } from 'zustand';
-import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
+import { persist, type PersistStorage, type StorageValue } from 'zustand/middleware';
+import { useShallow } from 'zustand/react/shallow';
 import type { ChangePlan, GuardrailDecision } from '@/ai/guardrails';
 import type { ToolPreview, VisualSpec } from '@/ai/visuals';
 import type { AttachmentMeta } from '@/lib/attachments';
@@ -113,22 +114,30 @@ export interface Conversation {
   geminiSignatures?: Record<string, string>;
 }
 
-/** IndexedDB with debounced writes – streaming updates the store many times per second. */
-function debouncedIdbStorage(delay = 600): StateStorage {
+/**
+ * IndexedDB with debounced writes – streaming updates the store many times per second.
+ * The state is only turned into JSON when it is written: serializing a long conversation
+ * on every update made typing and scrolling stutter while an answer streamed in.
+ */
+function debouncedIdbStorage<S>(delay = 600): PersistStorage<S> {
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   return {
-    getItem: async (name) => (await get<string>(name)) ?? null,
+    getItem: async (name) => {
+      const raw = await get<string>(name);
+      return raw ? (JSON.parse(raw) as StorageValue<S>) : null;
+    },
     setItem: (name, value) => {
       clearTimeout(timers.get(name));
       timers.set(
         name,
         setTimeout(() => {
           timers.delete(name);
-          void idbSet(name, value);
+          void idbSet(name, JSON.stringify(value));
         }, delay),
       );
     },
     removeItem: async (name) => {
+      clearTimeout(timers.get(name));
       await del(name);
     },
   };
@@ -187,7 +196,7 @@ export const useChat = create<ChatState>()(
     {
       name: 'bac.chat',
       version: 1,
-      storage: createJSONStorage(() => debouncedIdbStorage()),
+      storage: debouncedIdbStorage<Pick<ChatState, 'conversations' | 'activeId'>>(),
       partialize: ({ conversations, activeId }) => ({ conversations, activeId }),
       // A run cannot survive a restart: mark anything that was in flight as stopped.
       merge: (persisted, current) => {
@@ -219,6 +228,43 @@ function stopInFlight(c: Conversation): Conversation {
   };
 }
 
+/** The whole open conversation: re-renders on every streamed update – only for the chat itself. */
 export function useActiveConversation(): Conversation | null {
   return useChat((s) => s.conversations.find((c) => c.id === s.activeId) ?? null);
+}
+
+/** The open conversation right now, for event handlers (no re-renders). */
+export function activeConversation(): Conversation | null {
+  const s = useChat.getState();
+  return s.conversations.find((c) => c.id === s.activeId) ?? null;
+}
+
+/** What the sidebar and top bar show of a conversation – unchanged while an answer streams. */
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  updatedAt: number;
+  hasItems: boolean;
+}
+
+const summaries = new Map<string, ConversationSummary>();
+export function summarize(c: Conversation): ConversationSummary {
+  const old = summaries.get(c.id);
+  const hasItems = c.items.length > 0;
+  if (old && old.title === c.title && old.updatedAt === c.updatedAt && old.hasItems === hasItems) return old;
+  const next = { id: c.id, title: c.title, updatedAt: c.updatedAt, hasItems };
+  summaries.set(c.id, next);
+  return next;
+}
+
+/** Re-renders only when a title, time or "has messages" changes – not on every streamed token. */
+export function useConversationSummaries(): ConversationSummary[] {
+  return useChat(useShallow((s) => s.conversations.map(summarize)));
+}
+
+export function useActiveSummary(): ConversationSummary | null {
+  return useChat((s) => {
+    const c = s.conversations.find((x) => x.id === s.activeId);
+    return c ? summarize(c) : null;
+  });
 }

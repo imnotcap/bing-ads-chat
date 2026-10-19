@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { ClipboardPaste, CornerDownLeft, FileText, FolderOpen, ImageIcon, ListPlus, Loader2, Mic, Paperclip, Plus, Square, X } from 'lucide-react';
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { EASE } from '@/components/motion';
@@ -53,7 +53,7 @@ function AttachmentChip({ a, onRemove }: { a: Attachment; onRemove: () => void }
 /** Dispatch on window to open the composer's file picker. */
 export const ATTACH_EVENT = 'bac:attach';
 
-export const Composer = forwardRef<
+export const Composer = memo(forwardRef<
   ComposerHandle,
   {
     running: boolean;
@@ -90,14 +90,6 @@ export const Composer = forwardRef<
       ref.current?.setSelectionRange(draft.length, draft.length);
     });
   }, [draft, setDraft]);
-
-  // Auto-grow.
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = '0px';
-    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
-  }, [text]);
 
   const addFiles = async (files: File[], fromFolder = false) => {
     let list = files;
@@ -334,7 +326,7 @@ export const Composer = forwardRef<
                     ? 'Skriv din næste besked – den sendes, når svaret er færdigt …'
                     : 'Spørg om hvad som helst, eller bed mig ændre noget …'
             }
-            className="block max-h-[220px] min-h-9 flex-1 resize-none bg-transparent px-1.5 py-[7px] text-[15px] leading-[22px] text-ink outline-none placeholder:text-subtle"
+            className="block max-h-[220px] min-h-9 min-w-0 flex-1 resize-none [field-sizing:content] bg-transparent px-1.5 py-[7px] text-[15px] leading-[22px] text-ink outline-none placeholder:text-subtle"
             aria-label="Besked til assistenten"
           />
 
@@ -396,4 +388,4 @@ export const Composer = forwardRef<
       <ComposerFooter />
     </div>
   );
-});
+}));

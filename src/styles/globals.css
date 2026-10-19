@@ -243,6 +243,14 @@
 }
 
 /* Blinking caret at the end of streaming text. */
+/* Chat messages off screen: skipped by layout and paint until scrolled into view (sized
+   as when last shown). The clip margin keeps shadows that reach past the message. */
+.offscreen-skip {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 480px;
+  overflow-clip-margin: 32px;
+}
+
 .streaming-caret .prose-chat > :last-child::after {
   content: '';
   display: inline-block;

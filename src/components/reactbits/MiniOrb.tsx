@@ -1,7 +1,8 @@
 /**
- * The React Bits Orb as a small avatar. Each animated orb is its own WebGL context and
- * browsers allow only ~16, so only the ones that matter animate (the newest answer, the
- * insights panel); the rest show a still frame of the same orb (assets/orb-still.png).
+ * The React Bits Orb as a small avatar. Each animated orb is its own WebGL context that
+ * draws every frame, so only an answer being written animates; the rest show a still
+ * frame of the same orb (assets/orb-still.png). A constantly animating orb kept the
+ * window redrawing at full rate, which made typing stutter.
  */
 import { cn } from '@/lib/utils';
 import still from '@/assets/orb-still.png';

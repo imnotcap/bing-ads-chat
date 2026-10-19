@@ -125,7 +125,7 @@ function PanelContent() {
           <div className="relative overflow-hidden rounded-2xl border border-brand/15 bg-[linear-gradient(135deg,#f4f2ff,#ffffff_70%)] p-4">
             <div aria-hidden className="absolute -right-6 -top-8 size-28 rounded-full bg-[radial-gradient(circle,rgb(139_123_255/0.35),transparent_70%)]" />
             <div className="relative flex items-center gap-3">
-              <MiniOrb size={34} />
+              <MiniOrb size={34} animated={false} />
               <div className="min-w-0">
                 <div className="truncate text-[14px] font-medium text-ink">{account?.name ?? 'Ingen konto'}</div>
                 <div className="text-[12px] text-muted">{mode === 'demo' ? 'Demo-konto' : 'Microsoft Advertising'}</div>
