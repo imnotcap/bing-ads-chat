@@ -1,10 +1,10 @@
-//! Conversation exports: written to "Downloads/Bing Ads Chat" and shown in Explorer.
+//! Conversation exports: written to "Downloads/XavierOS" and shown in Explorer.
 
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, Runtime};
 
 fn exports_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
-    let dir = app.path().download_dir().map_err(|e| e.to_string())?.join("Bing Ads Chat");
+    let dir = app.path().download_dir().map_err(|e| e.to_string())?.join("XavierOS");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }

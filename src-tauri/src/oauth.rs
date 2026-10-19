@@ -14,11 +14,11 @@ use tauri::{AppHandle, Emitter};
 
 const TIMEOUT: Duration = Duration::from_secs(300);
 
-const PAGE: &str = "<!doctype html><html lang=\"da\"><head><meta charset=\"utf-8\"><title>Bing Ads Chat</title>\
+const PAGE: &str = "<!doctype html><html lang=\"da\"><head><meta charset=\"utf-8\"><title>XavierOS</title>\
 <style>body{font-family:'Segoe UI',system-ui,sans-serif;background:#f6f7fb;color:#111827;display:grid;place-items:center;height:100vh;margin:0}\
 div{background:#fff;padding:40px 48px;border-radius:24px;box-shadow:0 10px 40px -12px rgb(16 24 40/.18);text-align:center}\
 h1{font-size:20px;margin:0 0 8px}p{color:#6b7280;margin:0}</style></head>\
-<body><div><h1>Du er logget ind</h1><p>Du kan lukke dette vindue og vende tilbage til Bing Ads Chat.</p></div></body></html>";
+<body><div><h1>Du er logget ind</h1><p>Du kan lukke dette vindue og vende tilbage til XavierOS.</p></div></body></html>";
 
 /// Extracts the query string from a request line such as `GET /?code=abc HTTP/1.1`.
 fn query_from_request_line(line: &str) -> Option<String> {

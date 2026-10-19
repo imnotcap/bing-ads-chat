@@ -54,14 +54,14 @@ function describe(changes: ToolPart[]) {
 }
 
 const TEST_DESCRIPTION =
-  'Dette er en test af opfølgningen i Bing Ads Chat – intet er ændret i Microsoft Advertising.\n\nNår assistenten ændrer noget rigtigt, står ændringerne her, så du kan tjekke, om de virkede.';
+  'Dette er en test af opfølgningen i XavierOS – intet er ændret i Microsoft Advertising.\n\nNår assistenten ændrer noget rigtigt, står ændringerne her, så du kan tjekke, om de virkede.';
 
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 function mailHtml(title: string, description: string, when: string, outlookLink?: string | null) {
   const body = escapeHtml(description).replace(/\n/g, '<br>');
   const link = outlookLink ? `<p><a href="${escapeHtml(outlookLink)}">Åbn påmindelsen i Outlook</a></p>` : '';
-  return `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1d1d22"><h2 style="font-size:17px;margin:0 0 8px">${escapeHtml(title)}</h2><p style="color:#6b6b76;margin:0 0 12px">Opfølgning ${escapeHtml(when)}</p><p>${body}</p>${link}<p style="color:#9a9aa5;font-size:12px">Sendt fra Bing Ads Chat til dig selv.</p></div>`;
+  return `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1d1d22"><h2 style="font-size:17px;margin:0 0 8px">${escapeHtml(title)}</h2><p style="color:#6b6b76;margin:0 0 12px">Opfølgning ${escapeHtml(when)}</p><p>${body}</p>${link}<p style="color:#9a9aa5;font-size:12px">Sendt fra XavierOS til dig selv.</p></div>`;
 }
 
 export function FollowUpCard({ item }: { item: AssistantItem }) {
@@ -75,7 +75,7 @@ export function FollowUpCard({ item }: { item: AssistantItem }) {
   const setAi = useSettings((s) => s.setAi);
   const changes = useMemo(() => completedChanges(item), [item]);
   const firstTitle = changes[0]?.plan?.title ?? 'Ændring';
-  const [title, setTitle] = useState(test ? 'Test: opfølgning fra Bing Ads Chat' : `Følg op: ${firstTitle}${changes.length > 1 ? ` (+${changes.length - 1})` : ''}`);
+  const [title, setTitle] = useState(test ? 'Test: opfølgning fra XavierOS' : `Følg op: ${firstTitle}${changes.length > 1 ? ` (+${changes.length - 1})` : ''}`);
   const [due, setDue] = useState(isoDay(test ? 1 : 7));
   const [time, setTime] = useState('09:00');
   const [toBoard, setToBoard] = useState(true);

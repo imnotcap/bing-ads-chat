@@ -1,4 +1,4 @@
-// Bing Ads Chat installer – a step-by-step guide. Talks to src/main.rs.
+// XavierOS installer – a step-by-step guide. Talks to src/main.rs.
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 const { getCurrentWindow } = window.__TAURI__.window;
@@ -127,8 +127,8 @@ $('dir').addEventListener('input', () => {
 $('browse').addEventListener('click', async () => {
   const picked = await window.__TAURI__.dialog.open({ directory: true, title: 'Vælg installationsmappe', defaultPath: $('dir').value });
   if (typeof picked === 'string') {
-    // Install into a "Bing Ads Chat" folder inside the chosen one (like most installers).
-    $('dir').value = /bing ads chat$/i.test(picked) ? picked : `${picked.replace(/[\\/]+$/, '')}\\Bing Ads Chat`;
+    // Install into a "XavierOS" folder inside the chosen one (like most installers).
+    $('dir').value = /xavieros$/i.test(picked) ? picked : `${picked.replace(/[\\/]+$/, '')}\\XavierOS`;
     $('dir-hint').classList.remove('bad');
     $('dir-hint').textContent = '';
   }
@@ -145,7 +145,7 @@ invoke('info').then((info) => {
   $('dir').value = info.installDir;
   $('version').textContent = info.version ? `Version ${info.version}` : '';
   if (info.installedVersion) {
-    $('welcome-title').textContent = 'Opdatér Bing Ads Chat';
+    $('welcome-title').textContent = 'Opdatér XavierOS';
     $('welcome-desc').textContent = `Version ${info.installedVersion} er installeret. Guiden opdaterer til version ${info.version} – dine samtaler, indstillinger og nøgler bevares.`;
     $('dir-hint').textContent = 'Den nuværende installation opdateres i samme mappe.';
   } else {

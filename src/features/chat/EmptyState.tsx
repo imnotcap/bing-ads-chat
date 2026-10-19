@@ -61,7 +61,7 @@ export function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
 
       <div className="mx-auto -mt-12 flex w-full max-w-[760px] flex-1 flex-col items-center px-6 pb-8">
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.15 } }} className="relative text-[15px] text-muted">
-          Velkommen til Bing Ads Chat{account ? ` · ${account.name}` : ''}
+          Velkommen til XavierOS{account ? ` · ${account.name}` : ''}
           {mode === 'demo' ? ' (demo)' : ''}
         </motion.p>
         <BlurText as="h1" text="Hvordan kan jeg hjælpe?" startDelay={0.1} className="relative mt-1.5 justify-center text-center text-[38px] font-medium tracking-[-0.03em] text-ink" />

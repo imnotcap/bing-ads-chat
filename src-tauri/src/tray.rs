@@ -1,4 +1,4 @@
-//! System tray: closing the window keeps Bing Ads Chat running in the background
+//! System tray: closing the window keeps XavierOS running in the background
 //! (like Claude). The tray icon brings it back; "Afslut" quits for real.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,14 +22,14 @@ pub fn show_main_window(app: &AppHandle) {
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     app.manage(CloseToTray(AtomicBool::new(true)));
-    let open = MenuItem::with_id(app, "open", "Åbn Bing Ads Chat", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Åbn XavierOS", true, None::<&str>)?;
     let new_chat = MenuItem::with_id(app, "new-chat", "Ny samtale", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Afslut", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &new_chat, &separator, &quit])?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
-        .tooltip("Bing Ads Chat")
+        .tooltip("XavierOS")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {

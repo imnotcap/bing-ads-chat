@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Bing Ads Chat",
-  "mainBinaryName": "BingAdsChat",
+  "productName": "XavierOS",
+  "mainBinaryName": "XavierOS",
   "version": "0.2.0",
   "identifier": "dk.bingadschat.app",
   "build": {
@@ -15,7 +15,8 @@
     "windows": [
       {
         "label": "main",
-        "title": "Bing Ads Chat",
+        "title": "XavierOS",
+        "visible": false,
         "width": 1440,
         "height": 920,
         "minWidth": 1040,
@@ -25,6 +26,21 @@
         "dragDropEnabled": false,
         "decorations": false,
         "shadow": true
+      },
+      {
+        "label": "splash",
+        "title": "XavierOS",
+        "url": "splash.html",
+        "width": 720,
+        "height": 420,
+        "center": true,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false
       }
     ],
     "security": {
@@ -34,7 +50,8 @@
         "style-src"
       ],
       "capabilities": [
-        "default"
+        "default",
+        "splash"
       ]
     }
   },
@@ -44,11 +61,11 @@
       "nsis",
       "msi"
     ],
-    "publisher": "Bing Ads Chat",
-    "copyright": "© Bing Ads Chat",
+    "publisher": "XavierOS",
+    "copyright": "© XavierOS",
     "category": "Business",
     "shortDescription": "Chat-assistent til Microsoft Advertising",
-    "longDescription": "Bing Ads Chat er en lokal desktop-app, hvor en AI-assistent (Claude) læser og ændrer din Microsoft Advertising-konto via chat – med forbrugsregler og godkendelse af ændringer.",
+    "longDescription": "XavierOS er en lokal desktop-app, hvor en AI-assistent (Claude) læser og ændrer din Microsoft Advertising-konto via chat – med forbrugsregler og godkendelse af ændringer.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -72,7 +89,8 @@
         "customLanguageFiles": {
           "Danish": "installer/Danish.nsh"
         },
-        "uninstallerHeaderImage": "installer/header.bmp"
+        "uninstallerHeaderImage": "installer/header.bmp",
+        "installerHooks": "installer/hooks.nsh"
       },
       "wix": {
         "language": "da-DK"

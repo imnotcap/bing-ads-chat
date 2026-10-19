@@ -253,7 +253,7 @@ export function AccountMenu() {
             <Settings /> <span className="flex-1">Indstillinger</span> <span className="text-[11px] text-subtle">Ctrl ,</span>
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => go('settings', 'spend')}>
-            <Wallet /> Forbrugsregler
+            <Wallet /> Budget og grænser
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => go('settings', 'ai')}>
             <Sparkles /> <span className="flex-1">AI-forbrug</span> <span className="text-[11.5px] tabular text-muted">{fmtUsd(usage.costUsd)}</span>

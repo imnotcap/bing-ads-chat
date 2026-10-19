@@ -1,4 +1,4 @@
-# Bing Ads Chat
+# XavierOS
 
 En lokal **Windows-desktopapp**, hvor du styrer din **Microsoft Advertising (Bing Ads)**-konto ved at chatte med en
 AI-assistent (Claude). Assistenten kan analysere, rapportere og ændre kontoen – men altid inden for de
@@ -9,12 +9,16 @@ Bygget med samme teknologi som Inventarland-dashboardet: **Tauri 2** (native Win
 Designet er enkelt og lyst med fonten **Funnel Sans** (bundlet i appen, virker offline), en rolig lavendel-accent og
 et sammenfoldeligt **indsigtsvindue** i højre side.
 
+> **Navneskift:** Appen hed tidligere *Bing Ads Chat*. Den første opdatering til XavierOS fjerner den gamle
+> installation og lægger genveje under det nye navn. Samtaler, nøgler og indstillinger bevares (app-id'et
+> `dk.bingadschat.app` og Cloudflare-adressen er uændrede, så opdateringer og gemte data virker videre).
+
 ## Hent appen (Windows)
 
-**Download-side på Cloudflare:** https://bing-ads-chat.casperjohansen.workers.dev → **Bing-Ads-Chat-Setup.exe**.
+**Download-side på Cloudflare:** https://bing-ads-chat.casperjohansen.workers.dev → **XavierOS-Setup.exe**.
 
 Du installerer kun én gang. Derefter **opdaterer appen sig selv**: når en ny version er udgivet, viser
-appen "Bing Ads Chat X er klar" → **Opdatér nu**. Den henter den signerede opdatering fra Cloudflare,
+appen "XavierOS X er klar" → **Opdatér nu**. Den henter den signerede opdatering fra Cloudflare,
 installerer og genstarter. Samtaler, indstillinger og nøgler bevares. Det fungerer som i Inventarland,
 men på din egen Cloudflare-konto: hver ændring på hovedgrenen bygges og udgives automatisk af GitHub
 Actions. Engangsopsætning (to GitHub-secrets): se [docs/RELEASE.md](docs/RELEASE.md).
@@ -51,7 +55,7 @@ Hvert build ligger også som backup under
 - **Topbaren er vinduets titellinje** (som i Claude desktop – Windows' egen er skjult): træk for at flytte,
   dobbeltklik for at maksimere, menu, skjul/vis sidebar (Ctrl+B), tilbage/frem (Alt+←/→), samtaletitel med
   menu (omdøb/slet) og vinduesknapper. Til højre: indsigt (Ctrl+I), eksportér samtalen som Markdown
-  (gemmes i *Overførsler › Bing Ads Chat*), filer i samtalen, del/kopiér og flere handlinger.
+  (gemmes i *Overførsler › XavierOS*), filer i samtalen, del/kopiér og flere handlinger.
   Sidebaren kan foldes helt væk.
 - Samtalehistorik med søgning, omdøb og slet. Genveje: `Ctrl+N` ny samtale, `Ctrl+K` fokus på chatfeltet, `Ctrl+B` sidebar, `Ctrl+I` indsigt, `Ctrl+,` indstillinger, `Alt+←/→` tilbage/frem.
 
@@ -131,7 +135,7 @@ Cloudflare, fra Inventarland-appen). Det giver assistenten tre læse-værktøjer
 | `get_channel_comparison` | Google Ads, Microsoft Ads, Meta og Daisycon side om side (forbrug, omsætning, ROAS, CPA) og en kanals kampagner | Sæt Bing i perspektiv. Fx *"Er vores ROAS på Bing bedre end på Google?"* |
 
 Opsætning (én gang): opret i Inventarland en bruger med rollen **Læser** (*Administration → Brugere*), fx
-`bing-ads-chat@inventarland.dk`, og skriv e-mail og adgangskode ind i Bing Ads Chat. Adgangskoden gemmes kun på jeres
+`bing-ads-chat@inventarland.dk`, og skriv e-mail og adgangskode ind i XavierOS. Adgangskoden gemmes kun på jeres
 Cloudflare; Workeren logger selv ind igen, når Inventarland-sessionen udløber. Der læses kun – intet ændres i
 Inventarland. Værktøjerne kan slås fra i chatfeltet under *Inventarland · webshop og kanaler*.
 

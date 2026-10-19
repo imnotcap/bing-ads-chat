@@ -1,6 +1,6 @@
 # Udgivelse og opdateringer
 
-Bing Ads Chat er sat op som Inventarland: appen opdaterer sig selv med signerede opdateringer
+XavierOS er sat op som Inventarland: appen opdaterer sig selv med signerede opdateringer
 fra Cloudflare, så ingen skal hente en ny exe-fil efter den første installation.
 
 | Del | Adresse |
@@ -16,7 +16,7 @@ fra Cloudflare, så ingen skal hente en ny exe-fil efter den første installatio
 * Kontoen og dens workers.dev-adresse findes automatisk ud fra API-tokenet (`scripts/resolve-site.mjs`)
   og bages ind i appen ved hvert build. Har kontoen ingen workers.dev-adresse endnu, oprettes en.
 * Appen tjekker for opdateringer 3 sek. efter start, hver halve time og når du vender tilbage til den.
-  En ny version vises som "Bing Ads Chat X er klar" med knappen **Opdatér nu** (også i topbaren og under
+  En ny version vises som "XavierOS X er klar" med knappen **Opdatér nu** (også i topbaren og under
   **Indstillinger → Om appen**). Appen henter, kontrollerer signaturen, installerer og genstarter selv.
 
 ## Sådan udgives en ny version
@@ -34,7 +34,7 @@ GitHub → repoet **bing-ads-chat** → Settings → Secrets and variables → A
 
 | Secret | Indhold |
 | --- | --- |
-| `TAURI_SIGNING_PRIVATE_KEY` | Hele indholdet af Bing Ads Chats egen signeringsnøgle `updater.key` (uden adgangskode – den offentlige del står i `src-tauri/tauri.release.conf.json`). Gem filen i din password manager |
+| `TAURI_SIGNING_PRIVATE_KEY` | Hele indholdet af XavierOS' egen signeringsnøgle `updater.key` (uden adgangskode – den offentlige del står i `src-tauri/tauri.release.conf.json`). Gem filen i din password manager |
 | `CLOUDFLARE_API_TOKEN` | API-token til **din nye Cloudflare-konto**: log ind på dash.cloudflare.com → My Profile → API Tokens → Create Token → skabelonen **Edit Cloudflare Workers** → vælg din konto under *Account Resources* → Continue → Create Token, og kopiér tokenet |
 
 ### Login med Microsoft (konti i appen)
@@ -49,7 +49,7 @@ Cloudflare. De forbindes én gang inde i appen under **Indstillinger → Forbind
 
 | Secret | Indhold |
 | --- | --- |
-| `MS_CLIENT_ID` | **Påkrævet til login.** *Application (client) ID* fra en app-registrering: https://entra.microsoft.com → **Applikationer → App-registreringer → Ny registrering** · navn "Bing Ads Chat" · kontotyper: *Accounts in any organizational directory and personal Microsoft accounts* · Registrér. Under **Godkendelse**: *Tilføj en platform → Mobil- og skrivebordsprogrammer* → brugerdefineret omdirigerings-URI `http://localhost` → Konfigurer, og slå **Tillad offentlige klientflows** til → Gem. Under **API-tilladelser**: *Tilføj en tilladelse → Microsoft Graph → Delegerede tilladelser* → `Calendars.ReadWrite` og `Mail.Send` (og `openid`, `profile`, `email`, `offline_access`). Mail.Send bruges kun til mails fra brugeren til brugeren selv (opfølgninger). Kopiér *Application (client) ID* fra Oversigt. Det bygges ind i appen og gives til Cloudflare-workeren, som kun godtager logins fra netop denne app-registrering |
+| `MS_CLIENT_ID` | **Påkrævet til login.** *Application (client) ID* fra en app-registrering: https://entra.microsoft.com → **Applikationer → App-registreringer → Ny registrering** · navn "XavierOS" · kontotyper: *Accounts in any organizational directory and personal Microsoft accounts* · Registrér. Under **Godkendelse**: *Tilføj en platform → Mobil- og skrivebordsprogrammer* → brugerdefineret omdirigerings-URI `http://localhost` → Konfigurer, og slå **Tillad offentlige klientflows** til → Gem. Under **API-tilladelser**: *Tilføj en tilladelse → Microsoft Graph → Delegerede tilladelser* → `Calendars.ReadWrite` og `Mail.Send` (og `openid`, `profile`, `email`, `offline_access`). Mail.Send bruges kun til mails fra brugeren til brugeren selv (opfølgninger). Kopiér *Application (client) ID* fra Oversigt. Det bygges ind i appen og gives til Cloudflare-workeren, som kun godtager logins fra netop denne app-registrering |
 | `MS_DEVELOPER_TOKEN` | Valgfrit. Dit developer token: log ind på https://ads.microsoft.com (Super Admin) → **Indstillinger → Developer settings** → vælg din bruger → **Request Developer Token**. Udfyldes ellers i appen, når Microsoft Advertising forbindes |
 
 Inventarland-data (webshoppens salg og de andre annoncekanaler) forbindes også inde i appen under
@@ -73,7 +73,7 @@ alle nye versioner automatisk i appen.
 
 * **Ikke kodesigneret:** Windows viser "Windows beskyttede din pc" ved første installation
   (Flere oplysninger → Kør alligevel). Opdateringer inde i appen er signeret med updater-nøglen.
-* **Signeringsnøglen:** Bing Ads Chat har sin egen `updater.key` (ikke Inventarlands). Mistes den, kan
+* **Signeringsnøglen:** XavierOS har sin egen `updater.key` (ikke Inventarlands). Mistes den, kan
   installerede apps ikke længere opdatere sig selv (alle skal installere én gang manuelt med en ny nøgle).
   Tag backup, og del den aldrig.
 * Download-siden er offentlig (installeren indeholder ingen nøgler – de gemmes i Windows Credential Manager).

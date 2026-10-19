@@ -72,7 +72,7 @@ export async function startOAuthListener(): Promise<{ port: number; callback: Pr
 }
 
 /**
- * Saves an exported file. Desktop: "Downloads/Bing Ads Chat" (returns the path).
+ * Saves an exported file. Desktop: "Downloads/XavierOS" (returns the path).
  * Browser: a normal download (returns null).
  */
 export async function saveExport(fileName: string, contents: string): Promise<string | null> {

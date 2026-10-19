@@ -77,7 +77,7 @@ export function Onboarding() {
               <MiniOrb size={120} />
             </div>
             <div>
-              <BlurText as="h1" text="Velkommen til Bing Ads Chat" className="text-[32px] font-medium tracking-[-0.03em] text-ink" />
+              <BlurText as="h1" text="Velkommen til XavierOS" className="text-[32px] font-medium tracking-[-0.03em] text-ink" />
               <p className="mt-2 text-[15px] leading-relaxed text-muted">
                 Din <GradientText className="font-semibold">AI-specialist</GradientText> i Microsoft Advertising – den læser, analyserer og ændrer din konto via chat.
               </p>

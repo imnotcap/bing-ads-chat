@@ -27,7 +27,7 @@ export function useDesktopShell() {
         } catch {
           return;
         }
-        void nativeNotify('Bing Ads Chat kører stadig', 'Appen ligger ved uret. Klik på ikonet for at åbne den igen – eller højreklik → Afslut.');
+        void nativeNotify('XavierOS kører stadig', 'Appen ligger ved uret. Klik på ikonet for at åbne den igen – eller højreklik → Afslut.');
       }),
     ];
     return () => unlisten.forEach((p) => void p.then((u) => u()));

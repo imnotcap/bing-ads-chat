@@ -184,7 +184,7 @@ function PanelContent() {
           title="Månedsbudget"
           icon={Wallet}
           summary={share !== null ? `${Math.round(share * 100)} %` : s ? fmtMoney(s.monthToDateSpend, currency, 0) : undefined}
-          action={<LinkButton onClick={() => go('settings', 'spend')}>Forbrugsregler</LinkButton>}
+          action={<LinkButton onClick={() => go('settings', 'spend')}>Budget og grænser</LinkButton>}
         >
           {!s ? (
             <Skeleton className="h-16" />

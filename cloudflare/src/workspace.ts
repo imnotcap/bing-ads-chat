@@ -555,7 +555,7 @@ export class Workspace extends DurableObject<Env> {
       res = await fetch(`${conn.url}/api/v1/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: conn.email, password: conn.password, deviceName: 'Bing Ads Chat (Cloudflare)' }),
+        body: JSON.stringify({ email: conn.email, password: conn.password, deviceName: 'XavierOS (Cloudflare)' }),
       });
     } catch {
       throw new AuthError('Kunne ikke nå Inventarlands API. Tjek adressen.', 502);

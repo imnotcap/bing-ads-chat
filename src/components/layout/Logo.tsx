@@ -1,18 +1,33 @@
 import { cn } from '@/lib/utils';
 
+/** The XavierOS mark: four shards forming an X (same shapes as the app icon and splash). */
+export function XavierShards({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 352 294" className={className} aria-hidden fill="currentColor">
+      <polygon points="4,37 121,5 197,65 164,150" />
+      <polygon points="234,31 351,0 279,179 198,121" />
+      <polygon points="73,115 154,173 118,263 1,294" />
+      <polygon points="155,229 188,144 348,257 231,289" />
+    </svg>
+  );
+}
+
+/** The app icon: the white mark on a near-black tile. */
 export function LogoMark({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 1024 1024" className={cn('size-9', className)} aria-hidden>
-      <defs>
-        <linearGradient id="lm-bg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#8b7bff" />
-          <stop offset="1" stopColor="#6d5cf6" />
-        </linearGradient>
-      </defs>
-      <rect x="64" y="64" width="896" height="896" rx="240" fill="url(#lm-bg)" />
-      <path d="M300 330c0-44 36-80 80-80h264c44 0 80 36 80 80v220c0 44-36 80-80 80H468l-112 92c-12 10-30 1-30-14v-78h-6c-11 0-20-9-20-20z" fill="#fff" />
-      <path d="M420 520V420M512 520V370M604 520v-70" stroke="#6d5cf6" strokeWidth="46" strokeLinecap="round" />
-    </svg>
+    <span className={cn('grid size-9 shrink-0 place-items-center rounded-[28%] bg-[#1c191b] text-white', className)} aria-hidden>
+      <XavierShards className="w-[58%]" />
+    </span>
+  );
+}
+
+/** "XavierOS" – bold name, light "OS". */
+export function Wordmark({ className }: { className?: string }) {
+  return (
+    <span className={cn('tracking-[-0.03em] text-ink', className)}>
+      <span className="font-bold">Xavier</span>
+      <span className="font-light">OS</span>
+    </span>
   );
 }
 
@@ -20,7 +35,7 @@ export function Logo() {
   return (
     <div className="flex items-center gap-2.5">
       <LogoMark className="size-8" />
-      <div className="text-[15px] font-semibold tracking-[-0.01em] text-ink">Bing Ads Chat</div>
+      <Wordmark className="text-[16px]" />
     </div>
   );
 }

@@ -15,7 +15,7 @@ export const displayTools = [
   defineRead({
     name: 'create_file',
     kind: 'display',
-    description: `Give the user a file they can save (shown as a file card with "Gem fil", saved to Downloads › Bing Ads Chat). ALWAYS use this when the user asks for a file, a download, an export, something to import, a list to send on, or a calendar entry – never paste the file's content into your reply instead. Your reply text only says briefly what the file contains.
+    description: `Give the user a file they can save (shown as a file card with "Gem fil", saved to Downloads › XavierOS). ALWAYS use this when the user asks for a file, a download, an export, something to import, a list to send on, or a calendar entry – never paste the file's content into your reply instead. Your reply text only says briefly what the file contains.
 Formats (text only): csv/tsv for spreadsheets and imports (opens in Excel – use semicolon ";" as separator and decimal comma for Danish Excel, a header row, one record per line, quote fields containing ";"), txt, md (checklists, notes, reports), json, html, xml, and ics for calendar entries (VCALENDAR with VEVENT, DTSTART/DTEND as local time YYYYMMDDTHHMMSS, SUMMARY, DESCRIPTION, a VALARM reminder). Excel (.xlsx), Word and PDF files cannot be made – offer CSV or Markdown instead and say so.`,
     schema: z.object({
       fileName: z
