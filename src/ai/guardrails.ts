@@ -27,6 +27,8 @@ export interface ChangePlan {
   newBids?: number[];
   notes?: string[];
   undo?: UndoSpec;
+  /** A new rule for the assistant's own playbook (not an account change). */
+  training?: boolean;
 }
 
 export interface SpendContext {
@@ -46,6 +48,7 @@ export function evaluateGuardrails(plan: ChangePlan, rules: SpendRules, ctx: Spe
   const approve: string[] = [];
   const money = (v: number) => fmtMoney(v, ctx.currency);
 
+  if (!rules.mayPropose && !plan.training) block.push('Grenen er sat til kun at læse og analysere (Indstillinger → Budget og grænser).');
   const protectedHit = plan.campaignIds.filter((id) => rules.protectedCampaignIds.includes(id));
   if (protectedHit.length) block.push(`Kampagne ${protectedHit.join(', ')} er beskyttet og må ikke ændres af assistenten.`);
   if (plan.kind === 'delete' && !rules.allowDelete) block.push('Sletning er slået fra i forbrugsreglerne.');

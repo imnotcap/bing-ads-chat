@@ -3,31 +3,15 @@ import { persist } from 'zustand/middleware';
 import type { ConnectorId } from '@/ai/connectors';
 import type { Effort, ModelId, ModelInfo } from '@/ai/models';
 import type { DatePreset } from '@/lib/format';
+import { DEFAULT_LIMITS, type BranchLimits } from '@/ai/branchLimits';
 
 /**
- * Limits for the changes the assistant proposes. Every change needs the user's
+ * Microsoft Advertising's budget and limits – a local mirror of the shared branch limits
+ * (src/ai/branchLimits.ts, Indstillinger → Budget og grænser), so the guardrails, the
+ * budget watch and the insights keep working offline. Every change needs the user's
  * approval on an approval card – there is no mode where the assistant acts on its own.
  */
-export interface SpendRules {
-  /** Total monthly ad budget for the account (account currency). */
-  monthlyBudget: number | null;
-  /** Warn when month-to-date spend passes this share of the monthly budget. */
-  warnAtPct: number;
-  /** Pause all active campaigns automatically when the monthly budget is used (while the app is open). */
-  autoPauseAtMonthlyBudget: boolean;
-  maxDailyBudgetPerCampaign: number | null;
-  /** Sum of the daily budgets of all active campaigns. */
-  maxTotalDailyBudget: number | null;
-  /** Budget increases above this share are flagged on the approval card. */
-  maxBudgetIncreasePct: number | null;
-  maxCpcBid: number | null;
-  allowCreateCampaigns: boolean;
-  allowDelete: boolean;
-  /** New campaigns and ad groups are always created paused. */
-  newEntitiesPaused: boolean;
-  /** Campaigns the assistant may never change. */
-  protectedCampaignIds: string[];
-}
+export type SpendRules = BranchLimits;
 
 export interface AiSettings {
   model: ModelId;
@@ -79,19 +63,7 @@ export interface Appearance {
   boardCards: 'simple' | 'detailed';
 }
 
-export const DEFAULT_SPEND_RULES: SpendRules = {
-  monthlyBudget: null,
-  warnAtPct: 80,
-  autoPauseAtMonthlyBudget: false,
-  maxDailyBudgetPerCampaign: null,
-  maxTotalDailyBudget: null,
-  maxBudgetIncreasePct: 50,
-  maxCpcBid: null,
-  allowCreateCampaigns: true,
-  allowDelete: false,
-  newEntitiesPaused: true,
-  protectedCampaignIds: [],
-};
+export const DEFAULT_SPEND_RULES: SpendRules = DEFAULT_LIMITS;
 
 interface SettingsState {
   spend: SpendRules;

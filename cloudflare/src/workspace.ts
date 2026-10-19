@@ -11,6 +11,7 @@
  * - Planning boards: every op in order, with a WebSocket ping to all open apps.
  * - Inventarland: read-only views of Inventarland's API (webshop sales, other ad
  *   channels), fetched with a shared Inventarland user whose password stays here.
+ * - Budget and limits per branch (src/ai/branchLimits.ts): only the changed fields.
  * - Playbooks ("træning", src/ai/playbooks.ts): each branch's guidelines as the team
  *   changed them – the defaults live in the app, only the changes are stored here.
  * - Data sources (connectors.ts): Google Ads, Meta, LinkedIn, Daisycon, Search
@@ -20,6 +21,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { applyOp, boardOfOp, canSeeBoard, dataFor, isBoardData, mayApply, memberIdOf, type BoardData, type BoardOp } from '../../src/board/model';
 import { INVENTARLAND_URL, INVENTARLAND_VIEWS, type AdsAccess, type InventarlandView, type SharedKeyName, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
+import { LIMIT_BRANCH_IDS, cleanLimits, isLimitBranchId, type StoredLimits } from '../../src/ai/branchLimits';
 import { BRANCH_IDS, MAX_SECTION_CHARS, SECTION_IDS, cleanSections, defaultPlaybook, isBranchId, type PlaybookSections, type SectionId, type StoredPlaybook } from '../../src/ai/playbooks';
 import { CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isConnectorId, type ConnectorId, type ConnectorSaveResult } from '../../src/workspace/connectors';
 import { AuthError, verifyMicrosoftIdToken, type MicrosoftIdentity } from './auth';
@@ -235,6 +237,23 @@ export class Workspace extends DurableObject<Env> {
     }
     const cm = path.match(/^\/connections\/([a-z0-9_]+)(\/test|\/login\/start|\/login\/complete)?$/);
     if (cm && isConnectorId(cm[1]!)) return this.connectionRoute(req, cm[1], cm[2] ?? '', user);
+
+    /* ------------------------- budget and limits per branch ------------------------- */
+    if (path === '/limits' && method === 'GET') {
+      const rows = await this.ctx.storage.get<StoredLimits>(LIMIT_BRANCH_IDS.map((id) => `limits:${id}`));
+      return json({ limits: Object.fromEntries(LIMIT_BRANCH_IDS.map((id) => [id, rows.get(`limits:${id}`) ?? null])) });
+    }
+    const lm = path.match(/^\/limits\/([a-z0-9_]+)$/);
+    if (lm && isLimitBranchId(lm[1]!) && method === 'PUT') {
+      // Only the changed fields are sent, and merged here – two people editing different
+      // limits at the same time don't overwrite each other.
+      const body = (await req.json()) as { values?: unknown };
+      const key = `limits:${lm[1]}`;
+      const stored = (await this.ctx.storage.get<StoredLimits>(key)) ?? { values: {}, updatedBy: null, updatedAt: null };
+      const next: StoredLimits = { values: { ...stored.values, ...cleanLimits(body.values) }, updatedBy: user.name, updatedAt: Date.now() };
+      await this.ctx.storage.put(key, next);
+      return json({ limits: next });
+    }
 
     /* --------------------------- playbooks ("træning") --------------------------- */
     if (path === '/playbooks' && method === 'GET') {

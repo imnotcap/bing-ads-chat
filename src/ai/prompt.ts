@@ -97,6 +97,8 @@ export function buildContextBlock(opts: {
   rules: SpendRules;
   /** Which connectors are switched off (see ai/connectors.ts). */
   connectors?: string;
+  /** The other branches' budgets and limits (ai/branchLimits.ts). */
+  otherBranches?: string | null;
 }): string {
   const { account, mode, rules } = opts;
   const limits = [
@@ -109,6 +111,9 @@ export function buildContextBlock(opts: {
     !rules.allowDelete && 'deleting is disabled',
     rules.newEntitiesPaused && 'new campaigns start paused',
     rules.protectedCampaignIds.length > 0 && `protected campaign ids: ${rules.protectedCampaignIds.join(', ')}`,
+    rules.targetCpa !== null && `target CPA ${rules.targetCpa}`,
+    rules.targetRoas !== null && `target ROAS ${rules.targetRoas}`,
+    `reports return at most ${rules.maxRows} rows – filter and summarise instead of pulling everything`,
   ].filter(Boolean);
   return [
     '<context>',
@@ -118,9 +123,12 @@ export function buildContextBlock(opts: {
       : 'Account: none selected',
     mode === 'demo' ? 'Mode: DEMO – a simulated account with realistic data; changes only affect the demo.' : 'Mode: LIVE – changes affect the real Microsoft Advertising account.',
     `Period selected in the app: ${opts.periodLabel} (${opts.periodRange.from} to ${opts.periodRange.to})`,
-    'Approval: every change needs the user’s approval on an approval card (enforced by the app – no autopilot).',
+    rules.mayPropose
+      ? 'Approval: every change needs the user’s approval on an approval card (enforced by the app – no autopilot).'
+      : 'READ-ONLY: the team has set the Microsoft Advertising branch to only read and analyse – there are no change tools. Give recommendations the team can carry out themselves.',
     limits.length ? `Spending limits: ${limits.join('; ')}` : 'Spending limits: none set',
     ...(opts.connectors ? [opts.connectors] : []),
+    ...(opts.otherBranches ? [opts.otherBranches] : []),
     '</context>',
   ].join('\n');
 }

@@ -25,6 +25,8 @@ import { applyEdits, requestApproval } from './approvals';
 import { evaluateGuardrails, type SpendContext } from './guardrails';
 import { buildContextBlock, buildSystemPrompt } from './prompt';
 import { playbookFor } from '@/workspace/playbooks';
+import { allLimits } from '@/workspace/limits';
+import { otherBranchesContext } from './branchLimits';
 import { TERMINAL_TOOLS, getTool, toolDefinitions, type PlannedChange, type ToolContext } from './tools';
 import { connectorContext, enabledTools, isConnectorOn } from './connectors';
 import { GeminiError, geminiTokenUsage, streamGemini, toGeminiContents } from './gemini';
@@ -172,14 +174,17 @@ export async function sendMessage(convId: string, text: string, attachments: Att
   }
 
   repairHistory(convId);
+  // The team's shared budget and limits per branch (Microsoft's become the spending rules).
+  const limits = await allLimits().catch(() => ({}));
   const period = presetRange(settings.datePreset);
   const context = buildContextBlock({
     account,
     mode: connection.mode,
     periodLabel: DATE_PRESET_LABELS[settings.datePreset],
     periodRange: period,
-    rules: settings.spend,
+    rules: useSettings.getState().spend,
     connectors: connectorContext(settings.ai.connectors, provider),
+    otherBranches: otherBranchesContext(limits),
   });
   const content: Anthropic.Beta.BetaContentBlockParam[] = [];
   if (context !== conv(convId).lastContext) content.push({ type: 'text', text: context });
@@ -218,6 +223,12 @@ export async function sendMessage(convId: string, text: string, attachments: Att
   }
 }
 
+/** The switched-on tools – without change proposals when the team set the branch to read-only. */
+function allowedTools(connectors: Parameters<typeof enabledTools>[0]) {
+  const readOnly = !useSettings.getState().spend.mayPropose;
+  return enabledTools(connectors).filter((t) => !readOnly || t.kind !== 'write' || t.name === 'train_playbook');
+}
+
 /* --------------------------------- the loop --------------------------------- */
 
 async function runLoop(convId: string, itemId: string, apiKey: string, signal: AbortSignal) {
@@ -225,7 +236,7 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
   const { ai } = settings;
   // VITE_ANTHROPIC_BASE_URL is only used for local development against a mock server.
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, baseURL: import.meta.env.VITE_ANTHROPIC_BASE_URL || undefined });
-  const tools: Anthropic.Beta.BetaToolUnion[] = [...toolDefinitions(enabledTools(ai.connectors))];
+  const tools: Anthropic.Beta.BetaToolUnion[] = [...toolDefinitions(allowedTools(ai.connectors))];
   if (isConnectorOn(ai.connectors, 'web')) {
     // Web search runs on Anthropic's side; the dynamic-filtering version needs a recent Opus/Sonnet.
     const dynamic = /^claude-(opus|sonnet)-5/.test(ai.model);
@@ -352,7 +363,7 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
 async function runGeminiLoop(convId: string, itemId: string, apiKey: string, signal: AbortSignal) {
   const settings = useSettings.getState();
   const { ai } = settings;
-  const tools = enabledTools(ai.connectors);
+  const tools = allowedTools(ai.connectors);
   const system = buildSystemPrompt(settings.business, await playbookFor('microsoft_ads'));
   const memo = new Map<string, Promise<unknown>>();
 

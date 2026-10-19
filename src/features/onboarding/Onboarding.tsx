@@ -10,6 +10,7 @@ import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 import { useAccount } from '@/stores/account';
 import { goDemo, goLive } from '@/workspace/shared';
+import { queueMicrosoftLimits } from '@/workspace/limits';
 import { AdsConnectionForm, ApprovalNotice, ClaudeKeyForm, MicrosoftSetupGuide } from '../settings/forms';
 
 const FEATURES = [
@@ -25,7 +26,7 @@ export function Onboarding() {
   const hasKey = useConnection((s) => s.hasAnthropicKey);
   const mode = useConnection((s) => s.mode);
   const spend = useSettings((s) => s.spend);
-  const setSpend = useSettings((s) => s.setSpend);
+  const setSpend = queueMicrosoftLimits;
   const setOnboarded = useSettings((s) => s.setOnboarded);
   const currency = useConnection((s) => s.accounts.find((a) => a.id === s.accountId)?.currency ?? 'DKK');
 

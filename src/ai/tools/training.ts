@@ -31,6 +31,7 @@ export const trainingTools = [
           dailyBudgetDelta: 0,
           increasesSpend: false,
           campaignIds: [],
+          training: true,
         },
         async execute() {
           await appendToPlaybook('microsoft_ads', input.section, input.rule);

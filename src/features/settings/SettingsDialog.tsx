@@ -1,20 +1,16 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Bot, Building2, Cpu, Database, Download, ExternalLink, FlaskConical, GraduationCap, Info, Loader2, OctagonPause, Palette, Plug, Search, ShieldCheck, Users, Wallet, X, type LucideIcon } from 'lucide-react';
+import { Bot, Building2, Cpu, Database, Download, ExternalLink, FlaskConical, GraduationCap, Info, Loader2, Palette, Plug, Search, ShieldCheck, Users, Wallet, X, type LucideIcon } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { toast } from '@/components/notifications/toast';
 import { EFFORT_LABELS, modelInfo, type Effort } from '@/ai/models';
-import { getBackend } from '@/bing/backend';
 import { DemoBackend } from '@/bing/demo/backend';
-import { invalidateSpendCache } from '@/bing/spend';
-import { ElasticSlider } from '@/components/reactbits';
 import { EASE } from '@/components/motion';
 import { Button } from '@/components/ui/button';
-import { Badge, Segmented, Switch, SwitchRow } from '@/components/ui/controls';
+import { Badge, Segmented, SwitchRow } from '@/components/ui/controls';
 import { Field, Input, NumberInput, Textarea } from '@/components/ui/input';
 import { Dialog } from '@/components/ui/overlays';
-import { useCampaigns, useSelectedRange } from '@/hooks/useAdsData';
 import { fmtMoney, fmtNumber, fmtUsd, monthKey } from '@/lib/format';
 import { isTauri } from '@/lib/platform';
 import { queryClient } from '@/lib/queryClient';
@@ -24,8 +20,8 @@ import { useUpdate } from '@/stores/update';
 import { cn, errorMessage } from '@/lib/utils';
 import { useActivity } from '@/stores/activity';
 import { useChat } from '@/stores/chat';
-import { useConnection, useCurrentAccount } from '@/stores/connection';
-import { DEFAULT_SPEND_RULES, useSettings } from '@/stores/settings';
+import { useConnection } from '@/stores/connection';
+import { useSettings } from '@/stores/settings';
 import { useUi, type SettingsTab } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
 import { ModelsTab } from './ModelsTab';
@@ -33,7 +29,8 @@ import { startFollowUpTest } from '@/features/chat/followUpTest';
 import { UsersTab } from './UsersTab';
 import { ConnectorsTab } from './ConnectorsTab';
 import { TrainingTab } from './TrainingTab';
-import { ApprovalNotice } from './forms';
+import { BudgetTab } from './BudgetTab';
+import { Card } from './SettingsCard';
 
 interface TabDef {
   id: SettingsTab;
@@ -48,7 +45,7 @@ const TABS: TabDef[] = [
   { id: 'connections', label: 'Forbindelser', icon: Plug, group: 'Konto', keywords: 'claude api nøgle microsoft advertising bing developer token demo fælles cloudflare inventarland magento webshop google ads meta linkedin daisycon search console ga4 analytics ahrefs serper klaviyo pim chainbox datakilder integrationer' },
   { id: 'users', label: 'Brugere', icon: Users, group: 'Konto', keywords: 'konto log ud login microsoft administrator admin godkend adgang kolleger team' },
   { id: 'business', label: 'Virksomhed', icon: Building2, group: 'Konto', keywords: 'profil mål cpa roas dækningsgrad tone of voice instruktioner website' },
-  { id: 'spend', label: 'Forbrug', icon: Wallet, group: 'Assistent', keywords: 'budget månedsbudget grænser godkendelse nødstop beskyttede kampagner cpc bud budgetvagt' },
+  { id: 'spend', label: 'Budget og grænser', icon: Wallet, group: 'Assistent', keywords: 'forbrug budget månedsbudget grænser godkendelse nødstop gren grene google ads meta linkedin daisycon serper ahrefs kreditter mål cpa roas kun læse rækker beskyttede kampagner cpc bud budgetvagt' },
   { id: 'training', label: 'Træning', icon: GraduationCap, group: 'Assistent', keywords: 'træn playbook guidelines regler rolle arbejdsflow grænser navigation lærte regler gren grene agent instruktioner' },
   { id: 'ai', label: 'AI-assistent', icon: Bot, group: 'Assistent', keywords: 'model opus sonnet haiku fable effort tænkning forbrug pris tokens cache' },
   { id: 'models', label: 'AI-modeller', icon: Cpu, group: 'Assistent', keywords: 'gemini google claude modeller admin administrator tillad pris flash haiku api-nøgle' },
@@ -57,202 +54,11 @@ const TABS: TabDef[] = [
   { id: 'about', label: 'Om appen', icon: Info, group: 'App', keywords: 'version opdatering opdateringer download cloudflare installer' },
 ];
 
-function Card({ title, description, children, className, action }: { title: string; description?: React.ReactNode; children: React.ReactNode; className?: string; action?: React.ReactNode }) {
-  return (
-    <section className={cn('border-b border-line py-7 first:pt-1 last:border-0', className)}>
-      <div className="mb-4 flex items-start gap-4">
-        <div className="flex-1">
-          <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
-          {description && <p className="mt-1 text-[13px] leading-relaxed text-muted">{description}</p>}
-        </div>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
 
 /* ------------------------------- Forbindelser ------------------------------- */
 
 /* ---------------------------------- Forbrug ---------------------------------- */
 
-function LimitRow({ label, hint, value, onChange, suffix, step = 1 }: { label: string; hint: string; value: number | null; onChange: (v: number | null) => void; suffix: string; step?: number }) {
-  return (
-    <div className="grid items-center gap-2 border-b border-line-2 py-3.5 last:border-0 md:grid-cols-[1fr_220px]">
-      <div>
-        <div className="text-sm font-medium text-ink">{label}</div>
-        <div className="text-[12.5px] leading-relaxed text-muted">{hint}</div>
-      </div>
-      <NumberInput value={value} onChange={onChange} suffix={suffix} step={step} aria-label={label} />
-    </div>
-  );
-}
-
-function SpendTab() {
-  const spend = useSettings((s) => s.spend);
-  const setSpend = useSettings((s) => s.setSpend);
-  const account = useCurrentAccount();
-  const currency = account?.currency ?? 'DKK';
-  const range = useSelectedRange();
-  const campaigns = useCampaigns(range);
-  const [stopOpen, setStopOpen] = useState(false);
-  const [stopping, setStopping] = useState(false);
-  const mode = useConnection((s) => s.mode);
-
-  const emergencyStop = async () => {
-    setStopping(true);
-    try {
-      const accountId = useConnection.getState().accountId!;
-      const backend = await getBackend();
-      const active = (await backend.listCampaigns(accountId)).filter((c) => c.status === 'Active');
-      if (active.length) {
-        await backend.updateCampaigns(accountId, active.map((c) => ({ campaignId: c.id, status: 'Paused' })));
-        useActivity.getState().add({
-          source: 'user',
-          mode,
-          accountId,
-          tool: 'update_campaigns',
-          summary: `Nødstop: ${active.length} kampagner sat på pause`,
-          changes: active.map((c) => ({ entity: 'Kampagne', entityId: c.id, field: `${c.name} · status`, before: 'Aktiv', after: 'Pauset' })),
-          status: 'success',
-          undo: { tool: 'update_campaigns', input: { changes: active.map((c) => ({ campaignId: c.id, status: 'Active' })), reason: 'Fortryd nødstop' } },
-        });
-      }
-      invalidateSpendCache();
-      void queryClient.invalidateQueries();
-      toast.success(active.length ? `${active.length} kampagner er sat på pause` : 'Der var ingen aktive kampagner');
-      setStopOpen(false);
-    } catch (e) {
-      toast.error('Nødstop fejlede', { description: errorMessage(e) });
-    } finally {
-      setStopping(false);
-    }
-  };
-
-  return (
-    <div className="grid gap-5">
-      <Card title="Godkendelse af ændringer" description="Alle ændringer logges og kan fortrydes under Aktivitet.">
-        <ApprovalNotice />
-      </Card>
-
-      <Card title="Månedsbudget og budgetvagt" description="Appen holder øje med forbruget, mens den er åben, og advarer – eller stopper – når budgettet nærmer sig.">
-        <LimitRow
-          label="Samlet månedsbudget"
-          hint="Bruges til prognoser, advarsler og til at stoppe budgetforøgelser, der vil overskride måneden."
-          value={spend.monthlyBudget}
-          onChange={(monthlyBudget) => setSpend({ monthlyBudget })}
-          suffix={currency}
-        />
-        <div className="grid items-center gap-3 border-b border-line-2 py-3.5 md:grid-cols-[1fr_320px]">
-          <div>
-            <div className="text-sm font-medium text-ink">Advar ved</div>
-            <div className="text-[12.5px] text-muted">Du får en notifikation, når denne andel af månedsbudgettet er brugt.</div>
-          </div>
-          <ElasticSlider label="Advar ved procent af månedsbudget" value={spend.warnAtPct} min={50} max={100} step={5} format={(v) => `${v} %`} onChange={(warnAtPct) => setSpend({ warnAtPct })} />
-        </div>
-        <SwitchRow
-          label="Budgetvagt: pause alt ved 100 %"
-          description="Sætter alle aktive kampagner (undtagen beskyttede) på pause, når månedsbudgettet er brugt. Kan fortrydes under Aktivitet."
-          checked={spend.autoPauseAtMonthlyBudget}
-          disabled={spend.monthlyBudget === null}
-          onCheckedChange={(autoPauseAtMonthlyBudget) => setSpend({ autoPauseAtMonthlyBudget })}
-        />
-      </Card>
-
-      <Card title="Grænser for assistenten" description="Hårde grænser blokerer ændringer helt. Tom = ingen grænse.">
-        <LimitRow
-          label="Maks. dagsbudget pr. kampagne"
-          hint="Assistenten kan ikke sætte et dagsbudget højere end dette."
-          value={spend.maxDailyBudgetPerCampaign}
-          onChange={(maxDailyBudgetPerCampaign) => setSpend({ maxDailyBudgetPerCampaign })}
-          suffix={currency}
-        />
-        <LimitRow
-          label="Maks. samlet dagsbudget"
-          hint="Summen af alle aktive kampagners dagsbudgetter."
-          value={spend.maxTotalDailyBudget}
-          onChange={(maxTotalDailyBudget) => setSpend({ maxTotalDailyBudget })}
-          suffix={currency}
-        />
-        <LimitRow label="Maks. CPC-bud" hint="Højeste bud på søgeord og annoncegrupper." value={spend.maxCpcBid} onChange={(maxCpcBid) => setSpend({ maxCpcBid })} suffix={currency} step={0.01} />
-        <div className="grid items-center gap-3 border-b border-line-2 py-3.5 md:grid-cols-[1fr_320px]">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-medium text-ink">
-              Advarsel ved store budgetstigninger
-              <Switch
-                checked={spend.maxBudgetIncreasePct !== null}
-                onCheckedChange={(on) => setSpend({ maxBudgetIncreasePct: on ? (DEFAULT_SPEND_RULES.maxBudgetIncreasePct ?? 50) : null })}
-                aria-label="Slå grænse for budgetstigning til"
-              />
-            </div>
-            <div className="text-[12.5px] text-muted">Større stigninger end dette markeres med en advarsel på godkendelseskortet.</div>
-          </div>
-          {spend.maxBudgetIncreasePct !== null ? (
-            <ElasticSlider label="Maks. budgetstigning" value={spend.maxBudgetIncreasePct} min={5} max={200} step={5} format={(v) => `+${v} %`} onChange={(maxBudgetIncreasePct) => setSpend({ maxBudgetIncreasePct })} />
-          ) : (
-            <span className="text-[13px] text-muted">Ingen grænse</span>
-          )}
-        </div>
-        <SwitchRow label="Må oprette nye kampagner" checked={spend.allowCreateCampaigns} onCheckedChange={(allowCreateCampaigns) => setSpend({ allowCreateCampaigns })} />
-        <SwitchRow label="Nye kampagner starter pauset" description="Så du kan se dem igennem, før de begynder at bruge penge." checked={spend.newEntitiesPaused} onCheckedChange={(newEntitiesPaused) => setSpend({ newEntitiesPaused })} />
-        <SwitchRow label="Må slette" description="Kampagner og søgeord. Assistenten foretrækker at sætte på pause." checked={spend.allowDelete} onCheckedChange={(allowDelete) => setSpend({ allowDelete })} />
-      </Card>
-
-      <Card title="Beskyttede kampagner" description="Assistenten må hverken ændre disse kampagner eller deres annoncegrupper, søgeord og annoncer.">
-        {!campaigns.data ? (
-          <div className="h-24 animate-pulse rounded-xl bg-line-2" />
-        ) : (
-          <div className="grid gap-1.5 md:grid-cols-2">
-            {campaigns.data.map((c) => {
-              const on = spend.protectedCampaignIds.includes(c.id);
-              return (
-                <label key={c.id} className={cn('flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors', on ? 'border-brand/30 bg-brand-50/50' : 'border-line hover:bg-line-2/50')}>
-                  <Switch
-                    checked={on}
-                    onCheckedChange={(v) =>
-                      setSpend({ protectedCampaignIds: v ? [...spend.protectedCampaignIds, c.id] : spend.protectedCampaignIds.filter((x) => x !== c.id) })
-                    }
-                  />
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{c.name}</span>
-                  <span className="text-[12px] tabular text-muted">{fmtMoney(c.dailyBudget, currency)}/dag</span>
-                </label>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-
-      <Card
-        title="Nødstop"
-        description="Sætter alle aktive kampagner på pause med det samme. Kan fortrydes under Aktivitet."
-        action={
-          <Button variant="destructive" onClick={() => setStopOpen(true)}>
-            <OctagonPause /> Pause alle kampagner
-          </Button>
-        }
-      >
-        <p className="text-[12.5px] text-muted">Brug den, hvis noget løber løbsk – fx et uventet højt forbrug.</p>
-      </Card>
-
-      <Dialog
-        open={stopOpen}
-        onOpenChange={setStopOpen}
-        title="Pause alle kampagner?"
-        description={`Alle aktive kampagner på ${account?.name ?? 'kontoen'} sættes på pause${mode === 'demo' ? ' (demo-konto)' : ''}. Du kan genaktivere dem fra Aktivitet.`}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setStopOpen(false)}>
-              Annullér
-            </Button>
-            <Button variant="destructive" disabled={stopping} onClick={emergencyStop}>
-              <OctagonPause /> Pause alt
-            </Button>
-          </>
-        }
-      />
-    </div>
-  );
-}
 
 /* -------------------------------- AI-assistent -------------------------------- */
 
@@ -611,7 +417,7 @@ function TabContent({ id }: { id: SettingsTab }) {
     case 'connections':
       return <ConnectorsTab />;
     case 'spend':
-      return <SpendTab />;
+      return <BudgetTab />;
     case 'training':
       return <TrainingTab />;
     case 'ai':
