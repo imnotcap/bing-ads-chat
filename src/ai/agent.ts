@@ -21,7 +21,7 @@ import { useChat, type ApiMessage, type AssistantItem, type Conversation, type P
 import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 import { monthTotal, useUsage } from '@/stores/usage';
-import { applyEdits, requestApproval } from './approvals';
+import { applyEdits, applyPicks, requestApproval } from './approvals';
 import { evaluateGuardrails, type SpendContext } from './guardrails';
 import { buildContextBlock, buildSystemPrompt } from './prompt';
 import { playbookFor } from '@/workspace/playbooks';
@@ -133,7 +133,8 @@ export function stopConversation(convId: string) {
   controllers.get(convId)?.abort();
 }
 
-export async function sendMessage(convId: string, text: string, attachments: Attachment[] = []): Promise<void> {
+/** `interrupted`: the user stopped the previous answer to send this (see features/chat/queue.ts). */
+export async function sendMessage(convId: string, text: string, attachments: Attachment[] = [], opts: { interrupted?: boolean } = {}): Promise<void> {
   const trimmed = text.trim() || (attachments.length ? 'Se de vedhæftede filer.' : '');
   if (!trimmed || isRunning(convId)) return;
 
@@ -188,9 +189,23 @@ export async function sendMessage(convId: string, text: string, attachments: Att
   });
   const content: Anthropic.Beta.BetaContentBlockParam[] = [];
   if (context !== conv(convId).lastContext) content.push({ type: 'text', text: context });
+  if (opts.interrupted) {
+    content.push({
+      type: 'text',
+      text: '<note>The user stopped your previous answer to send this message. Keep their previous question in mind: answer this message, and finish or connect to the earlier question where it is still relevant.</note>',
+    });
+  }
   content.push(...toContentBlocks(attachments));
   content.push({ type: 'text', text: trimmed });
-  chat.patch(convId, (c) => ({ api: [...c.api, { role: 'user', content }], lastContext: context }));
+  chat.patch(convId, (c) => {
+    // A stopped answer can leave the previous question without a reply – one user turn then.
+    const last = c.api[c.api.length - 1];
+    if (last?.role === 'user') {
+      const before = typeof last.content === 'string' ? [{ type: 'text' as const, text: last.content }] : last.content;
+      return { api: [...c.api.slice(0, -1), { role: 'user', content: [...before, ...content] }], lastContext: context };
+    }
+    return { api: [...c.api, { role: 'user', content }], lastContext: context };
+  });
 
   const controller = new AbortController();
   controllers.set(convId, controller);
@@ -231,6 +246,15 @@ function allowedTools(connectors: Parameters<typeof enabledTools>[0]) {
 
 /* --------------------------------- the loop --------------------------------- */
 
+/** Input size (tokens) at which older parts of a conversation are summarized. */
+const COMPACT_AT = 120_000;
+const COMPACT_INSTRUCTIONS = `Summarize the conversation so far so the work can continue without the earlier messages. Keep, exactly:
+- what the user asked for, their goals and preferences, and any decisions they made
+- every change that was proposed, approved, rejected or carried out (campaign/ad group/keyword names and IDs, old and new values)
+- the key numbers found in reports (spend, conversions, CPA, ROAS, CTR …) with their period and account
+- open questions and what the user still wants done next
+Write it in the user's language. Leave out raw report rows that are no longer needed.`;
+
 async function runLoop(convId: string, itemId: string, apiKey: string, signal: AbortSignal) {
   const settings = useSettings.getState();
   const { ai } = settings;
@@ -265,9 +289,14 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
         messages: conv(convId).api,
         thinking: { type: 'adaptive', display: ai.showThinking ? 'summarized' : 'omitted' },
         output_config: { effort: ai.effort },
-        cache_control: { type: 'ephemeral' },
+        // The conversation so far is cached for an hour, so the next message only adds
+        // to it instead of making Claude read the whole conversation again.
+        cache_control: { type: 'ephemeral', ttl: '1h' },
+        // A long conversation is summarized by Claude (a compaction block that stays in the
+        // history), so it keeps what was said without reading every old report again.
+        context_management: { edits: [{ type: 'compact_20260112', trigger: { type: 'input_tokens', value: COMPACT_AT }, instructions: COMPACT_INSTRUCTIONS }] },
         // Server-side fallback if the model declines for policy reasons.
-        betas: ['server-side-fallback-2026-07-01'],
+        betas: ['server-side-fallback-2026-07-01', 'extended-cache-ttl-2025-04-11', 'compact-2026-01-12'],
         fallbacks: 'default',
       },
       { signal },
@@ -324,6 +353,7 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
     updateAssistant(convId, itemId, (it) => ({ ...it, costUsd: (it.costUsd ?? 0) + cost }));
 
     for (const b of message.content) {
+      if (b.type === 'compaction' && b.content) notice(convId, itemId, 'info', 'Samtalen er blevet lang, så Claude har opsummeret det tidligere – alt vigtigt, der er nævnt, huskes stadig.');
       if (b.type === 'fallback') notice(convId, itemId, 'info', `Svaret blev færdiggjort af ${b.to.model}, fordi ${b.from.model} afviste en del af forespørgslen.`);
     }
 
@@ -618,6 +648,8 @@ async function executeTools(
     let plan = item.plan.plan;
     let change = item.plan;
     let userEdits: { field: string; value: string }[] = [];
+    let deselected: string[] = [];
+    let userAdded: string[] = [];
     if (item.verdict === 'approve') {
       const answer = await approvals.get(item.id)!;
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -642,9 +674,15 @@ async function executeTools(
         );
         continue;
       }
-      if (answer.edits?.length) {
-        // The user corrected values on the card: apply them, validate and re-plan.
-        const edited = applyEdits(item.input, answer.edits);
+      const pick = plan?.pick;
+      const excluded = pick && answer.excluded?.length ? answer.excluded : [];
+      const added = pick?.add && answer.added?.length ? answer.added : [];
+      if (answer.edits?.length || excluded.length || added.length) {
+        // The user corrected values, ticked rows off or added their own: apply, validate and re-plan.
+        let edited = applyEdits(item.input, answer.edits ?? []);
+        if (pick && (excluded.length || added.length)) {
+          edited = applyPicks(edited, pick.path, excluded, added.map((a) => ({ ...pick.add?.base, ...a })));
+        }
         const check = item.tool.schema.safeParse(edited);
         if (!check.success) {
           const detail = check.error.issues.map((i) => i.message).join('; ');
@@ -654,14 +692,22 @@ async function executeTools(
         }
         change = await item.tool.plan(check.data, ctx);
         plan = change.plan;
-        userEdits = answer.edits.map((e) => ({ field: e.path.join('.'), value: e.value }));
+        userEdits = (answer.edits ?? []).map((e) => ({ field: e.path.join('.'), value: e.value }));
+        deselected = excluded.map((i) => String(item.plan.plan?.changes[i]?.after ?? i));
+        userAdded = added.map((a) => a.text);
         updateTool(convId, itemId, item.id, { plan: plan ?? undefined, input: check.data });
       }
       updateTool(convId, itemId, item.id, { status: 'running' });
     }
     try {
       const exec = await change.execute();
-      results.set(item.id, ok(item.id, userEdits.length ? { ...(exec.result as object), userEditedBeforeApproval: userEdits } : exec.result));
+      const userChanges = {
+        ...(userEdits.length ? { userEditedBeforeApproval: userEdits } : {}),
+        // Rows the user chose not to add – don't propose them again unless asked.
+        ...(deselected.length ? { userDeselected: deselected } : {}),
+        ...(userAdded.length ? { userAddedThemselves: userAdded } : {}),
+      };
+      results.set(item.id, ok(item.id, Object.keys(userChanges).length ? { ...(exec.result as object), ...userChanges } : exec.result));
       let activityId: string | undefined;
       if (plan) {
         activityId = useActivity.getState().add({

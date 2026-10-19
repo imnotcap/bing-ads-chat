@@ -38,24 +38,11 @@ export function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
           inkColor="#b4a9ff"
         />
         <div className="absolute inset-x-0 top-[34px] flex justify-center">
-          <Orb
-            style={{ width: 210, height: 210 }}
-            colors={['#9c43fe', '#4cc2e9', '#101499']}
-            backgroundColor="#fbfbfc"
-            hoverIntensity={1.35}
-            trail={2.6}
-            rotateOnHover
-            followCursor
-            hue={312}
-            size={0.53}
-            glow={1.4}
-            halo={false}
-            bleed={3}
-            wobble={3}
-            highlight={1.9}
-            speed={0.7}
-            forceHoverState
-          />
+          {/* The React Bits Orb, as on reactbits.dev – hover it, it follows the pointer. */}
+          {/* The orb paints its own light background – fade it out so no square shows over the pattern. */}
+          <div style={{ width: 210, height: 210, maskImage: 'radial-gradient(closest-side, #000 84%, transparent 100%)', WebkitMaskImage: 'radial-gradient(closest-side, #000 84%, transparent 100%)' }}>
+            <Orb backgroundColor="#fbfbfc" hoverIntensity={1.2} rotateOnHover followCursor />
+          </div>
         </div>
       </div>
 

@@ -2,10 +2,14 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ArrowDown, Upload } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { stopConversation } from '@/ai/agent';
+import type { Attachment } from '@/lib/attachments';
+import { cn } from '@/lib/utils';
 import { useActiveConversation, useChat } from '@/stores/chat';
 import { startChat } from './startChat';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
 import { Composer, type ComposerHandle } from './Composer';
+import { enqueue } from './queue';
+import { QueueList } from './QueueList';
 import { EmptyState } from './EmptyState';
 import { AssistantMessage, UserMessage } from './Messages';
 
@@ -49,6 +53,11 @@ export function ChatView() {
   const currency = account?.currency ?? 'DKK';
   const empty = items.length === 0;
 
+  // Stable callbacks: the memoized composer then skips the re-renders a streaming answer causes.
+  const convId = conversation?.id;
+  const onQueue = useCallback((text: string, attachments: Attachment[]) => convId && enqueue(convId, text, attachments), [convId]);
+  const onStop = useCallback(() => convId && stopConversation(convId), [convId]);
+
   const hasFiles = (e: React.DragEvent) => [...e.dataTransfer.types].includes('Files');
 
   return (
@@ -86,9 +95,13 @@ export function ChatView() {
           <EmptyState onPick={(p) => startChat(p)} />
         ) : (
           <div className="fit-width mx-auto grid w-full max-w-[760px] gap-7 px-6 pb-10 pt-8">
-            {items.map((it, i) =>
-              it.kind === 'user' ? <UserMessage key={it.id} item={it} /> : <AssistantMessage key={it.id} item={it} currency={currency} isLast={i === items.length - 1} />,
-            )}
+            {items.map((it, i) => (
+              // Older messages are skipped by layout and paint while off screen, so a long
+              // conversation stays as fast as a short one while an answer streams in.
+              <div key={it.id} className={cn(i < items.length - 2 && 'offscreen-skip')}>
+                {it.kind === 'user' ? <UserMessage item={it} /> : <AssistantMessage item={it} currency={currency} isLast={i === items.length - 1} />}
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -108,12 +121,14 @@ export function ChatView() {
             </motion.button>
           )}
         </AnimatePresence>
+        <QueueList convId={conversation?.id ?? null} />
         <Composer
           ref={composer}
           running={running}
           disabled={!hasKey}
-          onSend={(text, attachments) => startChat(text, attachments)}
-          onStop={() => conversation && stopConversation(conversation.id)}
+          onSend={startChat}
+          onQueue={onQueue}
+          onStop={onStop}
         />
       </div>
 

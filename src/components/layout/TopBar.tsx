@@ -47,7 +47,8 @@ import { queryClient } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
 import { closeWindow, isMaximized, minimizeWindow, onWindowResized, quitApp, toggleMaximizeWindow } from '@/lib/window';
 import { useBoard } from '@/stores/board';
-import { useActiveConversation, useChat } from '@/stores/chat';
+import { activeConversation, useActiveSummary, useChat } from '@/stores/chat';
+import { useShallow } from 'zustand/react/shallow';
 import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 import { isDashboardView, useUi } from '@/stores/ui';
@@ -116,7 +117,7 @@ export function WindowControls() {
 }
 
 function ConversationTitle() {
-  const conversation = useActiveConversation();
+  const conversation = useActiveSummary();
   const rename = useChat((s) => s.rename);
   const remove = useChat((s) => s.remove);
   const editing = useUi((s) => s.renaming);
@@ -128,7 +129,7 @@ function ConversationTitle() {
     if (editing && conversation) setTitle(conversation.title);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
-  const label = conversation && conversation.items.length ? conversation.title : 'Ny samtale';
+  const label = conversation?.hasItems ? conversation.title : 'Ny samtale';
 
   if (editing && conversation) {
     return (
@@ -164,7 +165,7 @@ function ConversationTitle() {
           <DropdownMenuItem onSelect={startNewConversation}>
             <SquarePen /> <span className="flex-1">Ny samtale</span> <span className="text-[11px] text-subtle">Ctrl N</span>
           </DropdownMenuItem>
-          {conversation && conversation.items.length > 0 && (
+          {conversation?.hasItems && (
             <>
               <DropdownMenuItem
                 onSelect={() => setEditing(true)}
@@ -318,13 +319,16 @@ function MenuIcon({ label, disabled, icon, children, width = 'w-[260px]' }: { la
 
 /** Right side of the top bar in the chat: insights, export, files, share and more. */
 function ConversationActions() {
-  const conversation = useActiveConversation();
   const insights = useSettings((s) => s.appearance.insightsPanel);
   const setRenaming = useUi((s) => s.setRenaming);
   const setConfirmDelete = useUi((s) => s.setConfirmDelete);
-  const hasItems = !!conversation?.items.length;
-  const attachments = (conversation?.items ?? []).flatMap((it) => (it.kind === 'user' ? (it.attachments ?? []) : []));
-  const lastReply = [...(conversation?.items ?? [])].reverse().find((it) => it.kind === 'assistant');
+  // Only what the buttons show – the whole conversation would re-render this on every streamed token.
+  const hasItems = !!useActiveSummary()?.hasItems;
+  const hasReply = useChat((s) => !!s.conversations.find((c) => c.id === s.activeId)?.items.some((it) => it.kind === 'assistant'));
+  const attachments = useChat(
+    useShallow((s) => (s.conversations.find((c) => c.id === s.activeId)?.items ?? []).flatMap((it) => (it.kind === 'user' ? (it.attachments ?? []) : []))),
+  );
+  const lastReply = () => [...(activeConversation()?.items ?? [])].reverse().find((it) => it.kind === 'assistant');
 
   return (
     <div className="flex items-center gap-0.5">
@@ -369,10 +373,19 @@ function ConversationActions() {
       </MenuIcon>
 
       <MenuIcon label="Del" icon={<Share className="size-4" />} disabled={!hasItems}>
-        <DropdownMenuItem onSelect={() => conversation && void copyText(conversationMarkdown(conversation), 'Samtalen')}>
+        <DropdownMenuItem onSelect={() => {
+            const conversation = activeConversation();
+            if (conversation) void copyText(conversationMarkdown(conversation), 'Samtalen');
+          }}>
           <ClipboardCopy /> Kopiér hele samtalen
         </DropdownMenuItem>
-        <DropdownMenuItem disabled={!lastReply} onSelect={() => lastReply?.kind === 'assistant' && void copyText(assistantMarkdown(lastReply), 'Svaret')}>
+        <DropdownMenuItem
+          disabled={!hasReply}
+          onSelect={() => {
+            const reply = lastReply();
+            if (reply?.kind === 'assistant') void copyText(assistantMarkdown(reply), 'Svaret');
+          }}
+        >
           <Copy /> Kopiér seneste svar
         </DropdownMenuItem>
         <DropdownMenuSeparator />

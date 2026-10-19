@@ -1,4 +1,5 @@
-export { Orb, MiniOrb } from './Orb';
+export { default as Orb } from './Orb';
+export { MiniOrb } from './MiniOrb';
 export { GradientASCII } from './GradientASCII';
 export { BlurText, ShinyText, GradientText, RotatingText } from './TextEffects';
 export { SpotlightCard } from './SpotlightCard';

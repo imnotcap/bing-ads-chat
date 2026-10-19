@@ -19,14 +19,14 @@ import {
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { AnimatedList } from '@/components/reactbits';
 import { Button } from '@/components/ui/button';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { fmtUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useBoard, visibleBoards } from '@/stores/board';
-import { useChat, type Conversation } from '@/stores/chat';
+import { useChat, useConversationSummaries, type ConversationSummary } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
 import { useUi, type View } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
@@ -76,7 +76,7 @@ function NavButton({ item }: { item: (typeof NAV)[number] }) {
   );
 }
 
-function ConversationRow({ c }: { c: Conversation }) {
+const ConversationRow = memo(function ConversationRow({ c }: { c: ConversationSummary }) {
   const activeId = useChat((s) => s.activeId);
   const running = useChat((s) => !!s.running[c.id]);
   const select = useChat((s) => s.select);
@@ -173,7 +173,7 @@ function ConversationRow({ c }: { c: Conversation }) {
       />
     </div>
   );
-}
+});
 
 function initials(name: string | undefined) {
   if (!name) return '?';
@@ -291,9 +291,9 @@ export function AccountMenu() {
 }
 
 /** Conversations grouped like a chat app: I dag, De seneste 7 dage, Ældre. */
-function GroupedConversations({ list }: { list: Conversation[] }) {
+function GroupedConversations({ list }: { list: ConversationSummary[] }) {
   const startOfToday = new Date().setHours(0, 0, 0, 0);
-  const groups: [string, Conversation[]][] = [
+  const groups: [string, ConversationSummary[]][] = [
     ['I dag', list.filter((c) => c.updatedAt >= startOfToday)],
     ['De seneste 7 dage', list.filter((c) => c.updatedAt < startOfToday && c.updatedAt >= startOfToday - 6 * 86_400_000)],
     ['Ældre', list.filter((c) => c.updatedAt < startOfToday - 6 * 86_400_000)],
@@ -313,7 +313,7 @@ function GroupedConversations({ list }: { list: Conversation[] }) {
 }
 
 export function Sidebar() {
-  const conversations = useChat((s) => s.conversations);
+  const conversations = useConversationSummaries();
   const newConversation = useChat((s) => s.newConversation);
   const go = useUi((s) => s.go);
   const mode = useConnection((s) => s.mode);
@@ -323,7 +323,8 @@ export function Sidebar() {
     const q = query.trim().toLowerCase();
     const list = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
     if (!q) return list;
-    return list.filter((c) => c.title.toLowerCase().includes(q) || c.items.some((i) => i.kind === 'user' && i.text.toLowerCase().includes(q)));
+    const items = new Map(useChat.getState().conversations.map((c) => [c.id, c.items]));
+    return list.filter((c) => c.title.toLowerCase().includes(q) || items.get(c.id)?.some((i) => i.kind === 'user' && i.text.toLowerCase().includes(q)));
   }, [conversations, query]);
 
   const startNew = () => {

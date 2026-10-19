@@ -29,6 +29,25 @@ export interface ChangePlan {
   undo?: UndoSpec;
   /** A new rule for the assistant's own playbook (not an account change). */
   training?: boolean;
+  /**
+   * Shown as a table where the user ticks rows on or off before approving (e.g. negative
+   * keyword candidates). Change i is item i of the array at `path` in the tool input.
+   */
+  pick?: {
+    path: (string | number)[];
+    columns: { key: string; label: string; format?: 'money' | 'number' }[];
+    /** A cell shown as a small tag next to the item itself (e.g. the match type). */
+    tag?: string;
+    /** A cell shown as a short line under the item (e.g. why it is proposed). */
+    note?: string;
+    /**
+     * The user can add items of their own (text + match type) under the table; `base` fills
+     * in the rest of the item. Only for inputs whose items take { text, matchType }.
+     */
+    add?: { label: string; base: Record<string, unknown>; note: string; cells?: Record<string, string> };
+    /** The approve button, "{n}" = number of rows ticked. */
+    approveLabel: string;
+  };
 }
 
 export interface SpendContext {

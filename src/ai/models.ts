@@ -111,15 +111,23 @@ export interface TokenUsage {
   output_tokens?: number | null;
   cache_read_input_tokens?: number | null;
   cache_creation_input_tokens?: number | null;
+  /** Cache writes split by how long they are kept (Claude). */
+  cache_creation?: { ephemeral_5m_input_tokens?: number | null; ephemeral_1h_input_tokens?: number | null } | null;
+  /** With compaction: each step (the summary, then the answer) – the top-level counts leave the summary out. */
+  iterations?: TokenUsage[] | null;
 }
 
 export function costUsd(model: string, u: TokenUsage): number {
+  if (u.iterations?.length) return u.iterations.reduce((sum, it) => sum + costUsd(model, it), 0);
   const m = modelInfo(model);
+  // Writes kept for an hour cost 2× input instead of 1.25× (Claude).
+  const hour = m.cacheWrite ? (u.cache_creation?.ephemeral_1h_input_tokens ?? 0) : 0;
   return (
     ((u.input_tokens ?? 0) * m.input +
       (u.output_tokens ?? 0) * m.output +
       (u.cache_read_input_tokens ?? 0) * m.cacheRead +
-      (u.cache_creation_input_tokens ?? 0) * m.cacheWrite) /
+      ((u.cache_creation_input_tokens ?? 0) - hour) * m.cacheWrite +
+      hour * m.input * 2) /
     1_000_000
   );
 }

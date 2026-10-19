@@ -5,7 +5,7 @@
 import { ChartColumn, Check, ChevronDown, Plug, Settings, ShieldCheck } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Popover } from 'radix-ui';
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { CONNECTORS, isConnectorOn } from '@/ai/connectors';
 import { EFFORT_LABELS, PROVIDER_LABELS, availableModels, modelInfo, type Effort, type Provider } from '@/ai/models';
 import { Switch } from '@/components/ui/controls';
@@ -199,7 +199,8 @@ function ConnectorsMenu() {
 
 const providerBrand = (p: Provider): Brand => (p === 'google' ? 'gemini' : 'claude');
 
-export function ComposerFooter() {
+/** Memoized: it has no props, so typing in the chat field never re-renders it. */
+export const ComposerFooter = memo(function ComposerFooter() {
   const ai = useSettings((s) => s.ai);
   const setAi = useSettings((s) => s.setAi);
   // Re-read when the admin changes the allowed models.
@@ -266,4 +267,4 @@ export function ComposerFooter() {
       <UsageRing />
     </div>
   );
-}
+});

@@ -530,6 +530,7 @@ const DIMENSION_COLUMNS: Record<ReportKind, VisualColumn[]> = {
   searchterm: [
     { key: 'searchTerm', label: 'Søgeterm' },
     { key: 'keyword', label: 'Søgeord' },
+    { key: 'campaignName', label: 'Kampagne' },
   ],
   ad: [{ key: 'adTitle', label: 'Annonce' }],
   geo: [

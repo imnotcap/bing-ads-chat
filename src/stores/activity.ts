@@ -10,6 +10,8 @@ export interface ChangeLine {
   after?: string | number | null;
   /** The value can be corrected by the user on the approval card. */
   edit?: { path: (string | number)[]; maxLength?: number };
+  /** Extra columns when the plan is shown as a pick table (ChangePlan.pick). */
+  cells?: Record<string, string | number | null>;
 }
 
 /** Inverse operation that restores the previous state (when the change is reversible). */

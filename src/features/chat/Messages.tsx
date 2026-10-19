@@ -168,7 +168,7 @@ export const AssistantMessage = memo(function AssistantMessage({ item, currency,
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, ease: EASE }} className="group flex gap-3.5">
       <div className="pt-0.5">
-        <MiniOrb size={26} active={live} />
+        <MiniOrb size={26} active={live} animated={live} />
       </div>
       <div className="grid min-w-0 flex-1 gap-3">
         {groups.map((g, i) =>
