@@ -40,6 +40,11 @@ export interface ChangePlan {
     tag?: string;
     /** A cell shown as a short line under the item (e.g. why it is proposed). */
     note?: string;
+    /**
+     * The user can add items of their own (text + match type) under the table; `base` fills
+     * in the rest of the item. Only for inputs whose items take { text, matchType }.
+     */
+    add?: { label: string; base: Record<string, unknown>; note: string; cells?: Record<string, string> };
     /** The approve button, "{n}" = number of rows ticked. */
     approveLabel: string;
   };

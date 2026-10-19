@@ -3,7 +3,7 @@
  * spending rules apply, and Godkend/Afvis while it waits for the user.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { Ban, Check, CheckCircle2, Clock, Loader2, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from 'lucide-react';
+import { Ban, Check, CheckCircle2, Clock, Loader2, Plus, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { answerApproval } from '@/ai/approvals';
@@ -61,24 +61,98 @@ function EditableValue({ value, original, maxLength, onChange }: { value: string
 
 const fmtNumber = (v: number) => v.toLocaleString('da-DK', { maximumFractionDigits: 1 });
 
+export interface ManualItem {
+  text: string;
+  matchType: 'Exact' | 'Phrase';
+}
+
+/** The tag of a pick table row, e.g. the match type: same width, centred in its own column. */
+function Tag({ children, muted }: { children: React.ReactNode; muted?: boolean }) {
+  return <span className={cn('inline-block min-w-[52px] rounded-md bg-line-2 px-1.5 py-px text-center text-[11px] font-medium', muted ? 'text-subtle' : 'text-muted')}>{children}</span>;
+}
+
+/** The last row of a pick table: the user types their own item and picks its match type. */
+function AddRow({ label, span, existing, onAdd }: { label: string; span: number; existing: string[]; onAdd: (item: ManualItem) => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [matchType, setMatchType] = useState<ManualItem['matchType']>('Phrase');
+  const clean = text.trim().replace(/\s+/g, ' ');
+  const duplicate = existing.some((t) => t.toLowerCase() === clean.toLowerCase());
+  const add = () => {
+    if (!clean || duplicate || clean.length > 100) return;
+    onAdd({ text: clean, matchType });
+    setText('');
+  };
+  if (!open) {
+    return (
+      <tr className="border-t border-line-2">
+        <td colSpan={span} className="p-0">
+          <button type="button" onClick={() => setOpen(true)} className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[13px] font-medium text-brand transition-colors hover:bg-brand-50">
+            <Plus className="size-3.5" /> {label}
+          </button>
+        </td>
+      </tr>
+    );
+  }
+  return (
+    <tr className="border-t border-line-2 bg-brand-50/40">
+      <td colSpan={span} className="px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            autoFocus
+            value={text}
+            maxLength={100}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') add();
+              if (e.key === 'Escape') setOpen(false);
+            }}
+            placeholder="Skriv et negativt søgeord og tryk Enter"
+            aria-label="Manuelt negativt søgeord"
+            className="h-8 min-w-[200px] flex-1 rounded-lg border border-line bg-surface px-2.5 text-[13px] outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/10"
+          />
+          <div className="flex h-8 rounded-lg border border-line bg-surface p-0.5" role="radiogroup" aria-label="Match">
+            {(['Phrase', 'Exact'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={matchType === m}
+                onClick={() => setMatchType(m)}
+                className={cn('rounded-md px-2 text-[12px] font-medium transition-colors', matchType === m ? 'bg-ink text-white' : 'text-muted hover:text-ink')}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+          <Button size="sm" variant="secondary" disabled={!clean || duplicate} onClick={add}>
+            <Plus /> Tilføj
+          </Button>
+        </div>
+        {duplicate && <div className="mt-1 text-[12px] text-warning">Det søgeord er allerede på listen.</div>}
+      </td>
+    </tr>
+  );
+}
+
 /**
  * A plan with ChangePlan.pick: every row has a tick box, so the user chooses which of the
- * proposed items (e.g. negative keywords) are carried out. All are ticked to start with.
+ * proposed items (e.g. negative keywords) are carried out, and can add their own at the end.
  */
 function PickTable({
   part,
   currency,
   excluded,
   setExcluded,
-  edits,
-  setEdits,
+  manual,
+  setManual,
 }: {
   part: ToolPart;
   currency: string;
   excluded: Set<number>;
   setExcluded: (next: Set<number>) => void;
-  edits: Record<number, string>;
-  setEdits: React.Dispatch<React.SetStateAction<Record<number, string>>>;
+  manual: ManualItem[];
+  setManual: (next: ManualItem[]) => void;
 }) {
   const plan = part.plan!;
   const pick = plan.pick!;
@@ -87,6 +161,7 @@ function PickTable({
   const columns = pick.columns.filter((col) => plan.changes.some((c) => ![null, undefined, '', 0].includes(c.cells?.[col.key])));
   const total = plan.changes.length;
   const chosen = total - excluded.size;
+  const span = (waiting ? 1 : 0) + 1 + (pick.tag ? 1 : 0) + columns.length;
   const toggle = (i: number) => {
     const next = new Set(excluded);
     if (next.has(i)) next.delete(i);
@@ -101,7 +176,7 @@ function PickTable({
 
   return (
     <div className="mx-4 overflow-hidden rounded-xl border border-line">
-      <div className="max-h-[440px] overflow-auto">
+      <div className="max-h-[460px] overflow-auto">
         <table className="w-full text-[13px]" data-selectable>
           <thead className="sticky top-0 z-[1] bg-[#fafafb]">
             <tr className="text-left text-[11.5px] font-semibold text-muted">
@@ -119,7 +194,8 @@ function PickTable({
                   />
                 </th>
               )}
-              <th className="w-full min-w-[220px] px-3 py-1.5">Negativt søgeord</th>
+              <th className="w-full min-w-[200px] px-3 py-1.5">Negativt søgeord</th>
+              {pick.tag && <th className="px-2 py-1.5 text-center">Match</th>}
               {columns.map((col) => (
                 <th key={col.key} className={cn('whitespace-nowrap px-3 py-1.5', col.format && 'text-right')}>
                   {col.label}
@@ -140,30 +216,15 @@ function PickTable({
                   className={cn('border-t border-line-2 transition-colors', waiting && 'cursor-pointer hover:bg-line-2/50', off && 'text-subtle')}
                 >
                   {waiting && (
-                    <td className="py-1 pl-3">
+                    <td className="py-1.5 pl-3">
                       <input type="checkbox" checked={!off} onChange={() => toggle(i)} aria-label={`Medtag ${String(c.after ?? '')}`} className="size-4 accent-[var(--color-brand)]" />
                     </td>
                   )}
-                  <td className={cn('py-1', waiting && c.edit && !off ? 'px-2' : 'px-3')}>
-                    <div className="flex items-center gap-2">
-                      {waiting && c.edit && !off ? (
-                        <div className="min-w-0 flex-1">
-                          <EditableValue
-                            value={edits[i] ?? String(c.after ?? '')}
-                            original={String(c.after ?? '')}
-                            maxLength={c.edit.maxLength}
-                            onChange={(v) => setEdits((e) => ({ ...e, [i]: v }))}
-                          />
-                        </div>
-                      ) : (
-                        <span className={cn('min-w-0 flex-1 py-0.5 font-medium [overflow-wrap:anywhere]', off ? 'text-subtle line-through decoration-black/20' : 'text-ink')}>
-                          {String((waiting && edits[i]) || c.after || '')}
-                        </span>
-                      )}
-                      {tag && <span className="shrink-0 rounded-md bg-line-2 px-1.5 py-px text-[11px] font-medium text-muted">{tag}</span>}
-                    </div>
-                    {note && <div className={cn('mt-0.5 text-[12px] leading-snug', off ? 'text-subtle' : 'text-muted', waiting && c.edit && !off && 'px-1')}>{note}</div>}
+                  <td className="px-3 py-1.5">
+                    <div className={cn('font-medium [overflow-wrap:anywhere]', off ? 'text-subtle line-through decoration-black/20' : 'text-ink')}>{String(c.after ?? '')}</div>
+                    {note && <div className={cn('mt-0.5 text-[12px] leading-snug', off ? 'text-subtle' : 'text-muted')}>{note}</div>}
                   </td>
+                  {pick.tag && <td className="px-2 py-1.5 text-center">{tag ? <Tag muted={off}>{tag}</Tag> : null}</td>}
                   {columns.map((col) => (
                     <td
                       key={col.key}
@@ -180,13 +241,43 @@ function PickTable({
                 </tr>
               );
             })}
+            {waiting &&
+              manual.map((m, i) => (
+                <tr key={`manual-${m.text}`} className="border-t border-line-2 bg-brand-50/40">
+                  <td className="py-1.5 pl-3">
+                    <input type="checkbox" checked onChange={() => setManual(manual.filter((_, j) => j !== i))} aria-label={`Fjern ${m.text}`} className="size-4 accent-[var(--color-brand)]" />
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <div className="font-medium text-ink [overflow-wrap:anywhere]">{m.text}</div>
+                    <div className="mt-0.5 text-[12px] text-muted">{pick.add?.note}</div>
+                  </td>
+                  {pick.tag && (
+                    <td className="px-2 py-1.5 text-center">
+                      <Tag>{m.matchType}</Tag>
+                    </td>
+                  )}
+                  {columns.map((col) => (
+                    <td key={col.key} className={cn('px-3 py-1.5', col.format ? 'text-right' : 'text-[12.5px] text-ink-2')}>
+                      {pick.add?.cells?.[col.key] ?? <span className="text-subtle">–</span>}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            {waiting && pick.add && (
+              <AddRow
+                label={pick.add.label}
+                span={span}
+                existing={[...plan.changes.map((c) => String(c.after ?? '')), ...manual.map((m) => m.text)]}
+                onAdd={(item) => setManual([...manual, item])}
+              />
+            )}
           </tbody>
         </table>
       </div>
       {waiting && (
         <div className="flex items-center gap-3 border-t border-line bg-[#fafafb] px-3 py-1.5 text-[12px] text-muted">
           <span className="font-medium text-ink-2">
-            {chosen} af {total} valgt
+            {chosen + manual.length} af {total + manual.length} valgt
           </span>
           <button type="button" className="hover:text-ink" onClick={() => setExcluded(new Set())}>
             Vælg alle
@@ -211,7 +302,8 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
   const budgetDelta = plan.dailyBudgetDelta;
   const [edits, setEdits] = useState<Record<number, string>>({});
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
-  const chosen = plan.changes.length - excluded.size;
+  const [manual, setManual] = useState<ManualItem[]>([]);
+  const chosen = plan.changes.length - excluded.size + manual.length;
   const editable = waiting && plan.changes.some((c) => c.edit);
   // Corrections on rows that were ticked off don't count.
   const changed = Object.entries(edits).filter(([i, v]) => !excluded.has(Number(i)) && v.trim() !== String(plan.changes[Number(i)]?.after ?? ''));
@@ -226,6 +318,7 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
       approved: true,
       edits: changed.map(([i, v]) => ({ path: plan.changes[Number(i)]!.edit!.path, value: v.trim() })),
       excluded: plan.pick ? [...excluded] : undefined,
+      added: plan.pick?.add && manual.length ? manual : undefined,
     });
 
   return (
@@ -253,7 +346,7 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
       </div>
 
       {plan.pick ? (
-        <PickTable part={part} currency={currency} excluded={excluded} setExcluded={setExcluded} edits={edits} setEdits={setEdits} />
+        <PickTable part={part} currency={currency} excluded={excluded} setExcluded={setExcluded} manual={manual} setManual={setManual} />
       ) : (
         <div className="mx-4 overflow-hidden rounded-xl border border-line">
           <table className="w-full text-[13px]" data-selectable>
@@ -348,7 +441,7 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
             </Button>
             <span className="ml-auto text-[11.5px] text-subtle">
               {plan.pick
-                ? 'Fjern fluebenet ved dem, der ikke skal med – du kan også rette teksten.'
+                ? 'Fjern fluebenet ved dem, der ikke skal med.'
                 : editable
                   ? 'Du kan rette værdierne, før du godkender.'
                   : 'Ændringen sendes først, når du godkender.'}

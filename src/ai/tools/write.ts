@@ -518,15 +518,15 @@ export const writeTools = [
   defineWrite({
     name: 'propose_negative_keywords',
     kind: 'write',
-    description: `Propose negative keywords found in search terms as a table the user ticks on/off before anything is added (all ticked to start with). Use this – not add_negative_keywords – whenever you suggest negatives from search terms, also across several campaigns and ad groups: put every candidate in ONE call. Get the candidates from run_report kind "searchterm" (the rows have campaignId/adGroupId); typical negatives: spend or many clicks without conversions, irrelevant intent (jobs, free, used, DIY, competitors, other products). Never propose a term that converts well or matches a product the business sells.`,
+    description: `Propose negative keywords for ONE campaign, found in its search terms, as a table the user ticks on/off (all ticked to start with) – they can also add their own. Use this – not add_negative_keywords – whenever you suggest negatives from search terms. Never mix campaigns in one table: if the user didn't name a campaign, ask which one (or suggest the one with the most wasted spend) before proposing. Get the candidates from run_report kind "searchterm" limited to that campaign (campaignIds); typical negatives: spend or many clicks without conversions, irrelevant intent (jobs, free, used, DIY, competitors, other products). Never propose a term that converts well or matches a product the business sells.`,
     schema: z.object({
+      campaignId: z.string().describe('The one campaign all the negatives are for.'),
       candidates: z
         .array(
           z.object({
             text: z.string().min(1).max(100).describe('The negative keyword, usually the search term or the unwanted word in it.'),
             matchType: z.enum(['Exact', 'Phrase']).describe('Exact blocks only this search; Phrase blocks every search containing it.'),
-            campaignId: z.string(),
-            adGroupId: z.string().optional().describe('Omit to add it on the campaign (blocks all its ad groups).'),
+            adGroupId: z.string().optional().describe('An ad group in the campaign – omit to add it on the campaign (blocks all its ad groups).'),
             searchTerm: z.string().optional().describe('The search term it comes from, if different from text.'),
             clicks: z.number().optional(),
             spend: z.number().optional(),
@@ -540,28 +540,25 @@ export const writeTools = [
     }),
     label: (i) => `Foreslår ${i.candidates.length} negative søgeord`,
     async plan(input, ctx) {
-      const targets = new Map<string, string>();
+      const c = await getCampaign(ctx, input.campaignId);
+      const groups = new Map<string, string>();
       for (const k of input.candidates) {
-        const key = `${k.campaignId}|${k.adGroupId ?? ''}`;
-        if (targets.has(key)) continue;
-        const c = await getCampaign(ctx, k.campaignId);
-        const g = k.adGroupId ? await getAdGroup(ctx, c.id, k.adGroupId) : null;
-        targets.set(key, g ? `${c.name} › ${g.name}` : c.name);
+        if (k.adGroupId && !groups.has(k.adGroupId)) groups.set(k.adGroupId, (await getAdGroup(ctx, c.id, k.adGroupId)).name);
       }
-      const where = (k: (typeof input.candidates)[number]) => targets.get(`${k.campaignId}|${k.adGroupId ?? ''}`)!;
+      const where = (k: (typeof input.candidates)[number]) => (k.adGroupId ? groups.get(k.adGroupId)! : 'Hele kampagnen');
       return {
         plan: {
           kind: 'update',
-          title: 'Negative søgeord fra søgetermerne',
+          title: `Negative søgeord · ${c.name}`,
           reason: input.reason,
-          changes: input.candidates.map((k, i) => ({
+          changes: input.candidates.map((k) => ({
             entity: 'Negativt søgeord',
-            entityId: k.adGroupId ?? k.campaignId,
-            field: `Negativt søgeord · ${MATCH_LABELS[k.matchType]} · ${where(k)}`,
+            entityId: k.adGroupId ?? c.id,
+            field: `Negativt søgeord · ${MATCH_LABELS[k.matchType]} · ${c.name}${k.adGroupId ? ` › ${where(k)}` : ''}`,
             after: k.text,
-            edit: { path: ['candidates', i, 'text'], maxLength: 100 },
             cells: {
-              matchType: MATCH_LABELS[k.matchType] ?? k.matchType,
+              // Microsoft's own names, as in the Microsoft Advertising interface.
+              matchType: k.matchType,
               target: where(k),
               searchTerm: k.searchTerm && k.searchTerm !== k.text ? k.searchTerm : null,
               clicks: k.clicks ?? null,
@@ -572,35 +569,32 @@ export const writeTools = [
           })),
           dailyBudgetDelta: 0,
           increasesSpend: false,
-          campaignIds: [...new Set(input.candidates.map((k) => k.campaignId))],
+          campaignIds: [c.id],
           pick: {
             path: ['candidates'],
             tag: 'matchType',
             note: 'why',
             columns: [
-              { key: 'target', label: 'Kampagne / annoncegruppe' },
+              { key: 'target', label: 'Annoncegruppe' },
               { key: 'searchTerm', label: 'Fra søgeterm' },
               { key: 'clicks', label: 'Klik', format: 'number' },
               { key: 'spend', label: 'Forbrug', format: 'money' },
               { key: 'conversions', label: 'Konv.', format: 'number' },
             ],
+            add: { label: 'Tilføj manuelle negative søgeord', base: { why: 'Tilføjet manuelt' }, note: 'Tilføjet manuelt', cells: { target: 'Hele kampagnen' } },
             approveLabel: 'Tilføj {n} negative søgeord',
           },
         },
         execute: async () => {
-          // One call per campaign / ad group.
-          const groups = new Map<string, typeof input.candidates>();
-          for (const k of input.candidates) {
-            const key = `${k.campaignId}|${k.adGroupId ?? ''}`;
-            groups.set(key, [...(groups.get(key) ?? []), k]);
-          }
+          // One call for the campaign and one per ad group.
+          const byTarget = new Map<string, typeof input.candidates>();
+          for (const k of input.candidates) byTarget.set(k.adGroupId ?? '', [...(byTarget.get(k.adGroupId ?? '') ?? []), k]);
           const partialErrors: string[] = [];
-          for (const list of groups.values()) {
-            const { campaignId, adGroupId } = list[0]!;
+          for (const [adGroupId, list] of byTarget) {
             const res = await ctx.backend.addNegativeKeywords(
               ctx.accountId,
               adGroupId ? 'AdGroup' : 'Campaign',
-              adGroupId ?? campaignId,
+              adGroupId || c.id,
               list.map((k) => ({ text: k.text, matchType: k.matchType })),
             );
             partialErrors.push(...(res.partialErrors ?? []));
@@ -608,8 +602,8 @@ export const writeTools = [
           invalidate(ctx);
           const res = partialErrors.length ? { partialErrors } : {};
           return {
-            result: { ok: true, added: input.candidates.map((k) => ({ text: k.text, matchType: k.matchType, where: where(k) })), ...res },
-            summary: `${input.candidates.length} negative søgeord tilføjet${groups.size > 1 ? ` i ${groups.size} kampagner/annoncegrupper` : ''}${partialNote(res)}`,
+            result: { ok: true, campaign: c.name, added: input.candidates.map((k) => ({ text: k.text, matchType: k.matchType, where: where(k) })), ...res },
+            summary: `${input.candidates.length} negative søgeord tilføjet på ${c.name}${partialNote(res)}`,
           };
         },
       };

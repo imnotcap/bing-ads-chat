@@ -15,6 +15,8 @@ export interface ApprovalAnswer {
   edits?: ApprovalEdit[];
   /** Rows the user ticked off in a pick table (indices into ChangePlan.pick.path). */
   excluded?: number[];
+  /** Items the user added themselves under a pick table (ChangePlan.pick.add). */
+  added?: { text: string; matchType: 'Exact' | 'Phrase' }[];
 }
 
 const pending = new Map<string, (answer: ApprovalAnswer) => void>();
@@ -49,8 +51,11 @@ export function applyEdits(input: unknown, edits: ApprovalEdit[]): unknown {
   return copy;
 }
 
-/** Returns a copy of a tool input without the rows the user ticked off (ChangePlan.pick). */
-export function applyExclusions(input: unknown, path: (string | number)[], excluded: number[]): unknown {
+/**
+ * Returns a copy of a tool input without the rows the user ticked off and with the items
+ * they added themselves (ChangePlan.pick).
+ */
+export function applyPicks(input: unknown, path: (string | number)[], excluded: number[], added: unknown[] = []): unknown {
   const copy = structuredClone(input) as Record<string | number, unknown>;
   let node: Record<string | number, unknown> | undefined = copy;
   for (const key of path.slice(0, -1)) node = node?.[key] as Record<string | number, unknown> | undefined;
@@ -58,7 +63,7 @@ export function applyExclusions(input: unknown, path: (string | number)[], exclu
   const list = node && last !== undefined ? node[last] : undefined;
   if (node && last !== undefined && Array.isArray(list)) {
     const skip = new Set(excluded);
-    node[last] = list.filter((_, i) => !skip.has(i));
+    node[last] = [...list.filter((_, i) => !skip.has(i)), ...added];
   }
   return copy;
 }
