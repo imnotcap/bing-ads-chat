@@ -21,7 +21,7 @@ import { useChat, type ApiMessage, type AssistantItem, type Conversation, type P
 import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 import { monthTotal, useUsage } from '@/stores/usage';
-import { applyEdits, requestApproval } from './approvals';
+import { applyEdits, applyExclusions, requestApproval } from './approvals';
 import { evaluateGuardrails, type SpendContext } from './guardrails';
 import { buildContextBlock, buildSystemPrompt } from './prompt';
 import { playbookFor } from '@/workspace/playbooks';
@@ -648,6 +648,7 @@ async function executeTools(
     let plan = item.plan.plan;
     let change = item.plan;
     let userEdits: { field: string; value: string }[] = [];
+    let deselected: string[] = [];
     if (item.verdict === 'approve') {
       const answer = await approvals.get(item.id)!;
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -672,9 +673,11 @@ async function executeTools(
         );
         continue;
       }
-      if (answer.edits?.length) {
-        // The user corrected values on the card: apply them, validate and re-plan.
-        const edited = applyEdits(item.input, answer.edits);
+      const excluded = plan?.pick && answer.excluded?.length ? answer.excluded : [];
+      if (answer.edits?.length || excluded.length) {
+        // The user corrected values or ticked rows off on the card: apply, validate and re-plan.
+        let edited = applyEdits(item.input, answer.edits ?? []);
+        if (excluded.length) edited = applyExclusions(edited, plan!.pick!.path, excluded);
         const check = item.tool.schema.safeParse(edited);
         if (!check.success) {
           const detail = check.error.issues.map((i) => i.message).join('; ');
@@ -684,14 +687,20 @@ async function executeTools(
         }
         change = await item.tool.plan(check.data, ctx);
         plan = change.plan;
-        userEdits = answer.edits.map((e) => ({ field: e.path.join('.'), value: e.value }));
+        userEdits = (answer.edits ?? []).map((e) => ({ field: e.path.join('.'), value: e.value }));
+        deselected = excluded.map((i) => String(item.plan.plan?.changes[i]?.after ?? i));
         updateTool(convId, itemId, item.id, { plan: plan ?? undefined, input: check.data });
       }
       updateTool(convId, itemId, item.id, { status: 'running' });
     }
     try {
       const exec = await change.execute();
-      results.set(item.id, ok(item.id, userEdits.length ? { ...(exec.result as object), userEditedBeforeApproval: userEdits } : exec.result));
+      const userChanges = {
+        ...(userEdits.length ? { userEditedBeforeApproval: userEdits } : {}),
+        // Rows the user chose not to add – don't propose them again unless asked.
+        ...(deselected.length ? { userDeselected: deselected } : {}),
+      };
+      results.set(item.id, ok(item.id, Object.keys(userChanges).length ? { ...(exec.result as object), ...userChanges } : exec.result));
       let activityId: string | undefined;
       if (plan) {
         activityId = useActivity.getState().add({

@@ -13,6 +13,8 @@ export interface ApprovalAnswer {
   note?: string;
   /** Values the user corrected on the approval card before approving. */
   edits?: ApprovalEdit[];
+  /** Rows the user ticked off in a pick table (indices into ChangePlan.pick.path). */
+  excluded?: number[];
 }
 
 const pending = new Map<string, (answer: ApprovalAnswer) => void>();
@@ -43,6 +45,20 @@ export function applyEdits(input: unknown, edits: ApprovalEdit[]): unknown {
     for (const key of path.slice(0, -1)) node = node?.[key] as Record<string | number, unknown> | undefined;
     const last = path[path.length - 1];
     if (node && last !== undefined) node[last] = value.trim();
+  }
+  return copy;
+}
+
+/** Returns a copy of a tool input without the rows the user ticked off (ChangePlan.pick). */
+export function applyExclusions(input: unknown, path: (string | number)[], excluded: number[]): unknown {
+  const copy = structuredClone(input) as Record<string | number, unknown>;
+  let node: Record<string | number, unknown> | undefined = copy;
+  for (const key of path.slice(0, -1)) node = node?.[key] as Record<string | number, unknown> | undefined;
+  const last = path[path.length - 1];
+  const list = node && last !== undefined ? node[last] : undefined;
+  if (node && last !== undefined && Array.isArray(list)) {
+    const skip = new Set(excluded);
+    node[last] = list.filter((_, i) => !skip.has(i));
   }
   return copy;
 }

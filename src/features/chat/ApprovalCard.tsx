@@ -59,6 +59,147 @@ function EditableValue({ value, original, maxLength, onChange }: { value: string
   );
 }
 
+const fmtNumber = (v: number) => v.toLocaleString('da-DK', { maximumFractionDigits: 1 });
+
+/**
+ * A plan with ChangePlan.pick: every row has a tick box, so the user chooses which of the
+ * proposed items (e.g. negative keywords) are carried out. All are ticked to start with.
+ */
+function PickTable({
+  part,
+  currency,
+  excluded,
+  setExcluded,
+  edits,
+  setEdits,
+}: {
+  part: ToolPart;
+  currency: string;
+  excluded: Set<number>;
+  setExcluded: (next: Set<number>) => void;
+  edits: Record<number, string>;
+  setEdits: React.Dispatch<React.SetStateAction<Record<number, string>>>;
+}) {
+  const plan = part.plan!;
+  const pick = plan.pick!;
+  const waiting = part.status === 'awaiting_approval';
+  // Columns with nothing to say in any row (empty, or 0 everywhere) are left out.
+  const columns = pick.columns.filter((col) => plan.changes.some((c) => ![null, undefined, '', 0].includes(c.cells?.[col.key])));
+  const total = plan.changes.length;
+  const chosen = total - excluded.size;
+  const toggle = (i: number) => {
+    const next = new Set(excluded);
+    if (next.has(i)) next.delete(i);
+    else next.add(i);
+    setExcluded(next);
+  };
+  const value = (v: string | number | null | undefined, format?: 'money' | 'number') => {
+    if (v === null || v === undefined || v === '') return <span className="text-subtle">–</span>;
+    if (typeof v === 'number') return <span className="tabular">{format === 'money' ? fmtMoney(v, currency) : fmtNumber(v)}</span>;
+    return v;
+  };
+
+  return (
+    <div className="mx-4 overflow-hidden rounded-xl border border-line">
+      <div className="max-h-[440px] overflow-auto">
+        <table className="w-full text-[13px]" data-selectable>
+          <thead className="sticky top-0 z-[1] bg-[#fafafb]">
+            <tr className="text-left text-[11.5px] font-semibold text-muted">
+              {waiting && (
+                <th className="w-9 py-1.5 pl-3">
+                  <input
+                    type="checkbox"
+                    aria-label={chosen === total ? 'Fravælg alle' : 'Vælg alle'}
+                    checked={chosen === total}
+                    ref={(el) => {
+                      if (el) el.indeterminate = chosen > 0 && chosen < total;
+                    }}
+                    onChange={() => setExcluded(chosen === total ? new Set(plan.changes.map((_, i) => i)) : new Set())}
+                    className="size-4 accent-[var(--color-brand)]"
+                  />
+                </th>
+              )}
+              <th className="w-full min-w-[220px] px-3 py-1.5">Negativt søgeord</th>
+              {columns.map((col) => (
+                <th key={col.key} className={cn('whitespace-nowrap px-3 py-1.5', col.format && 'text-right')}>
+                  {col.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {plan.changes.map((c, i) => {
+              // After approval the plan holds only the rows that were carried out.
+              const off = waiting && excluded.has(i);
+              const tag = pick.tag ? c.cells?.[pick.tag] : null;
+              const note = pick.note ? c.cells?.[pick.note] : null;
+              return (
+                <tr
+                  key={i}
+                  onClick={(e) => waiting && !(e.target as HTMLElement).closest('input') && toggle(i)}
+                  className={cn('border-t border-line-2 transition-colors', waiting && 'cursor-pointer hover:bg-line-2/50', off && 'text-subtle')}
+                >
+                  {waiting && (
+                    <td className="py-1 pl-3">
+                      <input type="checkbox" checked={!off} onChange={() => toggle(i)} aria-label={`Medtag ${String(c.after ?? '')}`} className="size-4 accent-[var(--color-brand)]" />
+                    </td>
+                  )}
+                  <td className={cn('py-1', waiting && c.edit && !off ? 'px-2' : 'px-3')}>
+                    <div className="flex items-center gap-2">
+                      {waiting && c.edit && !off ? (
+                        <div className="min-w-0 flex-1">
+                          <EditableValue
+                            value={edits[i] ?? String(c.after ?? '')}
+                            original={String(c.after ?? '')}
+                            maxLength={c.edit.maxLength}
+                            onChange={(v) => setEdits((e) => ({ ...e, [i]: v }))}
+                          />
+                        </div>
+                      ) : (
+                        <span className={cn('min-w-0 flex-1 py-0.5 font-medium [overflow-wrap:anywhere]', off ? 'text-subtle line-through decoration-black/20' : 'text-ink')}>
+                          {String((waiting && edits[i]) || c.after || '')}
+                        </span>
+                      )}
+                      {tag && <span className="shrink-0 rounded-md bg-line-2 px-1.5 py-px text-[11px] font-medium text-muted">{tag}</span>}
+                    </div>
+                    {note && <div className={cn('mt-0.5 text-[12px] leading-snug', off ? 'text-subtle' : 'text-muted', waiting && c.edit && !off && 'px-1')}>{note}</div>}
+                  </td>
+                  {columns.map((col) => (
+                    <td
+                      key={col.key}
+                      className={cn(
+                        'px-3 py-1.5',
+                        col.format ? 'whitespace-nowrap text-right' : 'min-w-[120px] max-w-[180px] text-[12.5px] leading-snug [overflow-wrap:anywhere]',
+                        !off && col.key === 'target' && 'text-ink-2',
+                      )}
+                      title={typeof c.cells?.[col.key] === 'string' ? String(c.cells[col.key]) : undefined}
+                    >
+                      {value(c.cells?.[col.key], col.format)}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {waiting && (
+        <div className="flex items-center gap-3 border-t border-line bg-[#fafafb] px-3 py-1.5 text-[12px] text-muted">
+          <span className="font-medium text-ink-2">
+            {chosen} af {total} valgt
+          </span>
+          <button type="button" className="hover:text-ink" onClick={() => setExcluded(new Set())}>
+            Vælg alle
+          </button>
+          <button type="button" className="hover:text-ink" onClick={() => setExcluded(new Set(plan.changes.map((_, i) => i)))}>
+            Fravælg alle
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ApprovalCard({ part, currency }: { part: ToolPart; currency: string }) {
   const plan = part.plan!;
   const [note, setNote] = useState('');
@@ -69,10 +210,14 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
   const hasBefore = plan.changes.some((c) => c.before !== undefined);
   const budgetDelta = plan.dailyBudgetDelta;
   const [edits, setEdits] = useState<Record<number, string>>({});
+  const [excluded, setExcluded] = useState<Set<number>>(new Set());
+  const chosen = plan.changes.length - excluded.size;
   const editable = waiting && plan.changes.some((c) => c.edit);
-  const changed = Object.entries(edits).filter(([i, v]) => v.trim() !== String(plan.changes[Number(i)]?.after ?? ''));
+  // Corrections on rows that were ticked off don't count.
+  const changed = Object.entries(edits).filter(([i, v]) => !excluded.has(Number(i)) && v.trim() !== String(plan.changes[Number(i)]?.after ?? ''));
   const editCount = changed.length;
   const invalid = Object.entries(edits).some(([i, v]) => {
+    if (excluded.has(Number(i))) return false;
     const max = plan.changes[Number(i)]?.edit?.maxLength;
     return !v.trim() || (max !== undefined && v.trim().length > max);
   });
@@ -80,6 +225,7 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
     answerApproval(part.id, {
       approved: true,
       edits: changed.map(([i, v]) => ({ path: plan.changes[Number(i)]!.edit!.path, value: v.trim() })),
+      excluded: plan.pick ? [...excluded] : undefined,
     });
 
   return (
@@ -106,42 +252,46 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
         </div>
       </div>
 
-      <div className="mx-4 overflow-hidden rounded-xl border border-line">
-        <table className="w-full text-[13px]" data-selectable>
-          <thead>
-            <tr className="bg-[#fafafb] text-left text-[11.5px] font-semibold text-muted">
-              <th className="px-3 py-1.5">Ændring</th>
-              {hasBefore && <th className="px-3 py-1.5">Før</th>}
-              <th className="px-3 py-1.5">{hasBefore ? 'Efter' : 'Værdi'}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {plan.changes.slice(0, 40).map((c, i) => (
-              <tr key={i} className="border-t border-line-2">
-                <td className="max-w-[260px] truncate px-3 py-1.5 text-ink-2" title={c.field}>
-                  {c.field}
-                </td>
-                {hasBefore && <td className="px-3 py-1.5 text-muted line-through decoration-black/20">{cell(c.before, currency)}</td>}
-                {waiting && c.edit ? (
-                  <td className="px-2 py-1">
-                    <EditableValue
-                      value={edits[i] ?? String(c.after ?? '')}
-                      original={String(c.after ?? '')}
-                      maxLength={c.edit.maxLength}
-                      onChange={(v) => setEdits((e) => ({ ...e, [i]: v }))}
-                    />
-                  </td>
-                ) : (
-                  <td className="max-w-[320px] truncate px-3 py-1.5 font-medium text-ink" title={typeof c.after === 'string' ? c.after : undefined}>
-                    {cell(c.after, currency)}
-                  </td>
-                )}
+      {plan.pick ? (
+        <PickTable part={part} currency={currency} excluded={excluded} setExcluded={setExcluded} edits={edits} setEdits={setEdits} />
+      ) : (
+        <div className="mx-4 overflow-hidden rounded-xl border border-line">
+          <table className="w-full text-[13px]" data-selectable>
+            <thead>
+              <tr className="bg-[#fafafb] text-left text-[11.5px] font-semibold text-muted">
+                <th className="px-3 py-1.5">Ændring</th>
+                {hasBefore && <th className="px-3 py-1.5">Før</th>}
+                <th className="px-3 py-1.5">{hasBefore ? 'Efter' : 'Værdi'}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {plan.changes.length > 40 && <div className="border-t border-line bg-[#fafafb] px-3 py-1 text-[11.5px] text-muted">+ {plan.changes.length - 40} flere</div>}
-      </div>
+            </thead>
+            <tbody>
+              {plan.changes.slice(0, 40).map((c, i) => (
+                <tr key={i} className="border-t border-line-2">
+                  <td className="max-w-[260px] truncate px-3 py-1.5 text-ink-2" title={c.field}>
+                    {c.field}
+                  </td>
+                  {hasBefore && <td className="px-3 py-1.5 text-muted line-through decoration-black/20">{cell(c.before, currency)}</td>}
+                  {waiting && c.edit ? (
+                    <td className="px-2 py-1">
+                      <EditableValue
+                        value={edits[i] ?? String(c.after ?? '')}
+                        original={String(c.after ?? '')}
+                        maxLength={c.edit.maxLength}
+                        onChange={(v) => setEdits((e) => ({ ...e, [i]: v }))}
+                      />
+                    </td>
+                  ) : (
+                    <td className="max-w-[320px] truncate px-3 py-1.5 font-medium text-ink" title={typeof c.after === 'string' ? c.after : undefined}>
+                      {cell(c.after, currency)}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {plan.changes.length > 40 && <div className="border-t border-line bg-[#fafafb] px-3 py-1 text-[11.5px] text-muted">+ {plan.changes.length - 40} flere</div>}
+        </div>
+      )}
 
       <div className="grid gap-1.5 px-4 pt-3 text-[12.5px]">
         {budgetDelta !== 0 && (
@@ -181,8 +331,13 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
         </AnimatePresence>
         {waiting ? (
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="positive" disabled={invalid} onClick={approve}>
-              <Check /> {editCount ? `Godkend med ${editCount} rettelse${editCount === 1 ? '' : 'r'}` : 'Godkend'}
+            <Button size="sm" variant="positive" disabled={invalid || (!!plan.pick && chosen === 0)} onClick={approve}>
+              <Check />{' '}
+              {plan.pick
+                ? plan.pick.approveLabel.replace('{n}', String(chosen))
+                : editCount
+                  ? `Godkend med ${editCount} rettelse${editCount === 1 ? '' : 'r'}`
+                  : 'Godkend'}
             </Button>
             <Button
               size="sm"
@@ -192,7 +347,11 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
               <X /> {showNote ? 'Afvis' : 'Afvis …'}
             </Button>
             <span className="ml-auto text-[11.5px] text-subtle">
-              {editable ? 'Du kan rette værdierne, før du godkender.' : 'Ændringen sendes først, når du godkender.'}
+              {plan.pick
+                ? 'Fjern fluebenet ved dem, der ikke skal med – du kan også rette teksten.'
+                : editable
+                  ? 'Du kan rette værdierne, før du godkender.'
+                  : 'Ændringen sendes først, når du godkender.'}
             </span>
           </div>
         ) : (

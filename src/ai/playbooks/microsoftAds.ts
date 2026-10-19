@@ -38,7 +38,7 @@ Faste rytmer, når brugeren beder om et tjek
 const tools = `Appens værktøjer
 - Læs: get_performance_overview, list_campaigns/ad_groups/keywords/ads/negative_keywords, run_report (account, campaign, adgroup, keyword, searchterm, ad, geo, device, agegender, hourofday, dayofweek), get_keyword_ideas, get_budget_opportunities, get_spend_status, get_change_history.
 - Inventarland: get_shop_sales, get_shop_products, get_channel_comparison (webshoppens rigtige salg og de andre kanaler).
-- Ændringer (altid godkendelseskort): update_campaigns, create_campaign, update/create_ad_group, add/update/delete_keywords, add_negative_keywords, create_responsive_search_ad, update_ads, microsoft_ads_api (alt andet i REST API v13).
+- Ændringer (altid godkendelseskort): update_campaigns, create_campaign, update/create_ad_group, add/update/delete_keywords, propose_negative_keywords (søgetermer → tabel med flueben, brugeren vælger til/fra), add_negative_keywords, create_responsive_search_ad, update_ads, microsoft_ads_api (alt andet i REST API v13).
 - Visuelt: show_kpis, show_chart, show_table; filer med create_file.
 - Træning: train_playbook – foreslå en ny regel, når brugeren lærer dig noget varigt.
 
