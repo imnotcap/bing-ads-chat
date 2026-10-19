@@ -6,7 +6,7 @@
 import { motion } from 'motion/react';
 import { CalendarDays, Clock, Loader2, LogOut, RefreshCw, UserRound, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { BlurText, MiniOrb } from '@/components/reactbits';
+import { BlurText } from '@/components/reactbits';
 import { EASE } from '@/components/motion';
 import { LogoMark, Wordmark } from '@/components/layout/Logo';
 import { WindowControls } from '@/components/layout/TopBar';
@@ -102,8 +102,11 @@ function SignInView() {
   return (
     <Frame>
       <div className="flex flex-col items-center text-center">
-        <MiniOrb size={72} />
-        <BlurText as="h1" text="Log ind på XavierOS" className="mt-4 text-[26px] font-medium tracking-[-0.03em] text-ink" />
+        <div className="flex items-center gap-3" aria-label="XavierOS">
+          <LogoMark className="size-14" />
+          <Wordmark className="text-[38px] leading-none" />
+        </div>
+        <BlurText as="h1" text="Log ind" className="mt-5 text-[22px] font-medium tracking-[-0.03em] text-ink" />
         <p className="mt-1.5 text-[14px] leading-relaxed text-muted">Brug din Microsoft-konto. Appen ser aldrig din adgangskode.</p>
       </div>
       {reason && <p className="mt-5 rounded-xl bg-warning-bg px-3.5 py-2.5 text-[12.5px] text-warning">{reason}</p>}
@@ -199,7 +202,7 @@ export function AccountGate() {
   if (status === 'loading')
     return (
       <div className="fixed inset-0 z-[60] grid place-items-center bg-canvas">
-        <MiniOrb size={56} />
+        <LogoMark className="size-14 animate-pulse" />
       </div>
     );
   return null;
