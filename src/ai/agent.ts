@@ -246,6 +246,15 @@ function allowedTools(connectors: Parameters<typeof enabledTools>[0]) {
 
 /* --------------------------------- the loop --------------------------------- */
 
+/** Input size (tokens) at which older parts of a conversation are summarized. */
+const COMPACT_AT = 120_000;
+const COMPACT_INSTRUCTIONS = `Summarize the conversation so far so the work can continue without the earlier messages. Keep, exactly:
+- what the user asked for, their goals and preferences, and any decisions they made
+- every change that was proposed, approved, rejected or carried out (campaign/ad group/keyword names and IDs, old and new values)
+- the key numbers found in reports (spend, conversions, CPA, ROAS, CTR …) with their period and account
+- open questions and what the user still wants done next
+Write it in the user's language. Leave out raw report rows that are no longer needed.`;
+
 async function runLoop(convId: string, itemId: string, apiKey: string, signal: AbortSignal) {
   const settings = useSettings.getState();
   const { ai } = settings;
@@ -280,9 +289,14 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
         messages: conv(convId).api,
         thinking: { type: 'adaptive', display: ai.showThinking ? 'summarized' : 'omitted' },
         output_config: { effort: ai.effort },
-        cache_control: { type: 'ephemeral' },
+        // The conversation so far is cached for an hour, so the next message only adds
+        // to it instead of making Claude read the whole conversation again.
+        cache_control: { type: 'ephemeral', ttl: '1h' },
+        // A long conversation is summarized by Claude (a compaction block that stays in the
+        // history), so it keeps what was said without reading every old report again.
+        context_management: { edits: [{ type: 'compact_20260112', trigger: { type: 'input_tokens', value: COMPACT_AT }, instructions: COMPACT_INSTRUCTIONS }] },
         // Server-side fallback if the model declines for policy reasons.
-        betas: ['server-side-fallback-2026-07-01'],
+        betas: ['server-side-fallback-2026-07-01', 'extended-cache-ttl-2025-04-11', 'compact-2026-01-12'],
         fallbacks: 'default',
       },
       { signal },
@@ -339,6 +353,7 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
     updateAssistant(convId, itemId, (it) => ({ ...it, costUsd: (it.costUsd ?? 0) + cost }));
 
     for (const b of message.content) {
+      if (b.type === 'compaction' && b.content) notice(convId, itemId, 'info', 'Samtalen er blevet lang, så Claude har opsummeret det tidligere – alt vigtigt, der er nævnt, huskes stadig.');
       if (b.type === 'fallback') notice(convId, itemId, 'info', `Svaret blev færdiggjort af ${b.to.model}, fordi ${b.from.model} afviste en del af forespørgslen.`);
     }
 
