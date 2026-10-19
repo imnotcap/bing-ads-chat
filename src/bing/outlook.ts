@@ -95,7 +95,7 @@ export async function addOutlookEvent(ev: OutlookEvent): Promise<{ id: string; w
         isReminderOn: true,
         reminderMinutesBeforeStart: ev.reminderMinutes ?? 15,
         showAs: 'free',
-        categories: ['Bing Ads Chat'],
+        categories: ['XavierOS'],
     });
   const res = await send();
   const json = (await res.json().catch(() => ({}))) as { id?: string; webLink?: string; error?: { message?: string } };

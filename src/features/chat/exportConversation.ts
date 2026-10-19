@@ -37,7 +37,7 @@ export function assistantMarkdown(item: AssistantItem): string {
 }
 
 export function conversationMarkdown(c: Conversation): string {
-  const out = [`# ${c.title}`, '', `_Eksporteret fra Bing Ads Chat · ${fmtDateLong(new Date().toISOString().slice(0, 10))}_`];
+  const out = [`# ${c.title}`, '', `_Eksporteret fra XavierOS · ${fmtDateLong(new Date().toISOString().slice(0, 10))}_`];
   for (const it of c.items) {
     if (it.kind === 'user') {
       out.push('', `## Dig · ${fmtTime(it.ts)}`, '', it.text.trim());

@@ -1,4 +1,4 @@
-# The installer (Bing-Ads-Chat-Setup.exe): a step-by-step guide in the app's own layout
+# The installer (XavierOS-Setup.exe): a step-by-step guide in the app's own layout
 # that runs the signed NSIS installer silently and opens the app afterwards.
 # The NSIS installer is embedded at build time (BAC_SETUP_PAYLOAD, see build.rs).
 [package]

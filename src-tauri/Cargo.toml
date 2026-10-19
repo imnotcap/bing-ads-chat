@@ -1,8 +1,8 @@
 [package]
 name = "bing-ads-chat"
 version = "0.1.0"
-description = "Bing Ads Chat – chat-assistent til Microsoft Advertising"
-authors = ["Bing Ads Chat"]
+description = "XavierOS – chat-assistent til Microsoft Advertising"
+authors = ["XavierOS"]
 edition = "2021"
 rust-version = "1.77"
 

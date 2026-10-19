@@ -78,6 +78,8 @@ export default defineConfig({
     minify: !process.env.TAURI_ENV_DEBUG,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
     chunkSizeWarningLimit: 2500,
+    // The app, and the opening animation shown in its own transparent window.
+    rollupOptions: { input: { main: 'index.html', splash: 'splash.html' } },
   },
   test: {
     environment: 'jsdom',

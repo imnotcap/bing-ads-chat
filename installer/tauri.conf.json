@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Bing Ads Chat Setup",
+  "productName": "XavierOS Setup",
   "version": "1.0.0",
   "identifier": "dk.bingadschat.setup",
   "build": {
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Installér Bing Ads Chat",
+        "title": "Installér XavierOS",
         "width": 700,
         "height": 470,
         "resizable": false,

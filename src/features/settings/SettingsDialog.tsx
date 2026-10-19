@@ -300,7 +300,7 @@ function AboutTab() {
     <Card title="Om appen" description="Appen opdaterer sig selv: den tjekker for nye versioner ved start og hver halve time, og du installerer dem med ét klik.">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <div className="text-[14px] font-medium text-ink">Bing Ads Chat {version ?? (isTauri ? '' : '(browser)')}</div>
+          <div className="text-[14px] font-medium text-ink">XavierOS {version ?? (isTauri ? '' : '(browser)')}</div>
           <div className="text-[12.5px] text-muted">{available ? `Version ${available.version} er klar til at blive installeret.` : 'Opdateringer hentes signeret fra Cloudflare.'}</div>
         </div>
         <Button variant="secondary" disabled={!isTauri || checking} onClick={() => void check()}>

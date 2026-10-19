@@ -252,10 +252,10 @@ function AppMenu() {
         <DropdownMenuItem
           onSelect={async () => {
             const version = isTauri ? await getVersion().catch(() => '') : 'dev';
-            toast('Bing Ads Chat', { description: `Version ${version} · AI-assistent til Microsoft Advertising` });
+            toast('XavierOS', { description: `Version ${version} · AI-assistent til Microsoft Advertising` });
           }}
         >
-          <Info /> Om Bing Ads Chat
+          <Info /> Om XavierOS
         </DropdownMenuItem>
         {isTauri && (
           <DropdownMenuItem onSelect={quitApp}>
@@ -278,7 +278,7 @@ async function exportConversation() {
     const path = await saveExport(exportFileName(c), conversationMarkdown(c));
     lastExport = path;
     toast.success('Samtalen er eksporteret', {
-      description: path ? `Gemt i Overførsler › Bing Ads Chat` : 'Filen er hentet som Markdown.',
+      description: path ? `Gemt i Overførsler › XavierOS` : 'Filen er hentet som Markdown.',
       action: path ? { label: 'Vis i mappe', onClick: () => void openExportsFolder(path) } : undefined,
     });
   } catch (e) {

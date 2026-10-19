@@ -1,6 +1,6 @@
 /**
  * A file the assistant made (create_file): name, size, a short preview, and buttons
- * to save it to "Overførsler › Bing Ads Chat", show it in Explorer or copy it.
+ * to save it to "Overførsler › XavierOS", show it in Explorer or copy it.
  */
 import { motion } from 'motion/react';
 import { Check, ChevronDown, Copy, Download, FileSpreadsheet, FileText, FolderOpen, CalendarPlus, Loader2 } from 'lucide-react';
@@ -32,7 +32,7 @@ export function FileBlock({ fileName, content, description }: { fileName: string
       const data = (ext === 'csv' || ext === 'tsv') && !content.startsWith('﻿') ? `﻿${content}` : content;
       const path = await saveExport(fileName, data);
       setSaved(path ?? fileName);
-      toast.success('Filen er gemt', { description: path ? `Overførsler › Bing Ads Chat › ${path.split(/[\\/]/).pop()}` : fileName, transient: true });
+      toast.success('Filen er gemt', { description: path ? `Overførsler › XavierOS › ${path.split(/[\\/]/).pop()}` : fileName, transient: true });
     } catch (e) {
       toast.error('Filen kunne ikke gemmes', { description: errorMessage(e) });
     } finally {

@@ -7,8 +7,9 @@
  * bundleDir holds the NSIS installer and its updater signature (*.exe.sig) from
  * `tauri build --config src-tauri/tauri.release.conf.json`. Writes:
  *   cloudflare/public/updates/latest.json            signed update feed the app checks
- *   cloudflare/public/updates/Bing-Ads-Chat_<v>_x64-setup.exe
- *   cloudflare/public/Bing-Ads-Chat-Setup.exe        download page installer
+ *   cloudflare/public/updates/XavierOS_<v>_x64-setup.exe
+ *   cloudflare/public/XavierOS-Setup.exe             download page installer
+ *   cloudflare/public/Bing-Ads-Chat-Setup.exe        same file under the old name (old links)
  *   cloudflare/public/version.json                   shown on the download page
  * and deploys the Worker with wrangler (needs CLOUDFLARE_API_TOKEN, and BING_ADS_CHAT_SITE_URL +
  * CLOUDFLARE_ACCOUNT_ID from scripts/resolve-site.mjs).
@@ -44,13 +45,13 @@ const pubDate = new Date().toISOString();
 if (!process.env.BING_ADS_CHAT_SITE_URL) throw new Error('BING_ADS_CHAT_SITE_URL mangler – kør scripts/resolve-site.mjs først.');
 const site = process.env.BING_ADS_CHAT_SITE_URL.replace(/\/$/, '');
 const pub = join(root, 'cloudflare/public');
-console.log(`Udgiver Bing Ads Chat ${version}`);
+console.log(`Udgiver XavierOS ${version}`);
 
 // Update feed – a versioned file name so no cache can serve an old installer.
 const updates = join(pub, 'updates');
 rmSync(updates, { recursive: true, force: true });
 mkdirSync(updates, { recursive: true });
-const updateName = `Bing-Ads-Chat_${version}_x64-setup.exe`;
+const updateName = `XavierOS_${version}_x64-setup.exe`;
 copyFileSync(join(bundleDir, setup), join(updates, updateName));
 const feed = {
   version,
@@ -63,9 +64,11 @@ const feed = {
 writeFileSync(join(updates, 'latest.json'), `${JSON.stringify(feed, null, 2)}\n`);
 
 // Download page: the themed installer (installer/) when built, the classic NSIS one as fallback.
-const themed = files.find((f) => f === 'Bing-Ads-Chat-Installer.exe');
+const themed = files.find((f) => f === 'XavierOS-Installer.exe');
+copyFileSync(join(bundleDir, themed ?? setup), join(pub, 'XavierOS-Setup.exe'));
+// The app was called Bing Ads Chat before – old links keep working.
 copyFileSync(join(bundleDir, themed ?? setup), join(pub, 'Bing-Ads-Chat-Setup.exe'));
-copyFileSync(join(bundleDir, setup), join(pub, 'Bing-Ads-Chat-Setup-klassisk.exe'));
+copyFileSync(join(bundleDir, setup), join(pub, 'XavierOS-Setup-klassisk.exe'));
 const sizeMb = (statSync(join(bundleDir, themed ?? setup)).size / 1048576).toFixed(1).replace('.', ',');
 writeFileSync(join(pub, 'version.json'), `${JSON.stringify({ version, date: pubDate, notes, sizeMb }, null, 2)}\n`);
 
@@ -84,7 +87,7 @@ if (deploy) {
 }
 
 console.log(`
-✔ Bing Ads Chat ${version} er udgivet.
+✔ XavierOS ${version} er udgivet.
   Download-side:   ${site}
   Opdateringsfeed: ${site}/updates/latest.json
 `);

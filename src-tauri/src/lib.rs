@@ -1,6 +1,7 @@
 mod exports;
 mod oauth;
 mod secrets;
+mod splash;
 mod tray;
 mod updater;
 
@@ -15,6 +16,7 @@ pub fn run() {
         // A second launch focuses the running window instead of opening another one.
         builder = builder
             .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+                splash::finish(app);
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.unminimize();
                     let _ = w.show();
@@ -25,6 +27,7 @@ pub fn run() {
             // its own title bar, and an old saved state must not bring Windows' back.
             .plugin(
                 tauri_plugin_window_state::Builder::new()
+                    .with_denylist(&["splash"])
                     .with_state_flags(
                         tauri_plugin_window_state::StateFlags::all()
                             - tauri_plugin_window_state::StateFlags::DECORATIONS
@@ -43,6 +46,7 @@ pub fn run() {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_decorations(false);
             }
+            splash::init(app);
             updater::init(app)?;
             tray::create(app.handle())?;
             Ok(())
@@ -58,10 +62,11 @@ pub fn run() {
             oauth::oauth_token,
             tray::set_close_to_tray,
             tray::quit_app,
+            splash::splash_finished,
             updater::check_for_update,
             updater::install_update,
             updater::open_download_page,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Bing Ads Chat");
+        .expect("error while running XavierOS");
 }

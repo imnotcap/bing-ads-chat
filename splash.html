@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>XavierOS</title>
+    <!-- The opening animation: a transparent, frameless window (src-tauri/src/splash.rs). -->
+    <style>html, body { background: transparent; margin: 0; overflow: hidden; }</style>
+  </head>
+  <body>
+    <main class="stage" aria-label="XavierOS">
+      <div class="lockup">
+        <div class="mark-wrap">
+          <span class="ring"></span>
+          <span class="ring r2"></span>
+          <svg class="mark" viewBox="0 0 352 294" aria-hidden="true">
+            <polygon class="shard s1" points="4,37 121,5 197,65 164,150" />
+            <polygon class="shard s2" points="234,31 351,0 279,179 198,121" />
+            <polygon class="shard s3" points="73,115 154,173 118,263 1,294" />
+            <polygon class="shard s4" points="155,229 188,144 348,257 231,289" />
+          </svg>
+        </div>
+        <div class="word" aria-hidden="true"></div>
+      </div>
+    </main>
+    <script type="module" src="/src/splash/splash.ts"></script>
+  </body>
+</html>

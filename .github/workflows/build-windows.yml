@@ -1,4 +1,4 @@
-# Builds Bing Ads Chat for Windows on every push and – on the main branch – publishes
+# Builds XavierOS for Windows on every push and – on the main branch – publishes
 # it to Cloudflare, where installed apps pick it up as an in-app update (same setup
 # as Inventarland). See docs/RELEASE.md.
 #
@@ -6,7 +6,7 @@
 # number (scripts/set-version.mjs), so each release is newer than the last.
 #
 # Repository secrets (Settings → Secrets and variables → Actions):
-#   TAURI_SIGNING_PRIVATE_KEY  – Bing Ads Chat's own updater signing key (no password)
+#   TAURI_SIGNING_PRIVATE_KEY  – XavierOS's own updater signing key (no password)
 #   CLOUDFLARE_API_TOKEN       – API token for YOUR Cloudflare account ("Edit Cloudflare Workers"
 #                                template). The account and its workers.dev address are found
 #                                from the token (scripts/resolve-site.mjs).
@@ -115,18 +115,18 @@ jobs:
         shell: bash
         run: |
           mkdir -p out release
-          cp src-tauri/target/release/bing-ads-chat-setup.exe out/Bing-Ads-Chat-Setup.exe
-          cp src-tauri/target/release/bing-ads-chat-setup.exe release/Bing-Ads-Chat-Installer.exe
-          cp src-tauri/target/release/bundle/nsis/*-setup.exe out/Bing-Ads-Chat-Setup-klassisk.exe
-          cp src-tauri/target/release/bundle/msi/*.msi out/Bing-Ads-Chat.msi
-          cp src-tauri/target/release/BingAdsChat.exe out/Bing-Ads-Chat-portable.exe
+          cp src-tauri/target/release/bing-ads-chat-setup.exe out/XavierOS-Setup.exe
+          cp src-tauri/target/release/bing-ads-chat-setup.exe release/XavierOS-Installer.exe
+          cp src-tauri/target/release/bundle/nsis/*-setup.exe out/XavierOS-Setup-klassisk.exe
+          cp src-tauri/target/release/bundle/msi/*.msi out/XavierOS.msi
+          cp src-tauri/target/release/XavierOS.exe out/XavierOS-portable.exe
           # Installer + updater signature for the Cloudflare release.
           cp src-tauri/target/release/bundle/nsis/*-setup.exe* release/
           ls -la out release
 
       - uses: actions/upload-artifact@v7
         with:
-          name: Bing-Ads-Chat-Windows
+          name: XavierOS-Windows
           path: out/
           if-no-files-found: error
           retention-days: 30

@@ -1,5 +1,5 @@
 /**
- * Bing Ads Chat on Cloudflare Workers (Free plan):
+ * XavierOS on Cloudflare Workers (Free plan):
  * - Static files (download page, installer, update feed) from ./public.
  * - /api/…: the department's shared workspace (workspace.ts) – accounts via
  *   Microsoft login, the shared Microsoft Advertising and AI connections, and the

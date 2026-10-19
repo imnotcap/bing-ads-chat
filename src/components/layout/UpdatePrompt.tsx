@@ -21,7 +21,7 @@ export function UpdateDialog() {
     <Dialog
       open={promptOpen}
       onOpenChange={(open) => !open && closePrompt()}
-      title={`Bing Ads Chat ${available.version} er klar`}
+      title={`XavierOS ${available.version} er klar`}
       description="Opdateringen installeres direkte i appen – du skal ikke hente noget nyt."
       footer={
         <>

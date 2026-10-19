@@ -1,7 +1,7 @@
 {
-  // Bing Ads Chat on Cloudflare Workers Free:
+  // XavierOS on Cloudflare Workers Free:
   //   /                         download page (finds the latest version in /version.json)
-  //   /Bing-Ads-Chat-Setup.exe  latest Windows installer
+  //   /XavierOS-Setup.exe       latest Windows installer (also /Bing-Ads-Chat-Setup.exe, the old name)
   //   /updates/latest.json      signed update feed the app checks (tauri-plugin-updater)
   //   /api/…                    shared workspace: accounts, shared connections, planning boards
   //                             (src/workspace.ts, one Durable Object for the whole department)

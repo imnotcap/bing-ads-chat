@@ -1,4 +1,4 @@
-//! Bing Ads Chat – installer.
+//! XavierOS – installer.
 //!
 //! A step-by-step guide (ui/) in the app's own layout. The embedded, signed NSIS
 //! installer does the actual work silently (`/S /D=<folder>`, per user, no admin
@@ -13,9 +13,9 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 const PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.exe"));
-const PRODUCT: &str = "Bing Ads Chat";
-const APP_EXE: &str = "BingAdsChat.exe";
-const UNINSTALL_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Bing Ads Chat";
+const PRODUCT: &str = "XavierOS";
+const APP_EXE: &str = "XavierOS.exe";
+const UNINSTALL_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\XavierOS";
 
 #[cfg(windows)]
 fn hidden(cmd: &mut Command) -> &mut Command {
@@ -75,7 +75,7 @@ fn info() -> Info {
 fn check_dir(dir: String) -> Result<(), String> {
     let path = PathBuf::from(dir.trim());
     if !path.is_absolute() {
-        return Err("Vælg en fuld sti, fx C:\\Users\\dig\\AppData\\Local\\Bing Ads Chat.".into());
+        return Err("Vælg en fuld sti, fx C:\\Users\\dig\\AppData\\Local\\XavierOS.".into());
     }
     std::fs::create_dir_all(&path).map_err(|_| "Mappen kan ikke oprettes. Vælg en mappe, du har adgang til.".to_string())?;
     let probe = path.join(".bing-ads-chat-write-test");
@@ -94,12 +94,18 @@ async fn install(app: AppHandle, dir: String, desktop_shortcut: bool) -> Result<
         return Err("Denne installer indeholder ikke selve appen. Hent den nyeste fra download-siden.".into());
     }
     check_dir(dir.clone())?;
-    let had_shortcut = app.path().desktop_dir().map(|d| d.join(format!("{PRODUCT}.lnk")).exists()).unwrap_or(false);
+    // The app was called "Bing Ads Chat" before 0.3 – its desktop shortcut counts too
+    // (the setup removes that installation and puts XavierOS in its place).
+    let had_shortcut = app
+        .path()
+        .desktop_dir()
+        .map(|d| d.join(format!("{PRODUCT}.lnk")).exists() || d.join("Bing Ads Chat.lnk").exists())
+        .unwrap_or(false);
 
     step(&app, "extract");
     let temp = std::env::temp_dir().join(format!("bing-ads-chat-setup-{}", std::process::id()));
     std::fs::create_dir_all(&temp).map_err(|e| format!("Kunne ikke pakke ud: {e}"))?;
-    let exe = temp.join("Bing-Ads-Chat-Setup.exe");
+    let exe = temp.join("XavierOS-Setup.exe");
     std::fs::write(&exe, PAYLOAD).map_err(|e| format!("Kunne ikke pakke ud: {e}"))?;
 
     step(&app, "install");
@@ -111,7 +117,7 @@ async fn install(app: AppHandle, dir: String, desktop_shortcut: bool) -> Result<
         .map_err(|e| format!("Installationen kunne ikke starte: {e}"))?;
     if !status.success() {
         let _ = std::fs::remove_dir_all(&temp);
-        return Err(format!("Installationen fejlede (kode {}). Luk Bing Ads Chat, hvis den kører, og prøv igen.", status.code().unwrap_or(-1)));
+        return Err(format!("Installationen fejlede (kode {}). Luk XavierOS, hvis den kører, og prøv igen.", status.code().unwrap_or(-1)));
     }
 
     step(&app, "shortcuts");
@@ -132,7 +138,7 @@ async fn install(app: AppHandle, dir: String, desktop_shortcut: bool) -> Result<
 fn launch(app: AppHandle, dir: String) -> Result<(), String> {
     let exe = PathBuf::from(dir.trim()).join(APP_EXE);
     if !exe.exists() {
-        return Err("Appen blev ikke fundet – åbn Bing Ads Chat fra Start-menuen.".into());
+        return Err("Appen blev ikke fundet – åbn XavierOS fra Start-menuen.".into());
     }
     Command::new(exe).spawn().map_err(|e| e.to_string())?;
     app.exit(0);
@@ -149,5 +155,5 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![info, check_dir, install, launch, quit])
         .run(tauri::generate_context!())
-        .expect("error while running the Bing Ads Chat installer");
+        .expect("error while running the XavierOS installer");
 }

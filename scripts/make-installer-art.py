@@ -71,7 +71,7 @@ def sidebar():
     img = Image.alpha_composite(img, shadow)
     img.alpha_composite(icon, (x, y))
     d = ImageDraw.Draw(img)
-    title = "Bing Ads Chat"
+    title = "XavierOS"
     tf = font("SemiBold", 17)
     tw = d.textlength(title, font=tf)
     d.text(((w - tw) / 2, y + size + 16 * S), title, font=tf, fill=(18, 18, 22, 255))

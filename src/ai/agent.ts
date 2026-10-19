@@ -611,7 +611,7 @@ async function executeTools(
   }
 
   const approvals = new Map(planned.filter((x) => x.verdict === 'approve').map((x) => [x.id, requestApproval(x.id, signal)]));
-  if (approvals.size) void nativeNotify('Godkendelse kræves', `${approvals.size} ændring${approvals.size === 1 ? '' : 'er'} venter på din godkendelse i Bing Ads Chat.`);
+  if (approvals.size) void nativeNotify('Godkendelse kræves', `${approvals.size} ændring${approvals.size === 1 ? '' : 'er'} venter på din godkendelse i XavierOS.`);
 
   for (const item of planned) {
     if (item.verdict === 'block') continue;

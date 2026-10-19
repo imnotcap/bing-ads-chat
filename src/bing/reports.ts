@@ -56,7 +56,7 @@ export function buildReportRequest(accountId: string, spec: ReportSpec): Record<
   }
   return {
     Type: def.type,
-    ReportName: `Bing Ads Chat – ${spec.kind}`,
+    ReportName: `XavierOS – ${spec.kind}`,
     Aggregation: aggregation,
     Columns: columns,
     ExcludeColumnHeaders: false,
