@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ClipboardPaste, CornerDownLeft, FileText, FolderOpen, ImageIcon, Loader2, Mic, Paperclip, Plus, Square, X } from 'lucide-react';
+import { ClipboardPaste, CornerDownLeft, FileText, FolderOpen, ImageIcon, ListPlus, Loader2, Mic, Paperclip, Plus, Square, X } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
@@ -55,8 +55,15 @@ export const ATTACH_EVENT = 'bac:attach';
 
 export const Composer = forwardRef<
   ComposerHandle,
-  { running: boolean; onSend: (text: string, attachments: Attachment[]) => void; onStop: () => void; disabled?: boolean }
->(function Composer({ running, onSend, onStop, disabled }, handle) {
+  {
+    running: boolean;
+    onSend: (text: string, attachments: Attachment[]) => void;
+    /** While the assistant is answering: the message waits in the queue (features/chat/queue.ts). */
+    onQueue: (text: string, attachments: Attachment[]) => void;
+    onStop: () => void;
+    disabled?: boolean;
+  }
+>(function Composer({ running, onSend, onQueue, onStop, disabled }, handle) {
   const [text, setText] = useState('');
   const [active, setActive] = useState(0);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -158,7 +165,7 @@ export const Composer = forwardRef<
 
   useEffect(() => setActive(0), [slash.length]);
 
-  const canSend = (text.trim().length > 0 || attachments.length > 0) && !reading && !running && !disabled;
+  const canSend = (text.trim().length > 0 || attachments.length > 0) && !reading && !disabled;
   const submit = () => {
     const command = SLASH_COMMANDS.find((c) => c.run && c.command === text.trim());
     if (command && !running) {
@@ -166,7 +173,7 @@ export const Composer = forwardRef<
       return command.run!();
     }
     if (!canSend) return;
-    onSend(text.trim(), attachments);
+    (running ? onQueue : onSend)(text.trim(), attachments);
     setText('');
     setAttachments([]);
   };
@@ -318,11 +325,32 @@ export const Composer = forwardRef<
                 submit();
               }
             }}
-            placeholder={disabled ? 'Tilføj din Claude API-nøgle under Indstillinger for at chatte (eller skriv /test) …' : dictation.listening ? 'Lytter … tal nu' : 'Spørg om hvad som helst, eller bed mig ændre noget …'}
+            placeholder={
+              disabled
+                ? 'Tilføj din Claude API-nøgle under Indstillinger for at chatte (eller skriv /test) …'
+                : dictation.listening
+                  ? 'Lytter … tal nu'
+                  : running
+                    ? 'Skriv din næste besked – den sendes, når svaret er færdigt …'
+                    : 'Spørg om hvad som helst, eller bed mig ændre noget …'
+            }
             className="block max-h-[220px] min-h-9 flex-1 resize-none bg-transparent px-1.5 py-[7px] text-[15px] leading-[22px] text-ink outline-none placeholder:text-subtle"
             aria-label="Besked til assistenten"
           />
 
+          {running && canSend && (
+            <Tooltip content="Læg i kø – sendes når svaret er færdigt (Enter)">
+              <motion.button
+                type="button"
+                onClick={submit}
+                whileTap={{ scale: 0.9 }}
+                className="grid size-9 shrink-0 place-items-center rounded-[10px] text-ink-2 transition-colors hover:bg-line-2 hover:text-ink"
+                aria-label="Læg i kø"
+              >
+                <ListPlus className="size-[17px]" />
+              </motion.button>
+            </Tooltip>
+          )}
           {running ? (
             <Tooltip content="Stop">
               <motion.button type="button" onClick={onStop} whileTap={{ scale: 0.92 }} className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-ink text-white" aria-label="Stop">

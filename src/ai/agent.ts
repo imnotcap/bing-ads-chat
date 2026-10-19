@@ -133,7 +133,8 @@ export function stopConversation(convId: string) {
   controllers.get(convId)?.abort();
 }
 
-export async function sendMessage(convId: string, text: string, attachments: Attachment[] = []): Promise<void> {
+/** `interrupted`: the user stopped the previous answer to send this (see features/chat/queue.ts). */
+export async function sendMessage(convId: string, text: string, attachments: Attachment[] = [], opts: { interrupted?: boolean } = {}): Promise<void> {
   const trimmed = text.trim() || (attachments.length ? 'Se de vedhæftede filer.' : '');
   if (!trimmed || isRunning(convId)) return;
 
@@ -188,9 +189,23 @@ export async function sendMessage(convId: string, text: string, attachments: Att
   });
   const content: Anthropic.Beta.BetaContentBlockParam[] = [];
   if (context !== conv(convId).lastContext) content.push({ type: 'text', text: context });
+  if (opts.interrupted) {
+    content.push({
+      type: 'text',
+      text: '<note>The user stopped your previous answer to send this message. Keep their previous question in mind: answer this message, and finish or connect to the earlier question where it is still relevant.</note>',
+    });
+  }
   content.push(...toContentBlocks(attachments));
   content.push({ type: 'text', text: trimmed });
-  chat.patch(convId, (c) => ({ api: [...c.api, { role: 'user', content }], lastContext: context }));
+  chat.patch(convId, (c) => {
+    // A stopped answer can leave the previous question without a reply – one user turn then.
+    const last = c.api[c.api.length - 1];
+    if (last?.role === 'user') {
+      const before = typeof last.content === 'string' ? [{ type: 'text' as const, text: last.content }] : last.content;
+      return { api: [...c.api.slice(0, -1), { role: 'user', content: [...before, ...content] }], lastContext: context };
+    }
+    return { api: [...c.api, { role: 'user', content }], lastContext: context };
+  });
 
   const controller = new AbortController();
   controllers.set(convId, controller);

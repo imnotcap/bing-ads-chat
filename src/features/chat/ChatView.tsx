@@ -6,6 +6,8 @@ import { useActiveConversation, useChat } from '@/stores/chat';
 import { startChat } from './startChat';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
 import { Composer, type ComposerHandle } from './Composer';
+import { enqueue } from './queue';
+import { QueueList } from './QueueList';
 import { EmptyState } from './EmptyState';
 import { AssistantMessage, UserMessage } from './Messages';
 
@@ -108,11 +110,13 @@ export function ChatView() {
             </motion.button>
           )}
         </AnimatePresence>
+        <QueueList convId={conversation?.id ?? null} />
         <Composer
           ref={composer}
           running={running}
           disabled={!hasKey}
           onSend={(text, attachments) => startChat(text, attachments)}
+          onQueue={(text, attachments) => conversation && enqueue(conversation.id, text, attachments)}
           onStop={() => conversation && stopConversation(conversation.id)}
         />
       </div>
