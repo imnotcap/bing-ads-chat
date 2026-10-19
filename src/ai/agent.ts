@@ -287,7 +287,14 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
         system,
         tools,
         messages: conv(convId).api,
-        thinking: { type: 'adaptive', display: ai.showThinking ? 'summarized' : 'omitted' },
+        thinking: {
+          type: 'adaptive',
+          display: ai.showThinking ? 'summarized' : 'omitted',
+          // Claude's earlier reasoning is tied to the system prompt and tools it was written
+          // with. They change when the app is updated, a branch is trained or a connector is
+          // switched – then that old reasoning is left out instead of the request failing.
+          block_binding: { prefix_mismatch_behavior: 'drop_block' },
+        },
         output_config: { effort: ai.effort },
         // The conversation so far is cached for an hour, so the next message only adds
         // to it instead of making Claude read the whole conversation again.
@@ -295,8 +302,9 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
         // A long conversation is summarized by Claude (a compaction block that stays in the
         // history), so it keeps what was said without reading every old report again.
         context_management: { edits: [{ type: 'compact_20260112', trigger: { type: 'input_tokens', value: COMPACT_AT }, instructions: COMPACT_INSTRUCTIONS }] },
-        // Server-side fallback if the model declines for policy reasons.
-        betas: ['server-side-fallback-2026-07-01', 'extended-cache-ttl-2025-04-11', 'compact-2026-01-12'],
+        // Server-side fallback if the model declines for policy reasons; the one-hour cache,
+        // compaction and block_binding above.
+        betas: ['server-side-fallback-2026-07-01', 'extended-cache-ttl-2025-04-11', 'compact-2026-01-12', 'thinking-binding-controls-2026-08-01'],
         fallbacks: 'default',
       },
       { signal },
