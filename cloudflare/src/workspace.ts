@@ -410,6 +410,8 @@ export class Workspace extends DurableObject<Env> {
         hasDeveloperToken: !!ads?.developerToken,
         hasClientSecret: !!ads?.clientSecret,
         hasRefreshToken: !!ads?.refreshToken,
+        accountId: ads?.accountId ?? null,
+        customerId: ads?.customerId ?? null,
         accounts: ads?.accounts ?? null,
         connectedBy: ads?.connectedBy ?? null,
         connectedAt: ads?.connectedAt ?? null,

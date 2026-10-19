@@ -84,6 +84,36 @@ describe('connection tests', () => {
     expect(header(search.init, 'login-customer-id')).toBe('9990001111');
   });
 
+  it('Google Ads like Inventarland: a configured API version first, and no developer token', async () => {
+    const api = fakeFetch([
+      [/oauth2\.googleapis\.com\/token/, () => ({ body: { access_token: 'access' } })],
+      [/\/v27\/customers\/1234567890\/googleAds:searchStream/, () => ({ body: [{ results: [{ customer: { descriptiveName: 'Inventarland', currencyCode: 'DKK' } }] }] })],
+    ]);
+    const r = await runTest('google_ads', state({ customerId: '1234567890', apiVersion: 'v27' }, { clientId: 'c', clientSecret: 's', refreshToken: 'r', developerToken: 'old' }), api.fn);
+    expect(r.ok).toBe(true);
+    expect(api.calls[1]!.url).toContain('/v27/');
+    expect(header(api.calls[1]!.init, 'developer-token')).toBeNull();
+    expect(connectorDef('google_ads').fields.map((f) => f.key)).toEqual(['customerId', 'loginCustomerId', 'apiVersion', 'clientId', 'clientSecret', 'refreshToken']);
+  });
+
+  it('Daisycon like Inventarland: a pasted refresh token and the API address can be set', async () => {
+    const api = fakeFetch([
+      [/login\.daisycon\.com\/oauth\/access-token/, () => ({ body: { access_token: 'a', refresh_token: 'r2' } })],
+      [/^https:\/\/api\.example\.com\/advertisers$/, () => ({ body: [{ id: 42, name: 'Inventarland' }] })],
+    ]);
+    const r = await runTest('daisycon', state({ advertiserId: '42', apiBaseUrl: 'https://api.example.com/' }, { clientId: 'c', refreshToken: 'r1' }), api.fn);
+    expect(r).toMatchObject({ ok: true, state: { accountLabel: 'Inventarland', secrets: { refreshToken: 'r2' } } });
+  });
+
+  it('Magento shows the store currency like Inventarland', async () => {
+    const api = fakeFetch([
+      [/rest\/V1\/orders/, () => ({ body: { total_count: 12 } })],
+      [/rest\/V1\/store\/storeConfigs/, () => ({ body: [{ code: 'default', base_currency_code: 'DKK' }] })],
+    ]);
+    const r = await runTest('magento', state({ baseUrl: 'https://m2.example.dk' }, { consumerKey: 'ck', consumerSecret: 'cs', accessToken: 'at', accessTokenSecret: 'ats' }), api.fn);
+    expect(r.state.accountLabel).toBe('m2.example.dk (DKK) · 12 ordrer');
+  });
+
   it('Magento: signs the request with OAuth 1.0a', async () => {
     const api = fakeFetch([[/m2\.example\.dk\/rest\/V1\/orders/, () => ({ body: { total_count: 1234 } })]]);
     const r = await runTest('magento', state({ baseUrl: 'https://m2.example.dk/' }, { consumerKey: 'ck', consumerSecret: 'cs', accessToken: 'at', accessTokenSecret: 'ats' }), api.fn);
@@ -156,7 +186,7 @@ describe('Microsoft Advertising with typed-in keys', () => {
   it('keeps stored secrets when the fields are left empty and asks for what is missing', () => {
     expect(mergeAdsKeys({ ...keys, clientSecret: 's' }, { developerToken: '', clientId: 'app2', refreshToken: '' })).toEqual({ ...keys, clientId: 'app2', clientSecret: 's' });
     expect(mergeAdsKeys({ ...keys, clientSecret: 's' }, { clientSecret: null })).toEqual(keys);
-    expect(() => mergeAdsKeys(undefined, { developerToken: 'dev' })).toThrow('Udfyld: Application (client) ID, Refresh token.');
+    expect(() => mergeAdsKeys(undefined, { developerToken: 'dev' })).toThrow('Udfyld: OAuth client ID, OAuth refresh token.');
   });
 
   it('tests the keys: refresh, who the user is and the ad accounts', async () => {
@@ -170,10 +200,29 @@ describe('Microsoft Advertising with typed-in keys', () => {
     expect(JSON.parse(String(api.calls[2]!.init?.body)).Predicates[0].Value).toBe('42');
   });
 
+  it('removes spaces and line breaks from pasted values and checks Konto-ID/Kunde-ID like Inventarland', () => {
+    expect(mergeAdsKeys(undefined, { ...keys, refreshToken: 'M.C5_ab  cd\n ef', accountId: ' 187 654 321 ', customerId: '251234567' })).toMatchObject({ refreshToken: 'M.C5_abcdef', accountId: '187654321', customerId: '251234567' });
+    expect(() => mergeAdsKeys(undefined, { ...keys, accountId: 'F149ABCD', customerId: '1' })).toThrow(/Konto-ID skal være et tal/);
+    expect(() => mergeAdsKeys(undefined, { ...keys, accountId: '123' })).toThrow(/både Konto-ID og Kunde-ID/);
+    expect(mergeAdsKeys({ ...keys, accountId: '1', customerId: '2' }, { accountId: '', customerId: '' })).not.toHaveProperty('accountId');
+  });
+
+  it('with Konto-ID and Kunde-ID it tests that account (Account/Query), like Inventarland', async () => {
+    const api = fakeFetch([
+      [/oauth2\/v2\.0\/token/, () => ({ body: { access_token: 'acc', expires_in: 3600 } })],
+      [/CustomerManagement\/v13\/Account\/Query/, () => ({ body: { Account: { Name: 'Inventarland', CurrencyCode: 'DKK' } } })],
+    ]);
+    const r = await adsProbe(api.fn, { ...keys, accountId: '187654321', customerId: '251234567' });
+    expect(r).toMatchObject({ name: 'Inventarland (DKK)', accounts: 1, refreshToken: 'r1' });
+    expect(header(api.calls[1]!.init, 'CustomerAccountId')).toBe('187654321');
+    expect(header(api.calls[1]!.init, 'CustomerId')).toBe('251234567');
+    expect(JSON.parse(String(api.calls[1]!.init?.body))).toEqual({ AccountId: 187654321 });
+  });
+
   it('explains a rejected developer token (105) and an expired refresh token', async () => {
     const bad = msApi(() => ({ status: 400, body: { Errors: [{ Code: 105, Message: 'Authentication failed.' }] } }));
     await expect(adsProbe(bad.fn, keys)).rejects.toMatchObject({ kind: 'auth', message: expect.stringMatching(/developer tokenet er forkert.*\(105\)/) });
     const expired = fakeFetch([[/oauth2\/v2\.0\/token/, () => ({ status: 400, body: { error: 'invalid_grant', error_description: 'AADSTS70000: expired' } })]]);
-    await expect(adsRefresh(expired.fn, keys)).rejects.toMatchObject({ kind: 'auth', message: expect.stringMatching(/udløbet.*AADSTS70000/) });
+    await expect(adsRefresh(expired.fn, keys)).rejects.toMatchObject({ kind: 'auth', message: expect.stringMatching(/andet OAuth client ID.*AADSTS70000/) });
   });
 });
