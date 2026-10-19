@@ -39,7 +39,8 @@ type Json = Record<string, unknown>;
 
 const CAMPAIGN_TYPES = ['Search', 'Shopping', 'Audience', 'PerformanceMax'];
 /** Without these, campaigns on Maximize conversion value / Target impression share come back with an empty BiddingScheme. */
-const CAMPAIGN_FIELDS = 'MaxConversionValueBiddingScheme TargetImpressionShareBiddingScheme BidStrategyId';
+// REST takes flag combinations comma-separated (SOAP took them space-separated).
+const CAMPAIGN_FIELDS = 'MaxConversionValueBiddingScheme,TargetImpressionShareBiddingScheme,BidStrategyId';
 const POLL_ATTEMPTS = 40;
 const POLL_DELAY_MS = 2_000;
 
@@ -72,8 +73,9 @@ function toBidStrategy(raw: unknown): BidStrategy {
   };
 }
 
+/** In REST JSON the bidding scheme's Type is the class name, e.g. "TargetCpaBiddingScheme". */
 export function fromBidStrategy(b: BidStrategy): Json {
-  const out: Json = { Type: b.type };
+  const out: Json = { Type: `${b.type}BiddingScheme` };
   if (b.maxCpc) out.MaxCpc = { Amount: b.maxCpc };
   if (b.targetCpa) out.TargetCpa = b.targetCpa;
   if (b.targetRoas) out.TargetRoas = b.targetRoas;
@@ -194,11 +196,11 @@ export class LiveBackend implements AdsBackend {
     const query = (type: string) =>
       this.cm<Json>(accountId, 'Campaigns/QueryByAccountId', 'POST', { AccountId: Number(accountId), CampaignType: type, ReturnAdditionalFields: fields });
     try {
-      const res = await query(CAMPAIGN_TYPES.join(' ')).catch((err) => {
+      const res = await query(CAMPAIGN_TYPES.join(',')).catch((err) => {
         if (!(err instanceof MsApiError) || err.status !== 400) throw err;
         // Older API behaviour: retry without the additional fields before splitting by type.
         fields = null;
-        return query(CAMPAIGN_TYPES.join(' '));
+        return query(CAMPAIGN_TYPES.join(','));
       });
       return arr<Json>(res.Campaigns).map(mapCampaign);
     } catch (err) {
@@ -256,11 +258,12 @@ export class LiveBackend implements AdsBackend {
     }));
   }
 
-  async listNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string): Promise<NegativeKeyword[]> {
-    const res = await this.cm<Json>(accountId, 'EntityNegativeKeywords/QueryByEntityIds', 'POST', {
+  async listNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, campaignId: string): Promise<NegativeKeyword[]> {
+    // GetNegativeKeywordsByEntityIds – for ad groups the parent is the campaign (ignored for campaigns).
+    const res = await this.cm<Json>(accountId, 'NegativeKeywords/QueryByEntityIds', 'POST', {
       EntityIds: [Number(entityId)],
       EntityType: entityType,
-      ParentEntityId: entityType === 'Campaign' ? Number(accountId) : null,
+      ParentEntityId: Number(entityType === 'AdGroup' ? campaignId : accountId),
     });
     return arr<Json>(res.EntityNegativeKeywords).flatMap((e) =>
       arr<Json>(e.NegativeKeywords).map((n) => ({

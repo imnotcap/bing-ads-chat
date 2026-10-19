@@ -623,8 +623,8 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
 
       const notes = await servingBlockers(ctx, c, g);
       const negatives = [
-        ...(await ctx.backend.listNegativeKeywords(ctx.accountId, 'Campaign', c.id).catch(() => [])),
-        ...(await ctx.backend.listNegativeKeywords(ctx.accountId, 'AdGroup', g.id).catch(() => [])),
+        ...(await ctx.backend.listNegativeKeywords(ctx.accountId, 'Campaign', c.id, c.id).catch(() => [])),
+        ...(await ctx.backend.listNegativeKeywords(ctx.accountId, 'AdGroup', g.id, c.id).catch(() => [])),
       ];
       for (const k of input.keywords) {
         const block = negatives.find((n) => negativeBlocks(n, k.text));
@@ -820,7 +820,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
       const entityId = g ? g.id : c.id;
       const key = (n: NegativeKeyword) => `${normalizeKeyword(n.text)}|${n.matchType}`;
 
-      const existing = await ctx.backend.listNegativeKeywords(ctx.accountId, entityType, entityId);
+      const existing = await ctx.backend.listNegativeKeywords(ctx.accountId, entityType, entityId, c.id);
       const have = new Set(existing.map(key));
       const dupes = input.keywords.filter((k) => have.has(key(k)));
       if (dupes.length) throw new Error(`Findes allerede som negative søgeord på ${target}: ${dupes.map((k) => `"${k.text}"`).join(', ')}. Fjern dem fra kaldet.`);
@@ -864,7 +864,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
         execute: async () => {
           const res = await ctx.backend.addNegativeKeywords(ctx.accountId, entityType, entityId, input.keywords);
           fresh(ctx);
-          const state = await readBack(() => ctx.backend.listNegativeKeywords(ctx.accountId, entityType, entityId), checks, failedIndexes(res));
+          const state = await readBack(() => ctx.backend.listNegativeKeywords(ctx.accountId, entityType, entityId, c.id), checks, failedIndexes(res));
           return report(verify(checks, res, state), { noun: 'negative søgeord', warnings: conflicts });
         },
       };
@@ -905,7 +905,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
       const where = (k: (typeof input.candidates)[number]) => (k.adGroupId ? groups.get(k.adGroupId)! : 'Hele kampagnen');
       const key = (n: { text: string; matchType: string }) => `${normalizeKeyword(n.text)}|${n.matchType}`;
       const targetOf = (k: (typeof input.candidates)[number]) => k.adGroupId ?? '';
-      const readNegatives = (target: string) => ctx.backend.listNegativeKeywords(ctx.accountId, target ? 'AdGroup' : 'Campaign', target || c.id);
+      const readNegatives = (target: string) => ctx.backend.listNegativeKeywords(ctx.accountId, target ? 'AdGroup' : 'Campaign', target || c.id, c.id);
 
       // What is already there, and which of our own active keywords each candidate would stop.
       const targets = [...new Set(input.candidates.map(targetOf))];

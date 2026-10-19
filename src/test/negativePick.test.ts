@@ -49,9 +49,9 @@ describe('propose_negative_keywords', () => {
     const exec = await (await tool.plan(picked, c)).execute();
     expect(exec.summary).toMatch(/^Bekræftet hos Microsoft: 3 negative søgeord/);
 
-    const onAdGroup = await c.backend.listNegativeKeywords(c.accountId, 'AdGroup', rows[0]!.adGroupId);
+    const onAdGroup = await c.backend.listNegativeKeywords(c.accountId, 'AdGroup', rows[0]!.adGroupId, campaignId);
     expect(onAdGroup.map((n) => n.text)).toContain(rows[0]!.searchTerm);
-    const onCampaign = (await c.backend.listNegativeKeywords(c.accountId, 'Campaign', campaignId)).map((n) => n.text);
+    const onCampaign = (await c.backend.listNegativeKeywords(c.accountId, 'Campaign', campaignId, campaignId)).map((n) => n.text);
     expect(onCampaign).toContain(rows[2]!.searchTerm);
     expect(onCampaign).toContain('gratis');
     expect(onCampaign).not.toContain(rows[1]!.searchTerm);

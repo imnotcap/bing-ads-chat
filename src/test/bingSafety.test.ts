@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { getTool, type ToolContext } from '@/ai/tools';
 import { negativeBlocks, normalizeKeyword, rawErrors, collectAmounts } from '@/ai/tools/write';
 import { DemoBackend } from '@/bing/demo/backend';
-import { batchResult, bidStrategyType } from '@/bing/live';
+import { batchResult, bidStrategyType, LiveBackend } from '@/bing/live';
 import type { AdsBackend } from '@/bing/types';
 import { DEFAULT_SPEND_RULES } from '@/stores/settings';
 
@@ -148,5 +148,61 @@ describe('raw API calls', () => {
   it('refuses account and billing changes', async () => {
     await expect(plan('microsoft_ads_api', { service: 'customer', path: 'Users', method: 'PUT', body: {}, reason: 'x' })).rejects.toThrow(/fakturering/);
     await expect(plan('microsoft_ads_api', { service: 'campaign', path: '../x', method: 'PUT', body: {}, reason: 'x' })).rejects.toThrow(/Ugyldig sti/);
+  });
+});
+
+describe('REST requests sent to Microsoft (checked against the v13 REST reference)', () => {
+  function live() {
+    const backend = new LiveBackend({ getAccess: async () => ({ accessToken: 't', expiresAt: Date.now() + 3600_000, developerToken: 'd' }) });
+    const calls: { service: string; path: string; method?: string; body: Record<string, unknown> }[] = [];
+    const client = (backend as unknown as { client: { call: (s: string, p: string, o: { method?: string; body?: unknown }) => Promise<unknown> } }).client;
+    client.call = async (service, path, o) => {
+      calls.push({ service, path, method: o.method, body: (o.body ?? {}) as Record<string, unknown> });
+      if (path === 'User/Query') return { User: { Id: 1 } };
+      if (path === 'Accounts/Search') return { Accounts: [{ Id: 5, ParentCustomerId: 7, CurrencyCode: 'DKK', AccountLifeCycleStatus: 'Active' }] };
+      if (path === 'Campaigns/QueryByAccountId') return { Campaigns: [{ Id: 9, Name: 'A', Status: 'Active', CampaignType: 'Search', BiddingScheme: { Type: 'MaxConversionsBiddingScheme' } }] };
+      return {};
+    };
+    return { backend, calls };
+  }
+
+  it('reads negative keywords from NegativeKeywords/QueryByEntityIds with the campaign as parent of an ad group', async () => {
+    const { backend, calls } = live();
+    await backend.listNegativeKeywords('5', 'AdGroup', '42', '9');
+    const call = calls.find((c) => c.path.includes('QueryByEntityIds'))!;
+    expect(call.path).toBe('NegativeKeywords/QueryByEntityIds');
+    expect(call.body).toEqual({ EntityIds: [42], EntityType: 'AdGroup', ParentEntityId: 9 });
+  });
+
+  it('sends bidding schemes by class name and flags comma-separated', async () => {
+    const { backend, calls } = live();
+    const campaigns = await backend.listCampaigns('5');
+    expect(campaigns[0]!.bidStrategy.type).toBe('MaxConversions');
+    const query = calls.find((c) => c.path === 'Campaigns/QueryByAccountId')!;
+    expect(query.body.CampaignType).toBe('Search,Shopping,Audience,PerformanceMax');
+    expect(query.body.ReturnAdditionalFields).toBe('MaxConversionValueBiddingScheme,TargetImpressionShareBiddingScheme,BidStrategyId');
+    await backend.updateCampaigns('5', [{ campaignId: '9', bidStrategy: { type: 'MaxConversions', targetCpa: 300, maxCpc: 12 } }]);
+    const update = calls.find((c) => c.path === 'Campaigns' && c.method === 'PUT')!;
+    expect((update.body.Campaigns as Record<string, unknown>[])[0]!.BiddingScheme).toEqual({ Type: 'MaxConversionsBiddingScheme', TargetCpa: 300, MaxCpc: { Amount: 12 } });
+  });
+
+  it('uses the documented paths and methods for every write', async () => {
+    const { backend, calls } = live();
+    await backend.listAccounts();
+    calls.length = 0;
+    await backend.addKeywords('5', '42', [{ text: 'a', matchType: 'Exact' }]).catch(() => {});
+    await backend.updateKeywords('5', '42', [{ keywordId: '1', status: 'Paused' }]);
+    await backend.deleteKeywords('5', '42', ['1']);
+    await backend.addNegativeKeywords('5', 'Campaign', '9', [{ text: 'gratis', matchType: 'Phrase' }]);
+    await backend.updateAdGroups('5', '9', [{ adGroupId: '42', status: 'Paused' }]);
+    await backend.deleteCampaigns('5', ['9']);
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'POST Keywords',
+      'PUT Keywords',
+      'DELETE Keywords',
+      'POST EntityNegativeKeywords',
+      'PUT AdGroups',
+      'DELETE Campaigns',
+    ]);
   });
 });

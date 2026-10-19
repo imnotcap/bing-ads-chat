@@ -320,7 +320,7 @@ export const readTools = [
     async run(input, ctx) {
       const campaign = await getCampaign(ctx, input.campaignId);
       const entityType = input.adGroupId ? 'AdGroup' : 'Campaign';
-      const negatives = await ctx.backend.listNegativeKeywords(ctx.accountId, entityType, input.adGroupId ?? campaign.id);
+      const negatives = await ctx.backend.listNegativeKeywords(ctx.accountId, entityType, input.adGroupId ?? campaign.id, campaign.id);
       return {
         result: { level: entityType, campaign: campaign.name, negatives },
         summary: `${negatives.length} negative søgeord`,

@@ -204,7 +204,7 @@ export class DemoBackend implements AdsBackend {
     return this.state.ads.filter((a) => a.adGroupId === adGroupId).map((a) => ({ editorialStatus: 'Active', ...a }));
   }
 
-  async listNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string): Promise<NegativeKeyword[]> {
+  async listNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, _campaignId?: string): Promise<NegativeKeyword[]> {
     await this.delay();
     if (entityType === 'Campaign') this.campaign(accountId, entityId);
     else this.adGroup(accountId, entityId);

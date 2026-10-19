@@ -281,7 +281,8 @@ export interface AdsBackend {
   listAdGroups(accountId: string, campaignId: string): Promise<AdGroup[]>;
   listKeywords(accountId: string, adGroupId: string): Promise<Keyword[]>;
   listAds(accountId: string, adGroupId: string): Promise<Ad[]>;
-  listNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string): Promise<NegativeKeyword[]>;
+  /** `campaignId`: the campaign the entity belongs to (Microsoft needs it for ad groups). */
+  listNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, campaignId: string): Promise<NegativeKeyword[]>;
 
   updateCampaigns(accountId: string, patches: CampaignPatch[]): Promise<MutationResult>;
   createCampaign(accountId: string, spec: NewCampaign): Promise<MutationResult>;
