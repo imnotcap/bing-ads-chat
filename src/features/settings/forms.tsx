@@ -1,19 +1,18 @@
 /** Forms shared by the settings page and onboarding. */
 import { motion } from 'motion/react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Eye, EyeOff, Hand, KeyRound, Loader2, LogIn, Rocket, ShieldCheck, Unplug, Users } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Eye, EyeOff, Hand, KeyRound, Loader2, LogIn, PlugZap, Rocket, ShieldCheck, Unplug, Users } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/controls';
 import { Field, Input } from '@/components/ui/input';
-import { BUILTIN_MS } from '@/bing/credentials';
 import { fmtRelative } from '@/lib/format';
-import { isTauri, openExternal } from '@/lib/platform';
+import { openExternal } from '@/lib/platform';
 import { cn, errorMessage } from '@/lib/utils';
 import { useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
 import type { ApprovalMode } from '@/stores/settings';
-import { connectInventarland, connectSharedAds, disconnectInventarland, disconnectSharedAds, goDemo, goLive, setSharedDeveloperToken } from '@/workspace/shared';
+import { connectInventarland, disconnectInventarland, disconnectSharedAds, goDemo, goLive, saveSharedAds } from '@/workspace/shared';
 import { INVENTARLAND_URL, type SharedKeyInfo } from '@/workspace/types';
 import { removeAnthropicKey, saveAnthropicKey, testAnthropicKey } from './connection';
 
@@ -139,41 +138,48 @@ export function ClaudeKeyForm({ onDone }: { onDone?: () => void }) {
  * The workspace's Microsoft Advertising connection. Someone signs in once with the
  * Microsoft user that has access on ads.microsoft.com; everyone in the app uses it.
  */
-export function AdsConnectionForm({ compact = false, onDone }: { compact?: boolean; onDone?: () => void }) {
+export function AdsConnectionForm({ onDone }: { compact?: boolean; onDone?: () => void }) {
   const ads = useAccount((s) => s.workspace?.ads ?? null);
   const mode = useConnection((s) => s.mode);
   const accounts = useConnection((s) => s.accounts.length);
-  const [developerToken, setDeveloperToken] = useState('');
-  const [clientId, setClientId] = useState('');
-  const [tenant, setTenant] = useState('');
-  const [busy, setBusy] = useState<'connect' | 'token' | 'disconnect' | null>(null);
-  const [advanced, setAdvanced] = useState(false);
-  const [confirmOff, setConfirmOff] = useState(false);
   const connected = !!ads?.connected;
-  const needsToken = !BUILTIN_MS.developerToken && !ads?.hasDeveloperToken;
+  const [developerToken, setDeveloperToken] = useState('');
+  const [clientId, setClientId] = useState(ads?.clientId ?? '');
+  const [clientSecret, setClientSecret] = useState('');
+  const [refreshToken, setRefreshToken] = useState('');
+  const [tenant, setTenant] = useState(ads?.tenant && ads.tenant !== 'common' ? ads.tenant : '');
+  const [busy, setBusy] = useState<'save' | 'disconnect' | null>(null);
+  const [confirmOff, setConfirmOff] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const saved = '•••••••• (gemt – udfyld kun for at skifte)';
+  const missing = (!developerToken.trim() && !ads?.hasDeveloperToken) || !clientId.trim() || (!refreshToken.trim() && !ads?.hasRefreshToken);
 
-  const connect = async () => {
-    setBusy('connect');
+  const save = async () => {
+    setBusy('save');
+    setError(null);
     try {
-      const res = await connectSharedAds({ developerToken, clientId, tenant });
+      const res = await saveSharedAds({ developerToken, clientId, clientSecret, refreshToken, tenant });
       setDeveloperToken('');
-      toast.success(`Microsoft Advertising er forbundet for alle`, { description: `Via ${res.name} · ${res.accounts} annoncekonto${res.accounts === 1 ? '' : 'er'}.` });
+      setClientSecret('');
+      setRefreshToken('');
+      toast.success('Microsoft Advertising er forbundet for alle', { description: `Via ${res.name} · ${res.accounts} annoncekonto${res.accounts === 1 ? '' : 'er'}.` });
       onDone?.();
     } catch (e) {
-      toast.error('Kunne ikke forbinde Microsoft Advertising', { description: errorMessage(e), duration: 12_000 });
+      setError(errorMessage(e));
     } finally {
       setBusy(null);
     }
   };
 
+  const shownAccounts = mode === 'live' && accounts > 0 ? accounts : ads?.accounts;
   return (
     <div className="grid content-start gap-4">
       {connected && ads && (
         <div className={cn('grid gap-1 rounded-xl px-3.5 py-2.5 text-[13px]', ads.error ? 'bg-warning-bg text-warning' : 'bg-positive-bg text-positive')}>
           <div className="flex flex-wrap items-center gap-2">
             {ads.error ? <AlertTriangle className="size-4" /> : <CheckCircle2 className="size-4" />}
-            <span className="font-medium">Forbundet{ads.accountName ? ` via ${ads.accountName}` : ''}</span>
-            {mode === 'live' && accounts > 0 && <span className="opacity-80">· {accounts} konti</span>}
+            <span className="font-medium">{ads.error ? 'Kræver handling' : `Forbundet${ads.accountName ? ` via ${ads.accountName}` : ''}`}</span>
+            {!ads.error && !!shownAccounts && <span className="opacity-80">· {shownAccounts} konti</span>}
           </div>
           {ads.error && <p className="text-[12.5px]">{ads.error}</p>}
           <SharedBy by={ads.connectedBy} at={ads.connectedAt} className={ads.error ? 'text-warning/80' : 'text-positive/80'} />
@@ -188,51 +194,34 @@ export function AdsConnectionForm({ compact = false, onDone }: { compact?: boole
         </div>
       )}
 
-      {(needsToken || advanced) && (
-        <Field
-          label="Developer token"
-          htmlFor="ms-dev"
-          hint={ads?.hasDeveloperToken ? 'Gemt fælles – udfyld kun for at erstatte.' : 'ads.microsoft.com → Indstillinger → Developer settings → Request Developer Token.'}
-        >
-          <SecretInput id="ms-dev" value={developerToken} onChange={setDeveloperToken} placeholder={ads?.hasDeveloperToken ? '•••••••••••• (gemt)' : 'fx 1A2B3C4D5E6F7G8H'} />
-        </Field>
-      )}
-      {advanced && (
-        <div className={cn('grid gap-4', !compact && 'md:grid-cols-2')}>
-          <Field label="Application (client) ID" htmlFor="ms-client" hint="Tom = appens egen app-registrering (anbefalet).">
-            <Input id="ms-client" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder={ads?.clientId ?? '00000000-0000-0000-0000-000000000000'} className="font-mono text-[13px]" />
-          </Field>
-          <Field label="Tenant" htmlFor="ms-tenant" hint='Normalt "common".'>
-            <Input id="ms-tenant" value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder={ads?.tenant ?? 'common'} />
-          </Field>
-        </div>
-      )}
+      <Field label="Developer token" htmlFor="ms-dev" hint="ads.microsoft.com → Indstillinger → Developer settings.">
+        <SecretInput id="ms-dev" value={developerToken} onChange={setDeveloperToken} placeholder={ads?.hasDeveloperToken ? saved : 'fx 1A2B3C4D5E6F7G8H'} />
+      </Field>
+      <Field label="Application (client) ID" htmlFor="ms-client" hint="Fra app-registreringen i Microsoft Entra ID (Azure).">
+        <Input id="ms-client" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" className="font-mono text-[13px] placeholder:font-sans" autoComplete="off" spellCheck={false} />
+      </Field>
+      <Field label="Client secret (valgfri)" htmlFor="ms-secret" hint='Kun hvis app-registreringen er af typen "Web".'>
+        <SecretInput id="ms-secret" value={clientSecret} onChange={setClientSecret} placeholder={ads?.hasClientSecret ? saved : ''} />
+      </Field>
+      <Field label="Refresh token" htmlFor="ms-refresh" hint="Fra en Microsoft-bruger med adgang til annoncekontiene. Microsoft fornyer det – appen gemmer altid det nyeste.">
+        <SecretInput id="ms-refresh" value={refreshToken} onChange={setRefreshToken} placeholder={ads?.hasRefreshToken ? saved : ''} />
+      </Field>
+      <Field label="Tenant (valgfri)" htmlFor="ms-tenant" hint='Tom = "common".'>
+        <Input id="ms-tenant" value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="common" autoComplete="off" spellCheck={false} />
+      </Field>
 
-      {!isTauri && <p className="rounded-xl bg-warning-bg px-3.5 py-2.5 text-[12.5px] text-warning">Login hos Microsoft virker kun i desktop-appen.</p>}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant={connected ? 'secondary' : 'gradient'} disabled={!!busy || !isTauri || (needsToken && !developerToken.trim())} onClick={() => void connect()}>
-          {busy === 'connect' ? <Loader2 className="animate-spin" /> : <LogIn />} {connected ? 'Forbind med en anden Microsoft-bruger' : 'Forbind Microsoft Advertising'}
+      {error && (
+        <p role="alert" className="flex gap-2 rounded-xl bg-warning-bg px-3.5 py-2.5 text-[12.5px] leading-relaxed text-warning">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span className="min-w-0 break-words">
+            <b className="font-medium">Ikke gemt.</b> {error}
+          </span>
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
+        <Button variant="gradient" disabled={!!busy || missing} onClick={() => void save()}>
+          {busy === 'save' ? <Loader2 className="animate-spin" /> : <PlugZap />} {connected ? 'Gem og test' : 'Forbind'}
         </Button>
-        {connected && advanced && developerToken.trim() && (
-          <Button
-            variant="secondary"
-            disabled={!!busy}
-            onClick={async () => {
-              setBusy('token');
-              try {
-                await setSharedDeveloperToken(developerToken);
-                setDeveloperToken('');
-                toast.success('Developer tokenet er skiftet for alle');
-              } catch (e) {
-                toast.error('Kunne ikke gemme', { description: errorMessage(e) });
-              } finally {
-                setBusy(null);
-              }
-            }}
-          >
-            {busy === 'token' && <Loader2 className="animate-spin" />} Gem kun developer token
-          </Button>
-        )}
         {connected && mode === 'live' && (
           <Button variant="ghost" disabled={!!busy} onClick={() => goDemo()}>
             Vis demo-data på denne PC
@@ -266,14 +255,11 @@ export function AdsConnectionForm({ compact = false, onDone }: { compact?: boole
               </Button>
             </span>
           ) : (
-            <Button variant="ghost" className="text-muted" disabled={!!busy} onClick={() => setConfirmOff(true)}>
+            <Button variant="ghost" className="ml-auto text-muted" disabled={!!busy} onClick={() => setConfirmOff(true)}>
               <Unplug /> Afbryd
             </Button>
           ))}
       </div>
-      <button type="button" onClick={() => setAdvanced((v) => !v)} className="flex w-fit items-center gap-1 text-[12.5px] font-medium text-brand hover:underline">
-        {advanced ? 'Skjul avanceret' : 'Developer token og app-registrering'} <ChevronDown className={cn('size-3.5 transition-transform', advanced && 'rotate-180')} />
-      </button>
     </div>
   );
 }
@@ -373,32 +359,47 @@ export function InventarlandForm() {
   );
 }
 
-export function MicrosoftSetupGuide() {
-  const steps = [
-    <>
-      Log ind på <b>ads.microsoft.com</b> → <b>Indstillinger → Developer settings</b> → vælg din bruger → <b>Request Developer Token</b> (kræver Super Admin).
-    </>,
-    <>
-      Klik <b>Forbind Microsoft Advertising</b>, og log ind med den Microsoft-bruger, der har adgang til annoncekontiene.
-    </>,
-    <>
-      Færdig: alle i appen arbejder nu på de samme konti. Forbindelsen gemmes på jeres Cloudflare – ikke på den enkelte PC.
-    </>,
-  ];
-  return (
-    <ol className="grid gap-2.5">
-      {steps.map((s, i) => (
-        <li key={i} className="flex gap-3 text-[13px] leading-relaxed text-ink-2">
-          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-brand-50 text-[12px] font-semibold text-brand">{i + 1}</span>
-          <span>{s}</span>
+const MS_STEPS = [
+  <>
+    <b>Developer token:</b> ads.microsoft.com → <b>Indstillinger → Developer settings</b> → vælg din bruger → <b>Request Developer Token</b> (kræver Super Admin).
+  </>,
+  <>
+    <b>App-registrering:</b> portal.azure.com → <b>Microsoft Entra ID → App registrations → New registration</b>. Kopiér <b>Application (client) ID</b>. Tilføj under Authentication en
+    &quot;Mobile and desktop&quot;-platform – så skal der ingen client secret til.
+  </>,
+  <>
+    <b>Refresh token:</b> hent det én gang for en Microsoft-bruger med adgang til annoncekontiene (scope <code className="text-[12px]">https://ads.microsoft.com/msads.manage offline_access</code>
+    ). Er Inventarland Dashboard allerede forbundet, kan I bruge de samme værdier derfra.
+  </>,
+  <>Gem: Cloudflare tester nøglerne, og alle i appen arbejder på de samme konti. Refresh tokenet holdes friskt hver nat.</>,
+];
+
+/** How to get the Microsoft Advertising keys. `collapsible`: folded like the other connections. */
+export function MicrosoftSetupGuide({ collapsible = false }: { collapsible?: boolean }) {
+  const [open, setOpen] = useState(!collapsible);
+  const list = (
+    <ol className={cn('grid', collapsible ? 'mt-2 gap-1.5' : 'gap-2.5')}>
+      {MS_STEPS.map((s, i) => (
+        <li key={i} className={cn('flex text-ink-2', collapsible ? 'gap-2 text-[12.5px] leading-relaxed' : 'gap-3 text-[13px] leading-relaxed')}>
+          <span className={cn('grid shrink-0 place-items-center rounded-full font-semibold text-brand', collapsible ? 'size-5 bg-white text-[11px]' : 'size-6 bg-brand-50 text-[12px]')}>{i + 1}</span>
+          <span className="min-w-0">{s}</span>
         </li>
       ))}
-      <li className="pl-9 text-[12.5px] text-muted">
-        <button type="button" className="font-medium text-brand hover:underline" onClick={() => void openExternal('https://learn.microsoft.com/advertising/guides/get-started')}>
-          Microsofts guide til API-adgang <ExternalLink className="inline size-3" />
+      <li className={cn('text-[12.5px] text-muted', collapsible ? 'pl-7' : 'pl-9')}>
+        <button type="button" className="inline-flex items-center gap-1 font-medium text-brand hover:underline" onClick={() => void openExternal('https://learn.microsoft.com/advertising/guides/authentication-oauth-get-tokens')}>
+          Microsofts guide til tokens <ExternalLink className="size-3" />
         </button>
       </li>
     </ol>
+  );
+  if (!collapsible) return list;
+  return (
+    <div className="rounded-xl bg-line-2/60 px-3.5 py-2.5">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-1.5 text-left text-[13px] font-medium text-ink-2">
+        Sådan får du nøglerne <ChevronDown className={cn('ml-auto size-4 text-muted transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && list}
+    </div>
   );
 }
 

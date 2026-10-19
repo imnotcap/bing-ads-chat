@@ -37,7 +37,7 @@ export function useBootstrap(): { ready: boolean; error: string | null } {
         if (cancelled) return;
         // 105 / 401: Microsoft accepted the sign-in, but Microsoft Advertising does not.
         const rejected = e instanceof MsApiError && (e.status === 401 || /\(105\)|InvalidCredentials/.test(e.message));
-        setError(rejected ? `${ERROR_105} Forbind igen under Indstillinger → Forbindelser.` : errorMessage(e));
+        setError(rejected ? `${ERROR_105} Ret nøglerne under Indstillinger → Forbindelser → Microsoft Advertising.` : errorMessage(e));
       }
     })();
     return () => {

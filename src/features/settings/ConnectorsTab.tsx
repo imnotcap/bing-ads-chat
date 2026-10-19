@@ -340,10 +340,8 @@ function ConnectorDialog({ item, onClose }: { item: Item | null; onClose: () => 
           {current.builtin === 'claude' && <ClaudeKeyForm />}
           {current.builtin === 'microsoft_ads' && (
             <>
+              <MicrosoftSetupGuide collapsible />
               <AdsConnectionForm compact />
-              <div className="rounded-xl bg-line-2/60 p-3.5">
-                <MicrosoftSetupGuide />
-              </div>
             </>
           )}
           {current.builtin === 'inventarland' && <InventarlandForm />}
