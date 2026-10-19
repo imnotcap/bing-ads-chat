@@ -12,6 +12,9 @@ export function useBootstrap(): { ready: boolean; error: string | null } {
   const mode = useConnection((s) => s.mode);
   const revision = useConnection((s) => s.revision);
   const signedIn = useAccount((s) => s.status === 'ready');
+  // The Konto-ID entered under Forbindelser → Microsoft Advertising.
+  const preferred = useAccount((s) => s.workspace?.ads.accountId ?? null);
+  const workspaceLoaded = useAccount((s) => !!s.workspace);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,11 +30,25 @@ export function useBootstrap(): { ready: boolean; error: string | null } {
         return;
       }
       setReady(true);
+      // Which account to use comes from the workspace – wait for it.
+      if (!workspaceLoaded) return;
       try {
         const accounts = await (await getBackend()).listAccounts();
         if (cancelled) return;
-        const { accountId } = useConnection.getState();
-        set({ accounts, accountId: accounts.some((a) => a.id === accountId) ? accountId : (accounts[0]?.id ?? null) });
+        // Only the account set up under Forbindelser (Konto-ID) – no switching between accounts.
+        const own = preferred ? accounts.find((a) => a.id === preferred) : accounts.length === 1 ? accounts[0] : undefined;
+        if (!own) {
+          set({ accounts: [], accountId: null });
+          setError(
+            preferred
+              ? `Konto-ID ${preferred} findes ikke for Microsoft-brugeren bag nøglerne. Ret den under Indstillinger → Forbindelser → Microsoft Advertising.`
+              : accounts.length
+                ? 'Microsoft-brugeren har adgang til flere annoncekonti. Udfyld Konto-ID og Kunde-ID under Indstillinger → Forbindelser → Microsoft Advertising, så appen ved hvilken konto den skal bruge.'
+                : 'Microsoft-brugeren bag nøglerne har ingen annoncekonti.',
+          );
+          return;
+        }
+        set({ accounts: [own], accountId: own.id });
         setError(null);
       } catch (e) {
         if (cancelled) return;
@@ -43,7 +60,7 @@ export function useBootstrap(): { ready: boolean; error: string | null } {
     return () => {
       cancelled = true;
     };
-  }, [mode, revision, signedIn]);
+  }, [mode, revision, signedIn, preferred, workspaceLoaded]);
 
   return { ready, error };
 }
