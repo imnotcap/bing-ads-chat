@@ -448,7 +448,7 @@ Rows contain dimensions plus impressions, clicks, spend, conversions, revenue, c
           forecastByRunRate: round(s.forecastByRunRate),
           forecastByBudgets: round(s.forecastByBudgets),
           spendingRules: {
-            approvalMode: r.approvalMode,
+            approval: 'every change needs the user’s approval',
             monthlyBudget: r.monthlyBudget,
             maxDailyBudgetPerCampaign: r.maxDailyBudgetPerCampaign,
             maxTotalDailyBudget: r.maxTotalDailyBudget,

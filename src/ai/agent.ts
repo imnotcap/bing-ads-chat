@@ -24,6 +24,7 @@ import { monthTotal, useUsage } from '@/stores/usage';
 import { applyEdits, requestApproval } from './approvals';
 import { evaluateGuardrails, type SpendContext } from './guardrails';
 import { buildContextBlock, buildSystemPrompt } from './prompt';
+import { playbookFor } from '@/workspace/playbooks';
 import { TERMINAL_TOOLS, getTool, toolDefinitions, type PlannedChange, type ToolContext } from './tools';
 import { connectorContext, enabledTools, isConnectorOn } from './connectors';
 import { GeminiError, geminiTokenUsage, streamGemini, toGeminiContents } from './gemini';
@@ -230,7 +231,7 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
     const dynamic = /^claude-(opus|sonnet)-5/.test(ai.model);
     tools.push({ type: dynamic ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: 5 } as unknown as Anthropic.Beta.BetaToolUnion);
   }
-  const system: Anthropic.Beta.BetaTextBlockParam[] = [{ type: 'text', text: buildSystemPrompt(settings.business) }];
+  const system: Anthropic.Beta.BetaTextBlockParam[] = [{ type: 'text', text: buildSystemPrompt(settings.business, await playbookFor('microsoft_ads')) }];
   const memo = new Map<string, Promise<unknown>>();
   let jsonRetries = 0;
 
@@ -352,7 +353,7 @@ async function runGeminiLoop(convId: string, itemId: string, apiKey: string, sig
   const settings = useSettings.getState();
   const { ai } = settings;
   const tools = enabledTools(ai.connectors);
-  const system = buildSystemPrompt(settings.business);
+  const system = buildSystemPrompt(settings.business, await playbookFor('microsoft_ads'));
   const memo = new Map<string, Promise<unknown>>();
 
   for (let round = 1; ; round++) {

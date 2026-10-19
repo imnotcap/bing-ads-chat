@@ -1,17 +1,14 @@
 /** Forms shared by the settings page and onboarding. */
-import { motion } from 'motion/react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Eye, EyeOff, Hand, KeyRound, Loader2, LogIn, PlugZap, Rocket, ShieldCheck, Unplug, Users } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Eye, EyeOff, KeyRound, Loader2, LogIn, PlugZap, ShieldCheck, Unplug, Users } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/controls';
 import { Field, Input } from '@/components/ui/input';
 import { fmtRelative } from '@/lib/format';
 import { openExternal } from '@/lib/platform';
 import { cn, errorMessage } from '@/lib/utils';
 import { useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
-import type { ApprovalMode } from '@/stores/settings';
 import { connectInventarland, disconnectInventarland, disconnectSharedAds, goDemo, goLive, saveSharedAds } from '@/workspace/shared';
 import { INVENTARLAND_URL, type SharedKeyInfo } from '@/workspace/types';
 import { removeAnthropicKey, saveAnthropicKey, testAnthropicKey } from './connection';
@@ -403,45 +400,17 @@ export function MicrosoftSetupGuide({ collapsible = false }: { collapsible?: boo
   );
 }
 
-const APPROVAL_OPTIONS: { value: ApprovalMode; title: string; description: string; icon: typeof Hand; badge?: string }[] = [
-  { value: 'all', title: 'Godkend alt', description: 'Assistenten foreslår – du godkender hver eneste ændring.', icon: Hand },
-  { value: 'spend', title: 'Godkend forbrugsøgninger', description: 'Besparende ændringer (pauser, negative søgeord) udføres straks. Alt der kan øge forbruget kræver godkendelse.', icon: ShieldCheck, badge: 'Anbefalet' },
-  { value: 'none', title: 'Autopilot', description: 'Assistenten udfører ændringer selv inden for dine grænser. Store budgetstigninger kræver stadig godkendelse.', icon: Rocket },
-];
-
-export function ApprovalModePicker({ value, onChange }: { value: ApprovalMode; onChange: (v: ApprovalMode) => void }) {
+/** Shown where the approval modes used to be: the assistant never acts on its own. */
+export function ApprovalNotice() {
   return (
-    <div role="radiogroup" className="grid gap-2.5 md:grid-cols-3">
-      {APPROVAL_OPTIONS.map((o) => {
-        const active = o.value === value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            onClick={() => onChange(o.value)}
-            className={cn(
-              'relative flex flex-col rounded-2xl border p-4 text-left transition-[border-color,box-shadow,background-color]',
-              active ? 'border-brand/40 bg-brand-50/50 shadow-[0_0_0_4px_rgb(109_92_246/0.08)]' : 'border-line bg-surface hover:border-black/10',
-            )}
-          >
-            <div className="flex w-full items-center gap-2">
-              <span className={cn('grid size-8 place-items-center rounded-xl', active ? 'bg-brand text-white' : 'bg-line-2 text-muted')}>
-                <o.icon className="size-4" />
-              </span>
-              {o.badge && <Badge tone="brand">{o.badge}</Badge>}
-              {active && (
-                <motion.span layoutId="approval-check" className="ml-auto">
-                  <CheckCircle2 className="size-5 text-brand" />
-                </motion.span>
-              )}
-            </div>
-            <div className="mt-3 text-[14px] font-semibold text-ink">{o.title}</div>
-            <div className="mt-1 text-[12.5px] leading-relaxed text-muted">{o.description}</div>
-          </button>
-        );
-      })}
+    <div className="flex gap-3 rounded-2xl border border-brand/25 bg-brand-50/50 p-4">
+      <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-brand text-white">
+        <ShieldCheck className="size-4" />
+      </span>
+      <span className="grid gap-0.5 text-[13px] leading-relaxed text-ink-2">
+        <span className="font-medium text-ink">Du godkender alt</span>
+        Assistenten foreslår – den ændrer aldrig noget på egen hånd. Hver ændring vises på et godkendelseskort med begrundelse, og intet sendes til Microsoft Advertising, før du klikker Godkend.
+      </span>
     </div>
   );
 }

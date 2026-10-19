@@ -5,7 +5,7 @@ export type View = 'chat' | 'dashboard' | 'campaigns' | 'activity' | 'board';
 /** Views of the dashboard workspace (its own sidebar). */
 export const DASHBOARD_VIEWS: View[] = ['dashboard', 'campaigns', 'activity', 'board'];
 export const isDashboardView = (v: View) => DASHBOARD_VIEWS.includes(v);
-export type SettingsTab = 'connections' | 'users' | 'spend' | 'ai' | 'business' | 'appearance' | 'data' | 'about' | 'models';
+export type SettingsTab = 'connections' | 'users' | 'spend' | 'training' | 'ai' | 'business' | 'appearance' | 'data' | 'about' | 'models';
 
 /** One step in the back/forward history of the top bar. */
 export interface NavEntry {

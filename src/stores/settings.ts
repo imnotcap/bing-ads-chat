@@ -4,11 +4,11 @@ import type { ConnectorId } from '@/ai/connectors';
 import type { Effort, ModelId, ModelInfo } from '@/ai/models';
 import type { DatePreset } from '@/lib/format';
 
-/** How changes proposed by the assistant are approved. */
-export type ApprovalMode = 'all' | 'spend' | 'none';
-
+/**
+ * Limits for the changes the assistant proposes. Every change needs the user's
+ * approval on an approval card – there is no mode where the assistant acts on its own.
+ */
 export interface SpendRules {
-  approvalMode: ApprovalMode;
   /** Total monthly ad budget for the account (account currency). */
   monthlyBudget: number | null;
   /** Warn when month-to-date spend passes this share of the monthly budget. */
@@ -18,7 +18,7 @@ export interface SpendRules {
   maxDailyBudgetPerCampaign: number | null;
   /** Sum of the daily budgets of all active campaigns. */
   maxTotalDailyBudget: number | null;
-  /** Budget increases above this share always need approval, even in autopilot. */
+  /** Budget increases above this share are flagged on the approval card. */
   maxBudgetIncreasePct: number | null;
   maxCpcBid: number | null;
   allowCreateCampaigns: boolean;
@@ -80,7 +80,6 @@ export interface Appearance {
 }
 
 export const DEFAULT_SPEND_RULES: SpendRules = {
-  approvalMode: 'spend',
   monthlyBudget: null,
   warnAtPct: 80,
   autoPauseAtMonthlyBudget: false,

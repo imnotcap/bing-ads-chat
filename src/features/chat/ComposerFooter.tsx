@@ -2,7 +2,7 @@
  * The row under the chat field (Claude style): approval mode on the left; model,
  * effort and the monthly AI-usage ring on the right.
  */
-import { ChartColumn, Check, ChevronDown, Hand, Plug, Rocket, Settings, ShieldCheck } from 'lucide-react';
+import { ChartColumn, Check, ChevronDown, Plug, Settings, ShieldCheck } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Popover } from 'radix-ui';
 import { useEffect, useMemo, useState } from 'react';
@@ -13,15 +13,10 @@ import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/overlays';
 import { daysInMonth, fmtUsd, today } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useSettings, type ApprovalMode } from '@/stores/settings';
+import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
 
-const MODES: { value: ApprovalMode; label: string; description: string; icon: typeof Hand }[] = [
-  { value: 'all', label: 'Godkend alt', description: 'Du godkender hver ændring', icon: Hand },
-  { value: 'spend', label: 'Auto', description: 'Besparelser udføres straks – forbrugsøgninger kræver godkendelse', icon: ShieldCheck },
-  { value: 'none', label: 'Autopilot', description: 'Ændringer inden for dine grænser udføres selv', icon: Rocket },
-];
 
 const EFFORT_SHORT: Record<Effort, string> = { low: 'Lav', medium: 'Mellem', high: 'Høj', xhigh: 'Meget høj', max: 'Maks' };
 
@@ -205,11 +200,8 @@ function ConnectorsMenu() {
 const providerBrand = (p: Provider): Brand => (p === 'google' ? 'gemini' : 'claude');
 
 export function ComposerFooter() {
-  const mode = useSettings((s) => s.spend.approvalMode);
-  const setSpend = useSettings((s) => s.setSpend);
   const ai = useSettings((s) => s.ai);
   const setAi = useSettings((s) => s.setAi);
-  const current = MODES.find((m) => m.value === mode) ?? MODES[1]!;
   // Re-read when the admin changes the allowed models.
   useSettings((s) => s.ai.enabledModels);
   useSettings((s) => s.ai.customModels);
@@ -222,26 +214,9 @@ export function ComposerFooter() {
 
   return (
     <div className="mt-1.5 flex items-center px-2">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button type="button" className={trigger} aria-label="Godkendelse af ændringer">
-            {current.label}
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-[300px]">
-          <DropdownMenuLabel className="normal-case tracking-normal">Godkendelse af ændringer</DropdownMenuLabel>
-          {MODES.map((m) => (
-            <DropdownMenuItem key={m.value} onSelect={() => setSpend({ approvalMode: m.value })} className="items-start">
-              <m.icon className="mt-0.5" />
-              <span className="grid flex-1 gap-0.5">
-                <span className={cn(m.value === mode && 'font-medium text-ink')}>{m.label}</span>
-                <span className="text-[12px] leading-snug text-muted">{m.description}</span>
-              </span>
-              {m.value === mode && <Check className="mt-0.5 !text-brand" />}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <span className={cn(trigger, 'cursor-default hover:bg-transparent')} title="Assistenten ændrer aldrig noget uden din godkendelse">
+        <ShieldCheck className="size-3.5" /> Du godkender alt
+      </span>
 
       <ConnectorsMenu />
 

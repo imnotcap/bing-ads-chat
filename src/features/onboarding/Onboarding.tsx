@@ -10,7 +10,7 @@ import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 import { useAccount } from '@/stores/account';
 import { goDemo, goLive } from '@/workspace/shared';
-import { AdsConnectionForm, ApprovalModePicker, ClaudeKeyForm, MicrosoftSetupGuide } from '../settings/forms';
+import { AdsConnectionForm, ApprovalNotice, ClaudeKeyForm, MicrosoftSetupGuide } from '../settings/forms';
 
 const FEATURES = [
   { icon: MessageSquareText, title: 'Chat med din konto', text: 'Spørg, analysér og få ændringer lavet i almindeligt dansk.' },
@@ -148,8 +148,8 @@ export function Onboarding() {
           {/* 4 – Spending */}
           <div>
             <h2 className="text-[22px] font-semibold tracking-[-0.02em] text-ink">Dine forbrugsregler</h2>
-            <p className="mb-5 mt-1 text-[14px] text-muted">Bestem hvor meget assistenten må gøre selv. Du kan altid ændre det under Indstillinger → Forbrug.</p>
-            <ApprovalModePicker value={spend.approvalMode} onChange={(approvalMode) => setSpend({ approvalMode })} />
+            <p className="mb-5 mt-1 text-[14px] text-muted">Assistenten foreslår – du godkender. Grænserne kan altid ændres under Indstillinger → Forbrug.</p>
+            <ApprovalNotice />
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <Field label="Månedsbudget for annoncering" hint="Bruges til prognoser og advarsler. Kan stå tomt.">
                 <NumberInput value={spend.monthlyBudget} onChange={(monthlyBudget) => setSpend({ monthlyBudget })} suffix={currency} placeholder="Ikke sat" />

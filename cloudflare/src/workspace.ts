@@ -11,6 +11,8 @@
  * - Planning boards: every op in order, with a WebSocket ping to all open apps.
  * - Inventarland: read-only views of Inventarland's API (webshop sales, other ad
  *   channels), fetched with a shared Inventarland user whose password stays here.
+ * - Playbooks ("træning", src/ai/playbooks.ts): each branch's guidelines as the team
+ *   changed them – the defaults live in the app, only the changes are stored here.
  * - Data sources (connectors.ts): Google Ads, Meta, LinkedIn, Daisycon, Search
  *   Console, GA4, Ahrefs, Serper, Magento, Klaviyo and the PIM – credentials kept
  *   here, tested against the real API when saved and again every night.
@@ -18,6 +20,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { applyOp, boardOfOp, canSeeBoard, dataFor, isBoardData, mayApply, memberIdOf, type BoardData, type BoardOp } from '../../src/board/model';
 import { INVENTARLAND_URL, INVENTARLAND_VIEWS, type AdsAccess, type InventarlandView, type SharedKeyName, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
+import { BRANCH_IDS, MAX_SECTION_CHARS, SECTION_IDS, cleanSections, defaultPlaybook, isBranchId, type PlaybookSections, type SectionId, type StoredPlaybook } from '../../src/ai/playbooks';
 import { CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isConnectorId, type ConnectorId, type ConnectorSaveResult } from '../../src/workspace/connectors';
 import { AuthError, verifyMicrosoftIdToken, type MicrosoftIdentity } from './auth';
 import { AdsKeyError, adsProbe, adsRefresh, mergeAdsKeys, type AdsKeys } from './microsoftAds';
@@ -232,6 +235,38 @@ export class Workspace extends DurableObject<Env> {
     }
     const cm = path.match(/^\/connections\/([a-z0-9_]+)(\/test|\/login\/start|\/login\/complete)?$/);
     if (cm && isConnectorId(cm[1]!)) return this.connectionRoute(req, cm[1], cm[2] ?? '', user);
+
+    /* --------------------------- playbooks ("træning") --------------------------- */
+    if (path === '/playbooks' && method === 'GET') {
+      const rows = await this.ctx.storage.get<StoredPlaybook>(BRANCH_IDS.map((id) => `playbook:${id}`));
+      return json({ playbooks: Object.fromEntries(BRANCH_IDS.map((id) => [id, rows.get(`playbook:${id}`) ?? null])) });
+    }
+    const pb = path.match(/^\/playbooks\/([a-z0-9_]+)$/);
+    if (pb && isBranchId(pb[1]!) && method === 'PUT') {
+      // sections: whole sections (null = back to the default); append: one line added to a
+      // section (what the chat proposes and the user approves) – appended here, so two
+      // people adding at the same time don't overwrite each other.
+      const body = (await req.json()) as { sections?: unknown; append?: { section?: string; text?: string } };
+      const key = `playbook:${pb[1]}`;
+      const stored = (await this.ctx.storage.get<StoredPlaybook>(key)) ?? { sections: {}, updatedBy: null, updatedAt: null };
+      const sections: Partial<PlaybookSections> = { ...stored.sections };
+      for (const [id, v] of Object.entries(cleanSections(body.sections)) as [SectionId, string | null][]) {
+        if (v === null) delete sections[id];
+        else sections[id] = v;
+      }
+      const append = body.append;
+      if (append) {
+        const id = append.section as SectionId;
+        const text = (append.text ?? '').trim().slice(0, 1000);
+        if (!SECTION_IDS.includes(id) || !text) return fail('Ugyldig tilføjelse.', 400);
+        const current = sections[id] ?? defaultPlaybook(pb[1])[id];
+        const line = /^[-*\d]/.test(text) ? text : `- ${text}`;
+        sections[id] = `${current.trimEnd()}${current.trim() ? '\n' : ''}${line}`.slice(-MAX_SECTION_CHARS);
+      }
+      const next: StoredPlaybook = { sections, updatedBy: user.name, updatedAt: Date.now() };
+      await this.ctx.storage.put(key, next);
+      return json({ playbook: next });
+    }
 
     /* ------------------------------- Inventarland ------------------------------- */
     if (path === '/workspace/inventarland' && method === 'PUT') {

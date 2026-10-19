@@ -3,8 +3,9 @@
  * turned into a ChangePlan and evaluated here before anything is sent to
  * Microsoft Advertising:
  *  - block   → never executed; the assistant is told which rule stopped it
- *  - approve → the user must approve it in the chat
- *  - allow   → executed right away (autopilot within the limits)
+ *  - approve → the user must approve it in the chat – ALWAYS the outcome otherwise:
+ *    the assistant never changes anything without the user's permission.
+ * ('allow' is only used by the agent for calls that turn out to be read-only.)
  */
 import { fmtMoney } from '@/lib/format';
 import type { ChangeLine, UndoSpec } from '@/stores/activity';
@@ -68,12 +69,10 @@ export function evaluateGuardrails(plan: ChangePlan, rules: SpendRules, ctx: Spe
 
   if (plan.kind === 'raw') approve.push('Direkte API-ændringer kræver altid godkendelse.');
   if (plan.kind === 'update' && plan.changes.some((c) => c.edit && c.before !== undefined)) approve.push('Nye navne skal tjekkes af dig, før de gemmes.');
-  if (rules.approvalMode === 'all') approve.push('Alle ændringer kræver din godkendelse (Forbrug → Godkendelse).');
-  if (rules.approvalMode === 'spend' && (plan.increasesSpend || plan.kind === 'create' || plan.kind === 'delete')) {
-    approve.push(plan.kind === 'delete' ? 'Sletning kræver godkendelse.' : 'Ændringen kan øge forbruget.');
-  }
+  if (plan.kind === 'delete') approve.push('Sletning kan ikke fortrydes i Microsoft Advertising.');
+  else if (plan.increasesSpend) approve.push('Ændringen kan øge forbruget.');
   if (rules.maxBudgetIncreasePct !== null && (plan.maxBudgetIncrease ?? 0) * 100 > rules.maxBudgetIncreasePct) {
-    approve.push(`Budgetstigning på ${Math.round((plan.maxBudgetIncrease ?? 0) * 100)} % er over grænsen på ${rules.maxBudgetIncreasePct} %.`);
+    approve.push(`Advarsel: budgetstigning på ${Math.round((plan.maxBudgetIncrease ?? 0) * 100)} % er over grænsen på ${rules.maxBudgetIncreasePct} %.`);
   }
   if (rules.monthlyBudget !== null && plan.dailyBudgetDelta > 0 && ctx.totalActiveDailyBudget !== null && ctx.monthToDateSpend !== null) {
     const projected = ctx.monthToDateSpend + (ctx.totalActiveDailyBudget + plan.dailyBudgetDelta) * ctx.daysLeftInMonth;
@@ -83,6 +82,6 @@ export function evaluateGuardrails(plan: ChangePlan, rules: SpendRules, ctx: Spe
   }
 
   if (block.length) return { verdict: 'block', reasons: block };
-  if (approve.length) return { verdict: 'approve', reasons: [...new Set(approve)] };
-  return { verdict: 'allow', reasons: [] };
+  // Nothing is ever executed without the user's permission.
+  return { verdict: 'approve', reasons: [...new Set(approve.length ? approve : ['Alle ændringer kræver din godkendelse.'])] };
 }

@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Bot, Building2, Cpu, Database, Download, ExternalLink, FlaskConical, Info, Loader2, OctagonPause, Palette, Plug, Search, ShieldCheck, Users, Wallet, X, type LucideIcon } from 'lucide-react';
+import { Bot, Building2, Cpu, Database, Download, ExternalLink, FlaskConical, GraduationCap, Info, Loader2, OctagonPause, Palette, Plug, Search, ShieldCheck, Users, Wallet, X, type LucideIcon } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
@@ -32,7 +32,8 @@ import { ModelsTab } from './ModelsTab';
 import { startFollowUpTest } from '@/features/chat/followUpTest';
 import { UsersTab } from './UsersTab';
 import { ConnectorsTab } from './ConnectorsTab';
-import { ApprovalModePicker } from './forms';
+import { TrainingTab } from './TrainingTab';
+import { ApprovalNotice } from './forms';
 
 interface TabDef {
   id: SettingsTab;
@@ -47,7 +48,8 @@ const TABS: TabDef[] = [
   { id: 'connections', label: 'Forbindelser', icon: Plug, group: 'Konto', keywords: 'claude api nøgle microsoft advertising bing developer token demo fælles cloudflare inventarland magento webshop google ads meta linkedin daisycon search console ga4 analytics ahrefs serper klaviyo pim chainbox datakilder integrationer' },
   { id: 'users', label: 'Brugere', icon: Users, group: 'Konto', keywords: 'konto log ud login microsoft administrator admin godkend adgang kolleger team' },
   { id: 'business', label: 'Virksomhed', icon: Building2, group: 'Konto', keywords: 'profil mål cpa roas dækningsgrad tone of voice instruktioner website' },
-  { id: 'spend', label: 'Forbrug', icon: Wallet, group: 'Assistent', keywords: 'budget månedsbudget grænser godkendelse autopilot nødstop beskyttede kampagner cpc bud budgetvagt' },
+  { id: 'spend', label: 'Forbrug', icon: Wallet, group: 'Assistent', keywords: 'budget månedsbudget grænser godkendelse nødstop beskyttede kampagner cpc bud budgetvagt' },
+  { id: 'training', label: 'Træning', icon: GraduationCap, group: 'Assistent', keywords: 'træn playbook guidelines regler rolle arbejdsflow grænser navigation lærte regler gren grene agent instruktioner' },
   { id: 'ai', label: 'AI-assistent', icon: Bot, group: 'Assistent', keywords: 'model opus sonnet haiku fable effort tænkning forbrug pris tokens cache' },
   { id: 'models', label: 'AI-modeller', icon: Cpu, group: 'Assistent', keywords: 'gemini google claude modeller admin administrator tillad pris flash haiku api-nøgle' },
   { id: 'appearance', label: 'Udseende', icon: Palette, group: 'App', keywords: 'animationer gnister indsigt sidebar tema' },
@@ -129,8 +131,8 @@ function SpendTab() {
 
   return (
     <div className="grid gap-5">
-      <Card title="Godkendelse af ændringer" description="Bestem hvor meget assistenten må gøre på egen hånd. Alle ændringer logges og kan fortrydes under Aktivitet.">
-        <ApprovalModePicker value={spend.approvalMode} onChange={(approvalMode) => setSpend({ approvalMode })} />
+      <Card title="Godkendelse af ændringer" description="Alle ændringer logges og kan fortrydes under Aktivitet.">
+        <ApprovalNotice />
       </Card>
 
       <Card title="Månedsbudget og budgetvagt" description="Appen holder øje med forbruget, mens den er åben, og advarer – eller stopper – når budgettet nærmer sig.">
@@ -176,14 +178,14 @@ function SpendTab() {
         <div className="grid items-center gap-3 border-b border-line-2 py-3.5 md:grid-cols-[1fr_320px]">
           <div>
             <div className="flex items-center gap-2 text-sm font-medium text-ink">
-              Budgetstigning der altid kræver godkendelse
+              Advarsel ved store budgetstigninger
               <Switch
                 checked={spend.maxBudgetIncreasePct !== null}
                 onCheckedChange={(on) => setSpend({ maxBudgetIncreasePct: on ? (DEFAULT_SPEND_RULES.maxBudgetIncreasePct ?? 50) : null })}
                 aria-label="Slå grænse for budgetstigning til"
               />
             </div>
-            <div className="text-[12.5px] text-muted">Gælder også i autopilot.</div>
+            <div className="text-[12.5px] text-muted">Større stigninger end dette markeres med en advarsel på godkendelseskortet.</div>
           </div>
           {spend.maxBudgetIncreasePct !== null ? (
             <ElasticSlider label="Maks. budgetstigning" value={spend.maxBudgetIncreasePct} min={5} max={200} step={5} format={(v) => `+${v} %`} onChange={(maxBudgetIncreasePct) => setSpend({ maxBudgetIncreasePct })} />
@@ -610,6 +612,8 @@ function TabContent({ id }: { id: SettingsTab }) {
       return <ConnectorsTab />;
     case 'spend':
       return <SpendTab />;
+    case 'training':
+      return <TrainingTab />;
     case 'ai':
       return <AiTab />;
     case 'business':

@@ -11,28 +11,24 @@ function plan(p: Partial<ChangePlan>): ChangePlan {
 const rules = (r: Partial<SpendRules>): SpendRules => ({ ...DEFAULT_SPEND_RULES, ...r });
 
 describe('evaluateGuardrails', () => {
-  it('allows spend-neutral changes in "spend" mode', () => {
-    expect(evaluateGuardrails(plan({}), rules({ approvalMode: 'spend' }), ctx).verdict).toBe('allow');
-  });
-
-  it('requires approval for spend increases in "spend" mode', () => {
-    const d = evaluateGuardrails(plan({ increasesSpend: true, dailyBudgetDelta: 50 }), rules({ approvalMode: 'spend' }), ctx);
+  it('never lets a change through without approval – not even a spend-neutral one', () => {
+    const d = evaluateGuardrails(plan({}), rules({}), ctx);
     expect(d.verdict).toBe('approve');
+    expect(d.reasons).toEqual(['Alle ændringer kræver din godkendelse.']);
+    for (const p of [plan({ kind: 'create' }), plan({ increasesSpend: true, maxBudgetIncrease: 0.05, dailyBudgetDelta: 5 }), plan({ dailyBudgetDelta: -100 })]) {
+      expect(evaluateGuardrails(p, rules({ maxBudgetIncreasePct: null }), ctx).verdict).toBe('approve');
+    }
   });
 
-  it('requires approval for everything in "all" mode', () => {
-    expect(evaluateGuardrails(plan({}), rules({ approvalMode: 'all' }), ctx).verdict).toBe('approve');
+  it('says why when a change can increase spend', () => {
+    const d = evaluateGuardrails(plan({ increasesSpend: true, dailyBudgetDelta: 50 }), rules({}), ctx);
+    expect(d.reasons).toContain('Ændringen kan øge forbruget.');
   });
 
-  it('autopilot still asks when a budget increase exceeds the percentage limit', () => {
-    const d = evaluateGuardrails(plan({ increasesSpend: true, maxBudgetIncrease: 0.8 }), rules({ approvalMode: 'none', maxBudgetIncreasePct: 50 }), ctx);
+  it('flags a budget increase above the percentage limit', () => {
+    const d = evaluateGuardrails(plan({ increasesSpend: true, maxBudgetIncrease: 0.8 }), rules({ maxBudgetIncreasePct: 50 }), ctx);
     expect(d.verdict).toBe('approve');
     expect(d.reasons.join(' ')).toContain('80 %');
-  });
-
-  it('autopilot allows changes within the limits', () => {
-    const d = evaluateGuardrails(plan({ increasesSpend: true, maxBudgetIncrease: 0.2, dailyBudgetDelta: 20 }), rules({ approvalMode: 'none' }), ctx);
-    expect(d.verdict).toBe('allow');
   });
 
   it('blocks protected campaigns', () => {
@@ -51,21 +47,21 @@ describe('evaluateGuardrails', () => {
 
   it('blocks deletes unless allowed', () => {
     expect(evaluateGuardrails(plan({ kind: 'delete' }), rules({ allowDelete: false }), ctx).verdict).toBe('block');
-    expect(evaluateGuardrails(plan({ kind: 'delete' }), rules({ allowDelete: true, approvalMode: 'spend' }), ctx).verdict).toBe('approve');
+    expect(evaluateGuardrails(plan({ kind: 'delete' }), rules({ allowDelete: true }), ctx).verdict).toBe('approve');
   });
 
   it('blocks when the total daily budget ceiling would be exceeded', () => {
-    const d = evaluateGuardrails(plan({ dailyBudgetDelta: 300, increasesSpend: true }), rules({ maxTotalDailyBudget: 1200, approvalMode: 'none' }), ctx);
+    const d = evaluateGuardrails(plan({ dailyBudgetDelta: 300, increasesSpend: true }), rules({ maxTotalDailyBudget: 1200 }), ctx);
     expect(d.verdict).toBe('block');
   });
 
   it('asks for approval when the month forecast exceeds the monthly budget', () => {
     // 10.000 + (1000 + 200) * 10 = 22.000 > 20.000
-    const d = evaluateGuardrails(plan({ dailyBudgetDelta: 200, increasesSpend: true }), rules({ monthlyBudget: 20_000, approvalMode: 'none' }), ctx);
+    const d = evaluateGuardrails(plan({ dailyBudgetDelta: 200, increasesSpend: true }), rules({ monthlyBudget: 20_000 }), ctx);
     expect(d.verdict).toBe('approve');
   });
 
   it('always asks for raw API changes', () => {
-    expect(evaluateGuardrails(plan({ kind: 'raw' }), rules({ approvalMode: 'none' }), ctx).verdict).toBe('approve');
+    expect(evaluateGuardrails(plan({ kind: 'raw' }), rules({}), ctx).verdict).toBe('approve');
   });
 });

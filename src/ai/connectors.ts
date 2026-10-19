@@ -26,7 +26,7 @@ export interface Connector {
 
 export const CONNECTORS: Connector[] = [
   { id: 'msads_read', label: 'Microsoft Advertising · data', description: 'Kampagner, søgeord, rapporter og forbrug', icon: Search, brand: 'microsoft_ads', defaultOn: true },
-  { id: 'msads_write', label: 'Microsoft Advertising · ændringer', description: 'Budgetter, bud, søgeord, annoncer – efter dine forbrugsregler', icon: PenLine, brand: 'microsoft_ads', defaultOn: true },
+  { id: 'msads_write', label: 'Microsoft Advertising · ændringer', description: 'Budgetter, bud, søgeord, annoncer – du godkender hver ændring', icon: PenLine, brand: 'microsoft_ads', defaultOn: true },
   { id: 'msads_api', label: 'Avanceret API-adgang', description: 'Direkte kald til Microsoft Advertising REST API (kræver altid godkendelse)', icon: Terminal, brand: 'microsoft_ads', defaultOn: true },
   { id: 'inventarland', label: 'Inventarland · webshop og kanaler', description: 'Webshoppens salg og produkter, Google Ads, Meta og Daisycon', icon: ShoppingBag, defaultOn: true },
   { id: 'visuals', label: 'Grafer og tabeller', description: 'Nøgletal, grafer og tabeller i svarene', icon: BarChart3, defaultOn: true },
@@ -34,9 +34,12 @@ export const CONNECTORS: Connector[] = [
 ];
 
 const DISPLAY_ALWAYS = new Set(['suggest_next_steps', 'create_file']);
+/** Not tied to a connector: training needs approval like every change. */
+const ALWAYS = new Set(['train_playbook']);
 
 /** Which connector a tool belongs to (null = always available). */
 export function connectorOf(tool: AnyTool): ConnectorId | null {
+  if (ALWAYS.has(tool.name)) return null;
   if (tool.name === 'microsoft_ads_api') return 'msads_api';
   if (INVENTARLAND_TOOL_NAMES.has(tool.name)) return 'inventarland';
   if (tool.kind === 'write') return 'msads_write';
