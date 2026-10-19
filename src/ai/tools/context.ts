@@ -2,7 +2,7 @@ import type { z } from 'zod';
 import type { AdsBackend, Campaign, ReportRow, ReportSpec } from '@/bing/types';
 import { DATE_PRESET_LABELS, presetRange, today, type DatePreset, type DateRange } from '@/lib/format';
 import type { SpendRules } from '@/stores/settings';
-import type { UndoSpec } from '@/stores/activity';
+import type { ChangeLine, UndoSpec } from '@/stores/activity';
 import type { ChangePlan } from '../guardrails';
 import type { ToolPreview, VisualSpec } from '../visuals';
 
@@ -32,6 +32,8 @@ export interface ExecutionResult {
   result: unknown;
   summary: string;
   undo?: UndoSpec;
+  /** The lines that were confirmed applied (the activity log shows these instead of the plan). */
+  changes?: ChangeLine[];
 }
 
 export interface PlannedChange {

@@ -26,6 +26,8 @@ export interface ChangePlan {
   newDailyBudgets?: number[];
   newBids?: number[];
   notes?: string[];
+  /** Why the tool itself wants the user to look closely at this change (shown on the approval card). */
+  approvalReasons?: string[];
   undo?: UndoSpec;
   /** A new rule for the assistant's own playbook (not an account change). */
   training?: boolean;
@@ -90,6 +92,7 @@ export function evaluateGuardrails(plan: ChangePlan, rules: SpendRules, ctx: Spe
   }
 
   if (plan.kind === 'raw') approve.push('Direkte API-ændringer kræver altid godkendelse.');
+  approve.push(...(plan.approvalReasons ?? []));
   if (plan.kind === 'update' && plan.changes.some((c) => c.edit && c.before !== undefined)) approve.push('Nye navne skal tjekkes af dig, før de gemmes.');
   if (plan.kind === 'delete') approve.push('Sletning kan ikke fortrydes i Microsoft Advertising.');
   else if (plan.increasesSpend) approve.push('Ændringen kan øge forbruget.');

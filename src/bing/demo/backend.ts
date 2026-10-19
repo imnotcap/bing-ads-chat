@@ -16,6 +16,7 @@ import type {
   BudgetOpportunity,
   Campaign,
   CampaignPatch,
+  ItemError,
   Keyword,
   KeywordIdea,
   KeywordPatch,
@@ -194,13 +195,13 @@ export class DemoBackend implements AdsBackend {
   async listKeywords(accountId: string, adGroupId: string): Promise<Keyword[]> {
     await this.delay();
     this.adGroup(accountId, adGroupId);
-    return this.state.keywords.filter((k) => k.adGroupId === adGroupId && k.status !== 'Deleted').map((k) => ({ ...k }));
+    return this.state.keywords.filter((k) => k.adGroupId === adGroupId && k.status !== 'Deleted').map((k) => ({ editorialStatus: 'Active', ...k }));
   }
 
   async listAds(accountId: string, adGroupId: string): Promise<Ad[]> {
     await this.delay();
     this.adGroup(accountId, adGroupId);
-    return this.state.ads.filter((a) => a.adGroupId === adGroupId).map((a) => ({ ...a }));
+    return this.state.ads.filter((a) => a.adGroupId === adGroupId).map((a) => ({ editorialStatus: 'Active', ...a }));
   }
 
   async listNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string): Promise<NegativeKeyword[]> {
@@ -230,7 +231,8 @@ export class DemoBackend implements AdsBackend {
         c.dailyBudget = p.dailyBudget;
       }
       if (p.name) c.name = p.name;
-      if (p.bidStrategy) c.bidStrategy = { ...p.bidStrategy };
+      // Like Microsoft: manual CPC only exists for Audience campaigns – elsewhere it silently becomes enhanced CPC.
+      if (p.bidStrategy) c.bidStrategy = p.bidStrategy.type === 'ManualCpc' && c.type !== 'Audience' ? { type: 'EnhancedCpc' } : { ...p.bidStrategy };
     }
     this.commit();
     return {};
@@ -249,7 +251,7 @@ export class DemoBackend implements AdsBackend {
       status: spec.status,
       type: spec.type,
       dailyBudget: spec.dailyBudget,
-      bidStrategy: spec.bidStrategy,
+      bidStrategy: spec.bidStrategy.type === 'ManualCpc' && spec.type !== 'Audience' ? { type: 'EnhancedCpc' } : spec.bidStrategy,
       languages: spec.languages,
     });
     this.state.bornOn[id] = today();
@@ -300,22 +302,22 @@ export class DemoBackend implements AdsBackend {
     await this.delay();
     this.adGroup(accountId, adGroupId);
     const ids: string[] = [];
-    const partialErrors: string[] = [];
-    for (const k of keywords) {
+    const failed: ItemError[] = [];
+    keywords.forEach((k, index) => {
       const dup = this.state.keywords.some(
         (x) => x.adGroupId === adGroupId && x.status !== 'Deleted' && x.text.toLowerCase() === k.text.toLowerCase() && x.matchType === k.matchType,
       );
       if (dup) {
-        partialErrors.push(`"${k.text}" (${k.matchType}) findes allerede i annoncegruppen.`);
-        continue;
+        failed.push({ index, message: `"${k.text}" (${k.matchType}) findes allerede i annoncegruppen.`, code: 'DuplicateKeyword' });
+        return;
       }
       const id = this.newId('k');
       this.state.keywords.push({ id, adGroupId, text: k.text, matchType: k.matchType, status: 'Active', bid: k.bid ?? null, qualityScore: 5 + Math.round(hash(k.text) * 4) });
       this.state.bornOn[id] = today();
       ids.push(id);
-    }
+    });
     this.commit();
-    return { ids, partialErrors: partialErrors.length ? partialErrors : undefined };
+    return batchOutcome(ids, failed, keywords.length);
   }
 
   async updateKeywords(accountId: string, adGroupId: string, patches: KeywordPatch[]): Promise<MutationResult> {
@@ -353,14 +355,18 @@ export class DemoBackend implements AdsBackend {
     else this.adGroup(accountId, entityId);
     const list = (this.state.negatives[`${entityType}:${entityId}`] ??= []);
     const ids: string[] = [];
-    for (const k of keywords) {
-      if (list.some((n) => n.text.toLowerCase() === k.text.toLowerCase() && n.matchType === k.matchType)) continue;
+    const failed: ItemError[] = [];
+    keywords.forEach((k, index) => {
+      if (list.some((n) => n.text.toLowerCase() === k.text.toLowerCase() && n.matchType === k.matchType)) {
+        failed.push({ index, message: `"${k.text}" (${k.matchType}) er allerede et negativt søgeord her.`, code: 'DuplicateNegativeKeyword' });
+        return;
+      }
       const id = this.newId('n');
       list.push({ id, text: k.text, matchType: k.matchType, addedAt: today() });
       ids.push(id);
-    }
+    });
     this.commit();
-    return { ids };
+    return batchOutcome(ids, failed, keywords.length);
   }
 
   async createResponsiveSearchAd(accountId: string, adGroupId: string, ad: NewResponsiveSearchAd): Promise<MutationResult> {
@@ -397,6 +403,7 @@ export class DemoBackend implements AdsBackend {
   /* -------------------------------- reports -------------------------------- */
 
   async runReport(accountId: string, spec: ReportSpec): Promise<ReportRow[]> {
+    if (spec.kind === 'impressionshare') throw new Error('Visningsandel findes kun på rigtige Microsoft Advertising-konti.');
     await sleep(this.latencyMs * 2);
     const { kind, range, campaignIds } = spec;
     const days = this.sim.range(range.from, range.to);
@@ -550,4 +557,14 @@ export class DemoBackend implements AdsBackend {
   async rawRequest(): Promise<unknown> {
     throw new Error('Direkte API-kald er ikke tilgængelige i demo-tilstand. Forbind en rigtig Microsoft Advertising-konto under Indstillinger.');
   }
+}
+
+/** Mirrors the live backend: a batch where every item failed throws, so it is never reported as done. */
+function batchOutcome(ids: string[], failed: ItemError[], count: number): MutationResult {
+  if (count > 0 && failed.length >= count) throw new Error(`Microsoft Advertising afviste ændringen – intet blev ændret: ${failed.map((f) => f.message).join(' · ')}`);
+  return {
+    ids: ids.length ? ids : undefined,
+    failed: failed.length ? failed : undefined,
+    partialErrors: failed.length ? failed.map((f) => `#${(f.index ?? 0) + 1}: ${f.message}`) : undefined,
+  };
 }

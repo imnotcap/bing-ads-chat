@@ -169,10 +169,10 @@ export function createSeedState(): DemoState {
     { accountId: A1, id: '102', name: 'Kontorstole – Generisk', status: 'Active', type: 'Search', dailyBudget: 1200, bidStrategy: { type: 'MaxConversions' }, languages: ['Danish'] },
     { accountId: A1, id: '103', name: 'Hæve-sænkeborde', status: 'Active', type: 'Search', dailyBudget: 400, bidStrategy: { type: 'TargetCpa', targetCpa: 350 }, languages: ['Danish'] },
     { accountId: A1, id: '104', name: 'Shopping – Alle produkter', status: 'Active', type: 'Shopping', dailyBudget: 600, bidStrategy: { type: 'MaxConversionValue', targetRoas: 6 }, languages: ['Danish'] },
-    { accountId: A1, id: '105', name: 'Konkurrenter', status: 'Active', type: 'Search', dailyBudget: 200, bidStrategy: { type: 'ManualCpc' }, languages: ['Danish'] },
+    { accountId: A1, id: '105', name: 'Konkurrenter', status: 'Active', type: 'Search', dailyBudget: 200, bidStrategy: { type: 'EnhancedCpc' }, languages: ['Danish'] },
     { accountId: A1, id: '106', name: 'Kontorlamper', status: 'Paused', type: 'Search', dailyBudget: 100, bidStrategy: { type: 'EnhancedCpc' }, languages: ['Danish'] },
     { accountId: A1, id: '107', name: 'Performance Max – Bestsellere', status: 'Active', type: 'PerformanceMax', dailyBudget: 350, bidStrategy: { type: 'MaxConversionValue' }, languages: ['Danish'] },
-    { accountId: A1, id: '108', name: 'Remarketing – Besøgende', status: 'Active', type: 'Audience', dailyBudget: 120, bidStrategy: { type: 'EnhancedCpc' }, languages: ['Danish'] },
+    { accountId: A1, id: '108', name: 'Remarketing – Besøgende', status: 'Active', type: 'Audience', dailyBudget: 120, bidStrategy: { type: 'ManualCpc' }, languages: ['Danish'] },
     { accountId: A2, id: '201', name: 'Outlet – Kontormøbler', status: 'Active', type: 'Search', dailyBudget: 120, bidStrategy: { type: 'MaxClicks', maxCpc: 4 }, languages: ['Danish'] },
   ];
 

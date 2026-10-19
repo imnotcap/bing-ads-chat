@@ -35,6 +35,20 @@ export const REPORT_DEFS: Record<ReportKind, ReportDef> = {
   ad: { type: 'AdPerformanceReportRequest', dimensions: ['CampaignName', 'AdGroupId', 'AdGroupName', 'AdId', 'AdTitle', 'AdType'] },
   geo: { type: 'GeographicPerformanceReportRequest', dimensions: ['Country', 'State', 'City'], accountScopeOnly: true },
   agegender: { type: 'AgeGenderAudienceReportRequest', dimensions: ['AgeGroup', 'Gender'], accountScopeOnly: true },
+  impressionshare: {
+    type: 'CampaignPerformanceReportRequest',
+    dimensions: [
+      'CampaignId',
+      'CampaignName',
+      'CampaignStatus',
+      'ImpressionSharePercent',
+      'ImpressionLostToBudgetPercent',
+      'ImpressionLostToRankAggPercent',
+      'TopImpressionSharePercent',
+      'AbsoluteTopImpressionSharePercent',
+      'ClickSharePercent',
+    ],
+  },
 };
 
 function msDate(iso: string) {
@@ -111,6 +125,12 @@ const DIMENSION_MAP: Record<string, keyof ReportRow> = {
 const NUMERIC_DIMENSIONS: Record<string, keyof ReportRow> = {
   QualityScore: 'qualityScore',
   CurrentMaxCpc: 'currentMaxCpc',
+  ImpressionSharePercent: 'impressionShare',
+  ImpressionLostToBudgetPercent: 'lostToBudget',
+  ImpressionLostToRankAggPercent: 'lostToRank',
+  TopImpressionSharePercent: 'topImpressionShare',
+  AbsoluteTopImpressionSharePercent: 'absoluteTopImpressionShare',
+  ClickSharePercent: 'clickShare',
 };
 
 /** Converts raw CSV rows (keyed by Microsoft column names) into ReportRows. */

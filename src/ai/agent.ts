@@ -724,7 +724,8 @@ async function executeTools(
           accountId: ctx.accountId,
           tool: item.name,
           summary: plan.title,
-          changes: plan.changes,
+          // Only what Microsoft confirmed (tools that verify by reading back report it).
+          changes: exec.changes?.length ? exec.changes : plan.changes,
           status: 'success',
           conversationId: convId,
           undo: exec.undo ?? plan.undo,

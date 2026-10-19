@@ -47,7 +47,7 @@ describe('propose_negative_keywords', () => {
     // The user ticks the second row off and adds one of their own.
     const picked = tool.schema.parse(applyPicks(input, ['candidates'], [1], [{ ...plan.pick!.add!.base, text: 'gratis', matchType: 'Phrase' }]));
     const exec = await (await tool.plan(picked, c)).execute();
-    expect(exec.summary).toMatch(/^3 negative søgeord tilføjet/);
+    expect(exec.summary).toMatch(/^Bekræftet hos Microsoft: 3 negative søgeord/);
 
     const onAdGroup = await c.backend.listNegativeKeywords(c.accountId, 'AdGroup', rows[0]!.adGroupId);
     expect(onAdGroup.map((n) => n.text)).toContain(rows[0]!.searchTerm);

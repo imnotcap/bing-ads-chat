@@ -23,6 +23,8 @@ export interface Account {
   customerId: string;
   currency: string;
   status?: string;
+  /** AccountFinancialStatus – Hold (past due) and Proposed mean ads are not delivered. */
+  financialStatus?: string;
   timeZone?: string;
 }
 
@@ -58,6 +60,10 @@ export interface Campaign {
   /** Set when the campaign uses a shared budget (its daily budget cannot be edited directly). */
   sharedBudgetId?: string | null;
   bidStrategy: BidStrategy;
+  /** Set when the campaign uses a portfolio bid strategy (shared across campaigns). */
+  portfolioBidStrategyId?: string | null;
+  /** Set for experiment campaigns – their budget and status always follow the base campaign. */
+  experimentId?: string | null;
   languages?: string[];
   timeZone?: string;
 }
@@ -78,6 +84,8 @@ export interface Keyword {
   status: EntityStatus;
   bid: number | null;
   qualityScore?: number | null;
+  /** Editorial review: Active, ActiveLimited, Inactive (under review) or Disapproved. */
+  editorialStatus?: EditorialStatus | null;
 }
 
 export interface Ad {
@@ -90,7 +98,10 @@ export interface Ad {
   finalUrls: string[];
   path1?: string | null;
   path2?: string | null;
+  editorialStatus?: EditorialStatus | null;
 }
+
+export type EditorialStatus = 'Active' | 'ActiveLimited' | 'Inactive' | 'Disapproved' | (string & {});
 
 export interface NegativeKeyword {
   id?: string;
@@ -159,10 +170,20 @@ export interface AdPatch {
   status: 'Active' | 'Paused';
 }
 
+export interface ItemError {
+  /** Zero-based position of the item in the request (null when Microsoft did not say). */
+  index: number | null;
+  message: string;
+  code?: string;
+}
+
 export interface MutationResult {
+  /** Ids of the items that were created, in request order (failed items are left out). */
   ids?: string[];
   /** Per-item errors reported by Microsoft Advertising (partial success). */
   partialErrors?: string[];
+  /** The same errors with the position of the item they belong to. */
+  failed?: ItemError[];
 }
 
 /* ---------------- reporting ---------------- */
@@ -178,7 +199,8 @@ export type ReportKind =
   | 'device'
   | 'agegender'
   | 'hourofday'
-  | 'dayofweek';
+  | 'dayofweek'
+  | 'impressionshare';
 
 export type ReportAggregation = 'Summary' | 'Daily' | 'Weekly' | 'Monthly';
 
@@ -218,6 +240,13 @@ export interface ReportRow extends Partial<DerivedMetrics> {
   gender?: string;
   hour?: number;
   dayOfWeek?: string;
+  /** Impression share report (percent, 0–100). */
+  impressionShare?: number | null;
+  lostToBudget?: number | null;
+  lostToRank?: number | null;
+  topImpressionShare?: number | null;
+  absoluteTopImpressionShare?: number | null;
+  clickShare?: number | null;
   [extra: string]: string | number | null | undefined;
 }
 

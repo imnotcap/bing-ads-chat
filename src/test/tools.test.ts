@@ -49,7 +49,8 @@ describe('tools', () => {
     const decision = evaluateGuardrails(change.plan!, c.rules, { currency: 'DKK', totalActiveDailyBudget: null, monthToDateSpend: null, daysLeftInMonth: 0 });
     expect(decision.verdict).toBe('approve');
     const res = await change.execute();
-    expect(res.summary).toContain('gennemført');
+    expect(res.summary).toBe('Bekræftet hos Microsoft: 1 ændring');
+    expect((res.result as { outcome: string }).outcome).toBe('confirmed');
     expect(change.plan?.undo?.input).toEqual(expect.objectContaining({ changes: [{ campaignId: '103', dailyBudget: 400 }] }));
     expect((await c.backend.listCampaigns('1000001')).find((x) => x.id === '103')?.dailyBudget).toBe(600);
   });

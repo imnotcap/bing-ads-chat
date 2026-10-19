@@ -7,6 +7,7 @@ import { previousRange } from '@/lib/format';
 import { round } from '@/lib/utils';
 import { useActivity } from '@/stores/activity';
 import type { VisualColumn } from '../visuals';
+import { accountBlocker, adGroupBlocker, bidLabel, bidsIgnoredReason, campaignBlocker, CONVERSION_BASED, currentAccount, editorialNote, last30, MIN_CONVERSIONS_30D } from './checks';
 import {
   PERIOD_DESCRIPTION,
   compact,
@@ -118,7 +119,8 @@ export const readTools = [
   defineRead({
     name: 'list_campaigns',
     kind: 'read',
-    description: 'List campaigns with id, status, type, daily budget and bid strategy, optionally with performance metrics for a period. Sorted by spend.',
+    description:
+      'List campaigns with id, status, type, daily budget (and whether it is shared), bid strategy, whether keyword/ad group bids are used at all (false under automated bidding), and why a campaign is not serving – optionally with performance metrics for a period. Sorted by spend.',
     schema: z.object({
       period: z.string().optional().describe(PERIOD_DESCRIPTION),
       includeMetrics: withMetrics,
@@ -141,9 +143,14 @@ export const readTools = [
           dailyBudget: c.dailyBudget,
           sharedBudget: c.sharedBudgetId ? true : undefined,
           bidStrategy: c.bidStrategy.type,
+          bidStrategyLabel: bidLabel(c.bidStrategy),
           targetCpa: c.bidStrategy.targetCpa,
           targetRoas: c.bidStrategy.targetRoas,
           maxCpc: c.bidStrategy.maxCpc,
+          keywordAndAdGroupBidsUsed: !bidsIgnoredReason(c),
+          portfolioBidStrategyId: c.portfolioBidStrategyId,
+          experiment: c.experimentId ? true : undefined,
+          notServing: campaignBlocker(c) ?? undefined,
         }),
         ...(metrics ? metricFields(byId.get(c.id)) : {}),
       }));
@@ -237,6 +244,7 @@ export const readTools = [
             status: k.status,
             bid: k.bid,
             qualityScore: k.qualityScore ?? m?.qualityScore,
+            editorialStatus: k.editorialStatus && k.editorialStatus !== 'Active' ? k.editorialStatus : undefined,
           }),
           ...(metrics ? metricFields(m) : {}),
         };
@@ -244,7 +252,13 @@ export const readTools = [
       if (metrics) rows = sortRows(rows, 'spend', 'desc');
       const limit = input.limit ?? 100;
       return {
-        result: { campaign: { id: campaign.id, name: campaign.name }, period: metrics ? period : undefined, totalKeywords: rows.length, keywords: rows.slice(0, limit) },
+        result: {
+          campaign: { id: campaign.id, name: campaign.name, bidStrategy: bidLabel(campaign.bidStrategy) },
+          ...(bidsIgnoredReason(campaign) ? { note: `Keyword bids are ignored in this campaign: ${bidsIgnoredReason(campaign)}` } : {}),
+          period: metrics ? period : undefined,
+          totalKeywords: rows.length,
+          keywords: rows.slice(0, limit),
+        },
         summary: `${keywords.length} søgeord`,
         preview: {
           columns: [
@@ -280,7 +294,7 @@ export const readTools = [
         input.includeMetrics === false ? null : await getReport(ctx, { kind: 'ad', range: period, aggregation: 'Summary', campaignIds: [campaign.id] });
       const byId = new Map((metrics ?? []).map((r) => [r.adId, r]));
       const rows = ads.map((a) => ({
-        ...compact({ id: a.id, adGroupId: a.adGroupId, adGroupName: a.adGroupName, type: a.type, status: a.status, path1: a.path1, path2: a.path2 }),
+        ...compact({ id: a.id, adGroupId: a.adGroupId, adGroupName: a.adGroupName, type: a.type, status: a.status, editorialStatus: a.editorialStatus, path1: a.path1, path2: a.path2 }),
         headlines: a.headlines,
         descriptions: a.descriptions,
         finalUrls: a.finalUrls,
@@ -318,10 +332,10 @@ export const readTools = [
   defineRead({
     name: 'run_report',
     kind: 'read',
-    description: `Run a performance report. Kinds: account, campaign, adgroup, keyword, searchterm (actual search queries – use for finding waste and negative keyword candidates), ad, geo (country/region/city), device, agegender, hourofday, dayofweek.
+    description: `Run a performance report. Kinds: account, campaign, adgroup, keyword, searchterm (actual search queries – use for finding waste and negative keyword candidates), ad, geo (country/region/city), device, agegender, hourofday, dayofweek, impressionshare (per campaign: impressionShare, lostToBudget, lostToRank, topImpressionShare, absoluteTopImpressionShare, clickShare in % – use it before recommending budget or bid/target changes: budget only helps when share is lost to budget; share lost to rank needs better ads/quality/bids or targets).
 Rows contain dimensions plus impressions, clicks, spend, conversions, revenue, ctr, cpc, cpa, roas, convRate. Use filters and limit to keep results focused.`,
     schema: z.object({
-      kind: z.enum(['account', 'campaign', 'adgroup', 'keyword', 'searchterm', 'ad', 'geo', 'device', 'agegender', 'hourofday', 'dayofweek']),
+      kind: z.enum(['account', 'campaign', 'adgroup', 'keyword', 'searchterm', 'ad', 'geo', 'device', 'agegender', 'hourofday', 'dayofweek', 'impressionshare']),
       period: z.string().optional().describe(PERIOD_DESCRIPTION),
       aggregation: z.enum(['Summary', 'Daily', 'Weekly', 'Monthly']).optional().describe('Default Summary. hourofday/dayofweek are always summarised.'),
       campaignIds: z.array(z.string()).optional().describe('Limit to these campaigns (campaign, adgroup, keyword, searchterm and ad reports).'),
@@ -367,6 +381,79 @@ Rows contain dimensions plus impressions, clicks, spend, conversions, revenue, c
           rows: rows.slice(0, 100),
           total: rows.length,
         },
+      };
+    },
+  }),
+
+  defineRead({
+    name: 'diagnose_delivery',
+    kind: 'read',
+    description:
+      'Checks why a campaign does or does not serve, top-down: account status (incl. payment), campaign status (paused, budget-paused, suspended), shared budget, bid strategy and whether it has enough conversion data, then every ad group: status, active and approved ads, active and approved keywords, disapproved or under-review items. Use when performance drops suddenly, a campaign gets no impressions, or before activating something.',
+    schema: z.object({ campaignId: z.string() }),
+    label: () => 'Tjekker levering',
+    async run(input, ctx) {
+      const campaign = await getCampaign(ctx, input.campaignId);
+      const [account, groups, data] = await Promise.all([currentAccount(ctx), getAdGroups(ctx, campaign.id), last30(ctx, campaign.id).catch(() => null)]);
+      const blockers: string[] = [];
+      const warnings: string[] = [];
+      const acc = accountBlocker(account);
+      if (acc) blockers.push(acc);
+      const camp = campaignBlocker(campaign);
+      if (camp) blockers.push(camp);
+      if (data && CONVERSION_BASED.has(campaign.bidStrategy.type) && data.conversions < MIN_CONVERSIONS_30D) {
+        warnings.push(`${bidLabel(campaign.bidStrategy)} har kun ${Math.round(data.conversions * 10) / 10} konverteringer de sidste 30 dage – Microsoft optimerer ikke ordentligt under ${MIN_CONVERSIONS_30D}.`);
+      }
+      const adGroups = await Promise.all(
+        groups.map(async (g) => {
+          const [ads, keywords] = await Promise.all([ctx.backend.listAds(ctx.accountId, g.id).catch(() => null), campaign.type === 'Search' ? getKeywords(ctx, g.id).catch(() => null) : Promise.resolve(null)]);
+          const servingAds = (ads ?? []).filter((a) => a.status === 'Active' && a.editorialStatus !== 'Disapproved' && a.editorialStatus !== 'Inactive');
+          const servingKeywords = (keywords ?? []).filter((k) => k.status === 'Active' && k.editorialStatus !== 'Disapproved' && k.editorialStatus !== 'Inactive');
+          const issues: string[] = [];
+          const block = adGroupBlocker(g);
+          if (block) issues.push(block);
+          if (ads && !servingAds.length) issues.push('Ingen aktive, godkendte annoncer.');
+          if (keywords && !servingKeywords.length) issues.push('Ingen aktive, godkendte søgeord.');
+          for (const a of ads ?? []) {
+            const note = editorialNote(a.editorialStatus, `Annoncen "${a.headlines.slice(0, 2).join(' | ') || a.id}"`);
+            if (note && a.status !== 'Paused') issues.push(note);
+          }
+          const reviewKeywords = (keywords ?? []).filter((k) => k.status !== 'Paused' && (k.editorialStatus === 'Disapproved' || k.editorialStatus === 'Inactive'));
+          if (reviewKeywords.length) issues.push(`${reviewKeywords.length} søgeord er afvist eller under redaktionel gennemgang: ${reviewKeywords.slice(0, 5).map((k) => `"${k.text}" (${k.editorialStatus})`).join(', ')}.`);
+          return compact({
+            id: g.id,
+            name: g.name,
+            status: g.status,
+            activeApprovedAds: ads ? servingAds.length : undefined,
+            activeApprovedKeywords: keywords ? servingKeywords.length : undefined,
+            issues: issues.length ? issues : undefined,
+          });
+        }),
+      );
+      const servingGroups = adGroups.filter((g) => g.status === 'Active' && !g.issues);
+      if (!adGroups.some((g) => g.status === 'Active')) blockers.push('Kampagnen har ingen aktive annoncegrupper.');
+      else if (!servingGroups.length) blockers.push('Ingen aktiv annoncegruppe har både godkendte annoncer og søgeord.');
+      const canServe = !blockers.length;
+      return {
+        result: {
+          campaign: compact({
+            id: campaign.id,
+            name: campaign.name,
+            status: campaign.status,
+            type: campaign.type,
+            dailyBudget: campaign.dailyBudget,
+            sharedBudget: campaign.sharedBudgetId ? true : undefined,
+            bidStrategy: bidLabel(campaign.bidStrategy),
+            keywordAndAdGroupBidsUsed: !bidsIgnoredReason(campaign),
+          }),
+          account: account ? compact({ name: account.name, status: account.status, financialStatus: account.financialStatus }) : undefined,
+          last30Days: data ? { conversions: round(data.conversions, 1), spend: round(data.spend), cpa: data.cpa ? round(data.cpa) : null, roas: data.roas ? round(data.roas, 2) : null } : undefined,
+          canServe,
+          blockers,
+          warnings,
+          adGroups,
+        },
+        summary: canServe ? (adGroups.some((g) => g.issues) ? 'Kan vise annoncer · nogle grupper har problemer' : 'Kan vise annoncer') : `${blockers.length} problem${blockers.length === 1 ? '' : 'er'} stopper visningen`,
       };
     },
   }),
@@ -500,6 +587,7 @@ export const REPORT_LABELS: Record<ReportKind, string> = {
   agegender: 'Alder og køn',
   hourofday: 'Time på dagen',
   dayofweek: 'Ugedag',
+  impressionshare: 'Visningsandel',
 };
 
 const DIMENSION_COLUMNS: Record<ReportKind, VisualColumn[]> = {
@@ -530,4 +618,10 @@ const DIMENSION_COLUMNS: Record<ReportKind, VisualColumn[]> = {
   ],
   hourofday: [{ key: 'hour', label: 'Time' }],
   dayofweek: [{ key: 'dayOfWeek', label: 'Ugedag' }],
+  impressionshare: [
+    { key: 'campaignName', label: 'Kampagne' },
+    { key: 'impressionShare', label: 'Visningsandel %', format: 'decimal' },
+    { key: 'lostToBudget', label: 'Tabt – budget %', format: 'decimal' },
+    { key: 'lostToRank', label: 'Tabt – rangering %', format: 'decimal' },
+  ],
 };

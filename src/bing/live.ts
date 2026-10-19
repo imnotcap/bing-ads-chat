@@ -17,6 +17,8 @@ import type {
   BudgetOpportunity,
   Campaign,
   CampaignPatch,
+  EditorialStatus,
+  ItemError,
   Keyword,
   KeywordIdea,
   KeywordPatch,
@@ -36,6 +38,8 @@ import { extractFirstFile } from './zip';
 type Json = Record<string, unknown>;
 
 const CAMPAIGN_TYPES = ['Search', 'Shopping', 'Audience', 'PerformanceMax'];
+/** Without these, campaigns on Maximize conversion value / Target impression share come back with an empty BiddingScheme. */
+const CAMPAIGN_FIELDS = 'MaxConversionValueBiddingScheme TargetImpressionShareBiddingScheme BidStrategyId';
 const POLL_ATTEMPTS = 40;
 const POLL_DELAY_MS = 2_000;
 
@@ -53,10 +57,15 @@ const str = (v: unknown): string => (v === null || v === undefined ? '' : String
 const num = (v: unknown): number | null => (v === null || v === undefined || v === '' ? null : Number(v));
 const amount = (v: unknown): number | null => (v && typeof v === 'object' ? num((v as Json).Amount) : num(v));
 
+/** "TargetCpaBiddingScheme" and "TargetCpa" both mean Target CPA. */
+export function bidStrategyType(raw: unknown): string {
+  return str(raw).replace(/BiddingScheme$/, '') || 'Unknown';
+}
+
 function toBidStrategy(raw: unknown): BidStrategy {
   const s = (raw ?? {}) as Json;
   return {
-    type: str(s.Type) || 'Unknown',
+    type: bidStrategyType(s.Type),
     targetCpa: num(s.TargetCpa),
     targetRoas: num(s.TargetRoas),
     maxCpc: amount(s.MaxCpc),
@@ -80,29 +89,53 @@ function mapCampaign(c: Json): Campaign {
     dailyBudget: num(c.DailyBudget),
     sharedBudgetId: c.BudgetId ? str(c.BudgetId) : null,
     bidStrategy: toBidStrategy(c.BiddingScheme),
+    portfolioBidStrategyId: Number(c.BidStrategyId) > 0 ? str(c.BidStrategyId) : null,
+    experimentId: Number(c.ExperimentId) > 0 ? str(c.ExperimentId) : null,
     languages: arr<string>(c.Languages),
     timeZone: str(c.TimeZone) || undefined,
   };
 }
 
-function partial(res: unknown, idsKey: string): MutationResult {
+/**
+ * Reads the result of a batch operation. Microsoft reports a failed item as a
+ * BatchError whose Index is the item's position in the request (the list of errors is
+ * not in request order), and – for adds – a null in its place in the id list.
+ * Throws when not a single item went through, so a fully rejected change is never
+ * reported as done.
+ */
+export function batchResult(res: unknown, count: number, idsKey?: string): MutationResult {
   const r = (res ?? {}) as Json;
-  const ids = arr(r[idsKey])
-    .map((v) => (v && typeof v === 'object' ? str(Object.values(v as Json)[0]) : str(v)))
-    .filter(Boolean);
-  const errors = [...arr(r.PartialErrors), ...arr(r.NestedPartialErrors)];
-  const partialErrors = errors.length ? extractErrorMessages(errors) : undefined;
-  if (partialErrors?.length && ids.length === 0 && idsKey) {
-    throw new MsApiError(`Microsoft Advertising afviste ændringen: ${partialErrors.join(' · ')}`, 400, errors);
+  // Nested errors (e.g. negative keywords per entity) carry the item index on the inner BatchErrors.
+  const nested = arr<Json>(r.NestedPartialErrors).flatMap((n) => {
+    const inner = arr<Json>(n.BatchErrors);
+    return inner.length ? inner : [{ ...n, Index: null }];
+  });
+  const raw = [...arr<Json>(r.PartialErrors), ...nested];
+  const failed: ItemError[] = raw.map((e) => {
+    const idx = e.Index === null || e.Index === undefined || e.Index === '' ? null : Number(e.Index);
+    const messages = extractErrorMessages(e);
+    return { index: Number.isInteger(idx) ? idx : null, message: messages.slice(0, 2).join(' · ') || 'Ukendt fejl fra Microsoft Advertising', code: str(e.ErrorCode) || undefined };
+  });
+  let ids: string[] | undefined;
+  if (idsKey) {
+    const slots = arr(r[idsKey]).map((v) => (v && typeof v === 'object' ? str(Object.values(v as Json)[0]) : str(v)));
+    ids = slots.filter(Boolean);
+    // A null id without a matching error still means the item was not created.
+    slots.forEach((id, i) => {
+      if (!id && !failed.some((f) => f.index === i)) failed.push({ index: i, message: 'Microsoft Advertising returnerede intet id for elementet.' });
+    });
+    if (count > 0 && slots.length === 0 && !failed.length) failed.push({ index: null, message: 'Microsoft Advertising returnerede ingen id’er.' });
   }
-  return { ids: ids.length ? ids : undefined, partialErrors };
-}
-
-function partialOnly(res: unknown): MutationResult {
-  const r = (res ?? {}) as Json;
-  const errors = [...arr(r.PartialErrors), ...arr(r.NestedPartialErrors)];
-  if (!errors.length) return {};
-  return { partialErrors: extractErrorMessages(errors) };
+  const failedItems = new Set(failed.map((f) => f.index).filter((i) => i !== null));
+  const allFailed = idsKey ? !ids?.length && failed.length > 0 : count > 0 && (failedItems.size >= count || (count === 1 && failed.length > 0));
+  if (allFailed) {
+    throw new MsApiError(`Microsoft Advertising afviste ændringen – intet blev ændret: ${[...new Set(failed.map((f) => f.message))].join(' · ')}`, 400, raw);
+  }
+  return {
+    ids: ids?.length ? ids : undefined,
+    partialErrors: failed.length ? failed.map((f) => (f.index === null ? f.message : `#${f.index + 1}: ${f.message}`)) : undefined,
+    failed: failed.length ? failed : undefined,
+  };
 }
 
 export class LiveBackend implements AdsBackend {
@@ -140,6 +173,7 @@ export class LiveBackend implements AdsBackend {
       customerId: str(a.ParentCustomerId),
       currency: str(a.CurrencyCode) || 'DKK',
       status: str(a.AccountLifeCycleStatus) || undefined,
+      financialStatus: str(a.AccountFinancialStatus) || undefined,
       timeZone: str(a.TimeZone) || undefined,
     }));
     return this.accounts;
@@ -156,10 +190,16 @@ export class LiveBackend implements AdsBackend {
   }
 
   async listCampaigns(accountId: string): Promise<Campaign[]> {
+    let fields: string | null = CAMPAIGN_FIELDS;
     const query = (type: string) =>
-      this.cm<Json>(accountId, 'Campaigns/QueryByAccountId', 'POST', { AccountId: Number(accountId), CampaignType: type, ReturnAdditionalFields: null });
+      this.cm<Json>(accountId, 'Campaigns/QueryByAccountId', 'POST', { AccountId: Number(accountId), CampaignType: type, ReturnAdditionalFields: fields });
     try {
-      const res = await query(CAMPAIGN_TYPES.join(' '));
+      const res = await query(CAMPAIGN_TYPES.join(' ')).catch((err) => {
+        if (!(err instanceof MsApiError) || err.status !== 400) throw err;
+        // Older API behaviour: retry without the additional fields before splitting by type.
+        fields = null;
+        return query(CAMPAIGN_TYPES.join(' '));
+      });
       return arr<Json>(res.Campaigns).map(mapCampaign);
     } catch (err) {
       if (!(err instanceof MsApiError) || err.status !== 400) throw err;
@@ -191,6 +231,7 @@ export class LiveBackend implements AdsBackend {
       matchType: (str(k.MatchType) || 'Broad') as Keyword['matchType'],
       status: str(k.Status),
       bid: amount(k.Bid),
+      editorialStatus: (str(k.EditorialStatus) || null) as EditorialStatus | null,
     }));
   }
 
@@ -211,6 +252,7 @@ export class LiveBackend implements AdsBackend {
       finalUrls: arr<string>(a.FinalUrls).map(str),
       path1: str(a.Path1) || null,
       path2: str(a.Path2) || null,
+      editorialStatus: (str(a.EditorialStatus) || null) as EditorialStatus | null,
     }));
   }
 
@@ -243,7 +285,7 @@ export class LiveBackend implements AdsBackend {
         return c;
       }),
     });
-    return partialOnly(res);
+    return batchResult(res, patches.length);
   }
 
   async createCampaign(accountId: string, spec: NewCampaign): Promise<MutationResult> {
@@ -262,19 +304,19 @@ export class LiveBackend implements AdsBackend {
         },
       ],
     });
-    return partial(res, 'CampaignIds');
+    return batchResult(res, 1, 'CampaignIds');
   }
 
   async deleteCampaigns(accountId: string, campaignIds: string[]): Promise<MutationResult> {
     const res = await this.cm(accountId, 'Campaigns', 'DELETE', { AccountId: Number(accountId), CampaignIds: campaignIds.map(Number) });
-    return partialOnly(res);
+    return batchResult(res, campaignIds.length);
   }
 
   async createAdGroup(accountId: string, spec: NewAdGroup): Promise<MutationResult> {
     const group: Json = { Name: spec.name, Status: spec.status };
     if (spec.cpcBid) group.CpcBid = { Amount: spec.cpcBid };
     const res = await this.cm(accountId, 'AdGroups', 'POST', { CampaignId: Number(spec.campaignId), AdGroups: [group] });
-    return partial(res, 'AdGroupIds');
+    return batchResult(res, 1, 'AdGroupIds');
   }
 
   async updateAdGroups(accountId: string, campaignId: string, patches: AdGroupPatch[]): Promise<MutationResult> {
@@ -288,7 +330,7 @@ export class LiveBackend implements AdsBackend {
         return g;
       }),
     });
-    return partialOnly(res);
+    return batchResult(res, patches.length);
   }
 
   async addKeywords(accountId: string, adGroupId: string, keywords: NewKeyword[]): Promise<MutationResult> {
@@ -296,7 +338,7 @@ export class LiveBackend implements AdsBackend {
       AdGroupId: Number(adGroupId),
       Keywords: keywords.map((k) => ({ Text: k.text, MatchType: k.matchType, Bid: k.bid ? { Amount: k.bid } : null })),
     });
-    return partial(res, 'KeywordIds');
+    return batchResult(res, keywords.length, 'KeywordIds');
   }
 
   async updateKeywords(accountId: string, adGroupId: string, patches: KeywordPatch[]): Promise<MutationResult> {
@@ -309,12 +351,12 @@ export class LiveBackend implements AdsBackend {
         return k;
       }),
     });
-    return partialOnly(res);
+    return batchResult(res, patches.length);
   }
 
   async deleteKeywords(accountId: string, adGroupId: string, keywordIds: string[]): Promise<MutationResult> {
     const res = await this.cm(accountId, 'Keywords', 'DELETE', { AdGroupId: Number(adGroupId), KeywordIds: keywordIds.map(Number) });
-    return partialOnly(res);
+    return batchResult(res, keywordIds.length);
   }
 
   async addNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, keywords: NegativeKeyword[]): Promise<MutationResult> {
@@ -327,7 +369,7 @@ export class LiveBackend implements AdsBackend {
         },
       ],
     });
-    return partialOnly(res);
+    return batchResult(res, keywords.length);
   }
 
   async createResponsiveSearchAd(accountId: string, adGroupId: string, ad: NewResponsiveSearchAd): Promise<MutationResult> {
@@ -346,7 +388,7 @@ export class LiveBackend implements AdsBackend {
         },
       ],
     });
-    return partial(res, 'AdIds');
+    return batchResult(res, 1, 'AdIds');
   }
 
   async updateAds(accountId: string, adGroupId: string, patches: AdPatch[]): Promise<MutationResult> {
@@ -360,7 +402,7 @@ export class LiveBackend implements AdsBackend {
         Status: p.status,
       })),
     });
-    return partialOnly(res);
+    return batchResult(res, patches.length);
   }
 
   /* -------------------------------- insight -------------------------------- */
