@@ -64,29 +64,6 @@ const withMetrics = z.boolean().optional().describe('Include performance metrics
 
 export const readTools = [
   defineRead({
-    name: 'list_accounts',
-    kind: 'read',
-    description: 'List the Microsoft Advertising accounts the user can access, and which one is selected in the app.',
-    schema: z.object({}),
-    label: () => 'Henter annoncekonti',
-    async run(_input, ctx) {
-      const accounts = await ctx.backend.listAccounts();
-      return {
-        result: accounts.map((a) => ({ ...a, selected: a.id === ctx.accountId })),
-        summary: `${accounts.length} konti`,
-        preview: {
-          columns: [
-            { key: 'name', label: 'Konto' },
-            { key: 'id', label: 'ID' },
-            { key: 'currency', label: 'Valuta' },
-          ],
-          rows: accounts.map((a) => ({ name: a.name, id: a.id, currency: a.currency })),
-        },
-      };
-    },
-  }),
-
-  defineRead({
     name: 'get_performance_overview',
     kind: 'read',
     description:
@@ -172,7 +149,16 @@ export const readTools = [
       }));
       const sorted = metrics ? sortRows(rows, 'spend', 'desc') : rows;
       return {
-        result: { period: metrics ? period : undefined, currency: ctx.currency, campaigns: sorted },
+        result: {
+          period: metrics ? period : undefined,
+          currency: ctx.currency,
+          campaigns: sorted,
+          ...(!campaigns.length && input.status !== 'active' && input.status !== 'paused'
+            ? {
+                note: 'The connected account has no campaigns. Tell the user which account is connected (see <context>); the account is set by the Konto-ID under Indstillinger → Forbindelser → Microsoft Advertising.',
+              }
+            : {}),
+        },
         summary: `${campaigns.length} kampagner`,
         preview: {
           columns: [

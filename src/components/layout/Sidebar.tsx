@@ -1,8 +1,6 @@
 import { motion } from 'motion/react';
 import {
-  Building2,
   SquareKanban,
-  Check,
   FlaskConical,
   LayoutDashboard,
   LayoutGrid,
@@ -22,7 +20,7 @@ import {
 import { memo, useMemo, useState } from 'react';
 import { AnimatedList } from '@/components/reactbits';
 import { Button } from '@/components/ui/button';
-import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
+import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { fmtUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useBoard, visibleBoards } from '@/stores/board';
@@ -183,7 +181,7 @@ function initials(name: string | undefined) {
 
 /** Account & settings menu in the bottom-left corner, styled like Claude's. */
 export function AccountMenu() {
-  const { accounts, accountId, mode, set } = useConnection();
+  const { accounts, accountId, mode } = useConnection();
   const go = useUi((s) => s.go);
   const account = accounts.find((a) => a.id === accountId);
   const months = useUsage((s) => s.months);
@@ -235,19 +233,6 @@ export function AccountMenu() {
               </div>
             </div>
           </div>
-          {accounts.length > 1 && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Skift konto</DropdownMenuLabel>
-              {accounts.map((a) => (
-                <DropdownMenuItem key={a.id} onSelect={() => set({ accountId: a.id })}>
-                  <Building2 />
-                  <span className="flex-1 truncate">{a.name}</span>
-                  {a.id === accountId && <Check className="!text-brand" />}
-                </DropdownMenuItem>
-              ))}
-            </>
-          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => go('settings', 'connections')}>
             <Settings /> <span className="flex-1">Indstillinger</span> <span className="text-[11px] text-subtle">Ctrl ,</span>
