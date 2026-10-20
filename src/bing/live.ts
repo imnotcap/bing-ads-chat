@@ -13,6 +13,7 @@ import type {
   AdGroupPatch,
   AdPatch,
   AdsBackend,
+  AuctionCompetitor,
   BidStrategy,
   BudgetOpportunity,
   Campaign,
@@ -20,6 +21,7 @@ import type {
   EditorialStatus,
   ItemError,
   Keyword,
+  KeywordBidEstimate,
   KeywordIdea,
   KeywordPatch,
   MsService,
@@ -33,6 +35,7 @@ import type {
   PinPosition,
   ReportRow,
   ReportSpec,
+  SearchVolume,
 } from './types';
 import { extractFirstFile } from './zip';
 import { CampaignCache, type CampaignStore } from './campaignCache';
@@ -542,6 +545,105 @@ export class LiveBackend implements AdsBackend {
         };
       })
       .slice(0, input.limit ?? 50);
+  }
+
+  async searchVolumes(accountId: string, keywords: string[], opts: { language?: string; countryCode?: string; months?: number } = {}): Promise<SearchVolume[]> {
+    const end = new Date();
+    end.setDate(0); // the last completed month
+    const start = new Date(end.getFullYear(), end.getMonth() - Math.min(opts.months ?? 12, 24) + 1, 1);
+    const dmy = (d: Date) => ({ Day: d.getDate(), Month: d.getMonth() + 1, Year: d.getFullYear() });
+    const res = await this.client.call<Json>('adinsight', 'HistoricalSearchCount/Query', {
+      body: {
+        Keywords: keywords,
+        Language: opts.language ?? 'Danish',
+        PublisherCountries: [opts.countryCode ?? 'DK'],
+        StartDate: dmy(start),
+        EndDate: dmy(end),
+        TimePeriodRollup: 'Monthly',
+        Devices: ['Computers', 'Smartphones', 'Tablets'],
+      },
+      ...(await this.ctx(accountId)),
+    });
+    // One entry per keyword (null when the keyword is not valid), split by device – summed here.
+    return arr<Json | null>(res.KeywordSearchCounts).flatMap((k, i) => {
+      if (!k) return [];
+      const byMonth = new Map<string, number>();
+      for (const d of arr<Json>(k.SearchCountsByAttributes)) {
+        for (const h of arr<Json>(d.HistoricalSearchCounts)) {
+          const date = (h.DayMonthAndYear ?? {}) as Json;
+          const month = `${date.Year}-${String(date.Month).padStart(2, '0')}`;
+          byMonth.set(month, (byMonth.get(month) ?? 0) + Number(h.SearchCount ?? 0));
+        }
+      }
+      return [{ keyword: str(k.Keyword) || keywords[i]!, months: [...byMonth].sort().map(([month, searches]) => ({ month, searches })) }];
+    });
+  }
+
+  async bidEstimates(
+    accountId: string,
+    keywords: { text: string; matchType: string }[],
+    opts: { campaignId?: string; adGroupId?: string; language?: string; location?: string } = {},
+  ): Promise<KeywordBidEstimate[]> {
+    const country = (opts.location ?? 'Denmark').trim();
+    const locationId = (await this.countryIds(accountId)).get(country.toLowerCase());
+    const res = await this.client.call<Json>('adinsight', 'EstimatedBid/QueryByKeywords', {
+      body: {
+        Keywords: keywords.map((k) => ({ KeywordText: k.text, MatchTypes: [k.matchType] })),
+        TargetPositionForAds: 'MainLine',
+        Language: opts.language ?? (country.toLowerCase() === 'denmark' ? 'Danish' : 'English'),
+        LocationIds: locationId ? [Number(locationId)] : null,
+        CampaignId: opts.campaignId ? Number(opts.campaignId) : null,
+        AdGroupId: opts.adGroupId ? Number(opts.adGroupId) : null,
+        EntityLevelBid: 'Keyword',
+      },
+      ...(await this.ctx(accountId)),
+    });
+    const range = (a: unknown, b: unknown): [number, number] | null => (a === null || a === undefined || b === null || b === undefined ? null : [Number(a), Number(b)]);
+    return arr<Json | null>(res.KeywordEstimatedBids).flatMap((k, i) => {
+      const e = k ? arr<Json>(k.EstimatedBids)[0] : undefined;
+      const kw = keywords[i]!;
+      return [
+        {
+          keyword: str(k?.Keyword) || kw.text,
+          matchType: str(e?.MatchType) || kw.matchType,
+          estimatedMinBid: num(e?.EstimatedMinBid),
+          averageCpc: num(e?.AverageCPC),
+          ctr: num(e?.CTR),
+          clicksPerWeek: range(e?.MinClicksPerWeek, e?.MaxClicksPerWeek),
+          impressionsPerWeek: range(e?.MinImpressionsPerWeek, e?.MaxImpressionsPerWeek),
+          costPerWeek: range(e?.MinTotalCostPerWeek, e?.MaxTotalCostPerWeek),
+        },
+      ];
+    });
+  }
+
+  async auctionInsights(accountId: string, level: 'Account' | 'Campaign' | 'AdGroup' | 'Keyword', ids: string[], range: { from: string; to: string }): Promise<AuctionCompetitor[]> {
+    const dmy = (iso: string) => {
+      const [y, m, d] = iso.split('-').map(Number);
+      return { Day: d, Month: m, Year: y };
+    };
+    const res = await this.client.call<Json>('adinsight', 'AuctionInsightData/Query', {
+      body: {
+        EntityType: level,
+        EntityIds: level === 'Account' ? null : ids.map(Number),
+        SearchParameters: [{ Type: 'DateRangeSearchParameter', StartDate: dmy(range.from), EndDate: dmy(range.to) }],
+        ReturnAdditionalFields: 'AbsoluteTopOfPageRate',
+      },
+      ...(await this.ctx(accountId)),
+    });
+    const result = (res.Result ?? {}) as Json;
+    return arr<Json>(result.Entries).map((e) => {
+      const k = (e.AggregatedKpi ?? {}) as Json;
+      return {
+        domain: str(e.DisplayDomain),
+        impressionShare: num(k.ImpressionShare),
+        overlapRate: num(k.OverlapRate),
+        aboveRate: num(k.AboveRate),
+        topOfPageRate: num(k.TopOfPageRate),
+        absoluteTopOfPageRate: num(k.AbsoluteTopOfPageRate),
+        outrankingShare: num(k.OutrankingShare),
+      };
+    });
   }
 
   async budgetOpportunities(accountId: string, campaignId?: string): Promise<BudgetOpportunity[]> {

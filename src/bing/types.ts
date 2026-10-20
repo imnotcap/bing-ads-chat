@@ -267,6 +267,36 @@ export interface KeywordIdea {
   source?: string | null;
 }
 
+/** Microsoft's search counts for a keyword (all devices), one value per month, oldest first. */
+export interface SearchVolume {
+  keyword: string;
+  months: { month: string; searches: number }[];
+}
+
+/** Microsoft's bid and traffic estimate for a keyword and match type (per week). */
+export interface KeywordBidEstimate {
+  keyword: string;
+  matchType: string;
+  /** Suggested bid to reach the target position. */
+  estimatedMinBid: number | null;
+  averageCpc: number | null;
+  ctr: number | null;
+  clicksPerWeek: [number, number] | null;
+  impressionsPerWeek: [number, number] | null;
+  costPerWeek: [number, number] | null;
+}
+
+/** One advertiser in the auctions (Auction insights). Rates are percentages. */
+export interface AuctionCompetitor {
+  domain: string;
+  impressionShare: number | null;
+  overlapRate: number | null;
+  aboveRate: number | null;
+  topOfPageRate: number | null;
+  absoluteTopOfPageRate: number | null;
+  outrankingShare: number | null;
+}
+
 export interface BudgetOpportunity {
   campaignId: string;
   campaignName?: string;
@@ -314,6 +344,16 @@ export interface AdsBackend {
   /** `location`: a country name in English (default Denmark). */
   keywordIdeas(accountId: string, input: { queries: string[]; url?: string; language?: string; location?: string; limit?: number }): Promise<KeywordIdea[]>;
   budgetOpportunities(accountId: string, campaignId?: string): Promise<BudgetOpportunity[]>;
+  /** Monthly search counts on Microsoft's network (Ad Insight GetHistoricalSearchCount). */
+  searchVolumes?(accountId: string, keywords: string[], opts?: { language?: string; countryCode?: string; months?: number }): Promise<SearchVolume[]>;
+  /** Suggested bids with estimated traffic (Ad Insight GetEstimatedBidByKeywords). */
+  bidEstimates?(
+    accountId: string,
+    keywords: { text: string; matchType: string }[],
+    opts?: { campaignId?: string; adGroupId?: string; language?: string; location?: string },
+  ): Promise<KeywordBidEstimate[]>;
+  /** Who else shows up in the same auctions (Ad Insight GetAuctionInsightData). */
+  auctionInsights?(accountId: string, level: 'Account' | 'Campaign' | 'AdGroup' | 'Keyword', ids: string[], range: { from: string; to: string }): Promise<AuctionCompetitor[]>;
 
   /** Raw call to any Microsoft Advertising REST v13 operation (live only). */
   rawRequest(accountId: string, service: MsService, path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE', body?: unknown): Promise<unknown>;

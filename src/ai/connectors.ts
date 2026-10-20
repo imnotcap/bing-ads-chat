@@ -30,7 +30,7 @@ export const CONNECTORS: Connector[] = [
   { id: 'msads_api', label: 'Avanceret API-adgang', description: 'Direkte kald til Microsoft Advertising REST API (kræver altid godkendelse)', icon: Terminal, brand: 'microsoft_ads', defaultOn: true },
   { id: 'inventarland', label: 'Inventarland · webshop og kanaler', description: 'Webshoppens salg og produkter, Google Ads, Meta og Daisycon', icon: ShoppingBag, defaultOn: true },
   { id: 'visuals', label: 'Grafer og tabeller', description: 'Nøgletal, grafer og tabeller i svarene', icon: BarChart3, defaultOn: true },
-  { id: 'web', label: 'Websøgning', description: 'Søg på nettet, fx konkurrenter og trends (koster ekstra pr. søgning)', icon: Globe, defaultOn: false, providers: ['anthropic'] },
+  { id: 'web', label: 'Websøgning', description: 'Søg og læs på nettet: landingssider, priser, konkurrenter og trends (koster lidt ekstra pr. søgning)', icon: Globe, defaultOn: true, providers: ['anthropic'] },
 ];
 
 const DISPLAY_ALWAYS = new Set(['suggest_next_steps', 'create_file']);

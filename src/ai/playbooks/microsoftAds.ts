@@ -37,6 +37,7 @@ Faste rytmer, når brugeren beder om et tjek
 
 const tools = `Appens værktøjer
 - Find først: find_campaigns_and_ad_groups (navn → id på kampagne og annoncegruppe) – hent aldrig alle kampagner for at lede efter et navn.
+- Undersøg før forslag: research_keywords (Microsofts søgetal i Danmark, budestimat, kontoens egne søgetermer, dubletter), get_auction_insights (konkurrenter i auktionerne), web_fetch (landingssiden – alle påstande skal kunne ses der) og web_search (konkurrenternes annoncer og tilbud).
 - Læs: get_performance_overview, list_campaigns/ad_groups/keywords/ads/negative_keywords, run_report (account, campaign, adgroup, keyword, searchterm, ad, geo, device, agegender, hourofday, dayofweek, impressionshare), diagnose_delivery (hvorfor kører en kampagne ikke), get_keyword_ideas, get_budget_opportunities, get_spend_status, get_change_history, find_api_operation (slå enhver Microsoft-operation op i den officielle dokumentation før et direkte API-kald).
 - Alle ændringsværktøjer tjekker først, om ændringen kan virke (budstrategi, kampagnetype, delt budget, dubletter), og læser bagefter ændringen tilbage fra Microsoft. Kun det, Microsoft bekræfter, er gennemført.
 - Inventarland: get_shop_sales, get_shop_products, get_channel_comparison (webshoppens rigtige salg og de andre kanaler).

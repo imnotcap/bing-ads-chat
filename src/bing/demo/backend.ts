@@ -13,11 +13,13 @@ import type {
   AdGroupPatch,
   AdPatch,
   AdsBackend,
+  AuctionCompetitor,
   BudgetOpportunity,
   Campaign,
   CampaignPatch,
   ItemError,
   Keyword,
+  KeywordBidEstimate,
   KeywordIdea,
   KeywordPatch,
   Metrics,
@@ -31,6 +33,7 @@ import type {
   ReportAggregation,
   ReportRow,
   ReportSpec,
+  SearchVolume,
 } from '../types';
 import { DEMO_ACCOUNTS, createSeedState, type DemoState } from './seed';
 import { Simulator, hash } from './simulate';
@@ -531,6 +534,54 @@ export class DemoBackend implements AdsBackend {
       }
     }
     return out.sort((a, b) => (b.monthlySearches ?? 0) - (a.monthlySearches ?? 0)).slice(0, input.limit ?? 40);
+  }
+
+  async searchVolumes(_accountId: string, keywords: string[], opts: { months?: number } = {}): Promise<SearchVolume[]> {
+    await sleep(this.latencyMs);
+    const n = Math.min(opts.months ?? 12, 24);
+    const now = new Date();
+    return keywords.map((keyword) => {
+      const r = hash(keyword.toLowerCase());
+      // Longer keywords are searched less; a little seasonality.
+      const base = Math.round((900 * r + 40) / Math.max(1, keyword.trim().split(/\s+/).length - 0.5));
+      return {
+        keyword,
+        months: Array.from({ length: n }, (_, i) => {
+          const d = new Date(now.getFullYear(), now.getMonth() - n + i, 1);
+          return { month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, searches: Math.round(base * (0.85 + 0.3 * hash(`${keyword}${i}`))) };
+        }),
+      };
+    });
+  }
+
+  async bidEstimates(_accountId: string, keywords: { text: string; matchType: string }[]): Promise<KeywordBidEstimate[]> {
+    await sleep(this.latencyMs);
+    return keywords.map((k) => {
+      const r = hash(`${k.text.toLowerCase()}|bid`);
+      const cpc = Math.round((2 + r * 7) * 100) / 100;
+      const reach = k.matchType === 'Exact' ? 1 : k.matchType === 'Phrase' ? 1.8 : 3;
+      const clicks = Math.round((5 + r * 40) * reach);
+      return {
+        keyword: k.text,
+        matchType: k.matchType,
+        estimatedMinBid: Math.round(cpc * 1.25 * 100) / 100,
+        averageCpc: cpc,
+        ctr: Math.round((3 + r * 5) * 10) / 10,
+        clicksPerWeek: [Math.round(clicks * 0.7), clicks],
+        impressionsPerWeek: [clicks * 14, clicks * 22],
+        costPerWeek: [Math.round(clicks * 0.7 * cpc), Math.round(clicks * cpc)],
+      };
+    });
+  }
+
+  async auctionInsights(): Promise<AuctionCompetitor[]> {
+    await sleep(this.latencyMs);
+    return [
+      { domain: 'Du', impressionShare: 41.2, overlapRate: null, aboveRate: null, topOfPageRate: 63.5, absoluteTopOfPageRate: 28.1, outrankingShare: null },
+      { domain: 'ikea.com', impressionShare: 58.4, overlapRate: 61.0, aboveRate: 44.2, topOfPageRate: 71.3, absoluteTopOfPageRate: 39.8, outrankingShare: 31.5 },
+      { domain: 'jysk.dk', impressionShare: 36.9, overlapRate: 42.7, aboveRate: 29.4, topOfPageRate: 55.0, absoluteTopOfPageRate: 17.2, outrankingShare: 47.9 },
+      { domain: 'kontorshop.dk', impressionShare: 18.3, overlapRate: 21.5, aboveRate: 12.0, topOfPageRate: 38.6, absoluteTopOfPageRate: 9.4, outrankingShare: 58.0 },
+    ];
   }
 
   async budgetOpportunities(accountId: string, campaignId?: string): Promise<BudgetOpportunity[]> {

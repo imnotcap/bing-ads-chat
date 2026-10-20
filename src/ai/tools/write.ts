@@ -17,6 +17,7 @@ import { findOperation, isReadOperation, missingRequired, searchOperations } fro
 import type { AdGroup, Campaign, Keyword, MsService, NegativeKeyword, PinPosition } from '@/bing/types';
 import { useActivity, type ChangeLine } from '@/stores/activity';
 import type { ChangePlan } from '../guardrails';
+import { researchKeywords } from './research';
 import {
   bidLabel,
   bidsIgnoredReason,
@@ -652,12 +653,27 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
         const block = negatives.find((n) => negativeBlocks(n, k.text));
         if (block) notes.push(`"${k.text}" blokeres af det negative søgeord "${block.text}" (${MATCH_LABELS[block.matchType]}) og vil ikke få visninger, før det negative fjernes.`);
       }
-      const lines: ChangeLine[] = input.keywords.map((k, i) => ({
-        entity: 'Søgeord',
-        field: `Søgeord · ${MATCH_LABELS[k.matchType]}${k.bid ? ` · bud ${k.bid}` : ''}`,
-        after: k.text,
-        edit: { path: ['keywords', i, 'text'], maxLength: 100 },
-      }));
+      // The evidence for each keyword goes on the card: Microsoft's search counts, the
+      // account's own search terms and a verdict – weak keywords are named.
+      const research = await researchKeywords(ctx, input.keywords, { campaignId: c.id, adGroupId: g.id }).catch(() => null);
+      const fmt = (n: number) => n.toLocaleString('da-DK');
+      for (const r of research?.rows ?? []) {
+        if (r.verdict === 'Lav volumen' || r.verdict === 'Dyr' || r.verdict === 'Ingen data' || r.verdict === 'Findes allerede') notes.push(`"${r.keyword}": ${r.verdict.toLowerCase()} – ${r.why}`);
+      }
+      const lines: ChangeLine[] = input.keywords.map((k, i) => {
+        const r = research?.rows[i];
+        const evidence = r
+          ? [r.volume ? `~${fmt(r.volume.avgMonthly)} søgn./md.` : null, r.evidence.conversions ? `${fmt(r.evidence.conversions)} konv. i søgetermer` : r.evidence.clicks ? `${fmt(r.evidence.clicks)} klik i søgetermer` : null, r.verdict]
+              .filter(Boolean)
+              .join(' · ')
+          : '';
+        return {
+          entity: 'Søgeord',
+          field: `Søgeord · ${MATCH_LABELS[k.matchType]}${k.bid ? ` · bud ${k.bid}` : ''}${evidence ? ` · ${evidence}` : ''}`,
+          after: k.text,
+          edit: { path: ['keywords', i, 'text'], maxLength: 100 },
+        };
+      });
       return {
         plan: {
           kind: 'create',
