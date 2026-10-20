@@ -16,7 +16,7 @@ import { LABEL_COLORS, boardAccess, myOpenCards, useBoard, visibleBoards, type B
 import { useNewBoardDialog } from '@/features/board/BoardAccess';
 import { useSettings } from '@/stores/settings';
 import { useUi, type View } from '@/stores/ui';
-import { AccountMenu } from './Sidebar';
+import { AccountMenu, ModeNav } from './Sidebar';
 import { startNewConversation } from './TopBar';
 
 interface NavItem {
@@ -203,7 +203,8 @@ export function DashboardSidebar() {
   return (
     <div className="flex h-full w-[260px] flex-col">
       <div className="px-3 pt-3">
-        <Button variant="secondary" className="h-9 w-full justify-start" onClick={startNewConversation}>
+        <ModeNav />
+        <Button variant="secondary" className="mt-2 h-9 w-full justify-start" onClick={startNewConversation}>
           <Sparkles className="text-brand" /> Spørg assistenten
         </Button>
         <div className="relative mt-3 px-1">
