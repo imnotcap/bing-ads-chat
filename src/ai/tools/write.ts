@@ -14,9 +14,10 @@ import { z } from 'zod';
 import { presetRange } from '@/lib/format';
 import { activeDailyBudget } from '@/bing/spend';
 import { findOperation, isReadOperation, missingRequired, searchOperations } from '@/bing/msOperations';
-import type { AdGroup, Campaign, Keyword, MsService, NegativeKeyword } from '@/bing/types';
+import type { AdGroup, Campaign, Keyword, MsService, NegativeKeyword, PinPosition } from '@/bing/types';
 import { useActivity, type ChangeLine } from '@/stores/activity';
 import type { ChangePlan } from '../guardrails';
+import { researchKeywords } from './research';
 import {
   bidLabel,
   bidsIgnoredReason,
@@ -132,6 +133,7 @@ function learningNote(ctx: ToolContext, c: Campaign): string | null {
 /** Fresh read of a list (the per-turn cache is cleared first). */
 function fresh(ctx: ToolContext) {
   ctx.memo.clear();
+  ctx.backend.campaignsChanged?.();
 }
 
 export const writeTools = [
@@ -651,12 +653,27 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
         const block = negatives.find((n) => negativeBlocks(n, k.text));
         if (block) notes.push(`"${k.text}" blokeres af det negative søgeord "${block.text}" (${MATCH_LABELS[block.matchType]}) og vil ikke få visninger, før det negative fjernes.`);
       }
-      const lines: ChangeLine[] = input.keywords.map((k, i) => ({
-        entity: 'Søgeord',
-        field: `Søgeord · ${MATCH_LABELS[k.matchType]}${k.bid ? ` · bud ${k.bid}` : ''}`,
-        after: k.text,
-        edit: { path: ['keywords', i, 'text'], maxLength: 100 },
-      }));
+      // The evidence for each keyword goes on the card: Microsoft's search counts, the
+      // account's own search terms and a verdict – weak keywords are named.
+      const research = await researchKeywords(ctx, input.keywords, { campaignId: c.id, adGroupId: g.id }).catch(() => null);
+      const fmt = (n: number) => n.toLocaleString('da-DK');
+      for (const r of research?.rows ?? []) {
+        if (r.verdict === 'Lav volumen' || r.verdict === 'Dyr' || r.verdict === 'Ingen data' || r.verdict === 'Findes allerede') notes.push(`"${r.keyword}": ${r.verdict.toLowerCase()} – ${r.why}`);
+      }
+      const lines: ChangeLine[] = input.keywords.map((k, i) => {
+        const r = research?.rows[i];
+        const evidence = r
+          ? [r.volume ? `~${fmt(r.volume.avgMonthly)} søgn./md.` : null, r.evidence.conversions ? `${fmt(r.evidence.conversions)} konv. i søgetermer` : r.evidence.clicks ? `${fmt(r.evidence.clicks)} klik i søgetermer` : null, r.verdict]
+              .filter(Boolean)
+              .join(' · ')
+          : '';
+        return {
+          entity: 'Søgeord',
+          field: `Søgeord · ${MATCH_LABELS[k.matchType]}${k.bid ? ` · bud ${k.bid}` : ''}${evidence ? ` · ${evidence}` : ''}`,
+          after: k.text,
+          edit: { path: ['keywords', i, 'text'], maxLength: 100 },
+        };
+      });
       return {
         plan: {
           kind: 'create',
@@ -1026,12 +1043,19 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
     name: 'create_responsive_search_ad',
     kind: 'write',
     description:
-      'Create a responsive search ad in a Search campaign. 3–15 unique headlines (max 30 characters each), 2–4 unique descriptions (max 90 characters each), final URL (https), optional display paths (max 15 characters each, no spaces; path2 needs path1). Write in the language of the campaign (Danish by default) and follow the tone of voice from the business profile. New ads go through Microsoft editorial review before they serve – the tool reads the ad back and reports its editorial status.',
+      'Create a responsive search ad in a Search campaign. keywordHeadline is the ad group\'s main search keyword standing alone (e.g. "Butiksinventar" or "{KeyWord:Butiksinventar}") – it always becomes headline 1, pinned to position 1. Then 2–14 other unique headlines (max 30 characters each) that don\'t repeat the keyword alone, 2–4 unique descriptions (max 90 characters each), final URL (https), optional display paths (max 15 characters each, no spaces; path2 needs path1). Pin other headlines/descriptions only when there is a reason (e.g. a brand or offer that must always show in position 2); unpinned texts let Microsoft test combinations. The user can change every pin on the approval card. Write in the language of the campaign (Danish by default) and follow the tone of voice from the business profile. New ads go through Microsoft editorial review before they serve – the tool reads the ad back and reports its editorial status.',
     schema: z.object({
       campaignId: z.string(),
       adGroupId: z.string(),
-      headlines: z.array(adText(30, 'Overskrift')).min(3).max(15),
+      keywordHeadline: adText(30, 'Søgeordsoverskriften').describe('The main search keyword alone – always headline 1, pinned to position 1.'),
+      headlines: z.array(adText(30, 'Overskrift')).min(2).max(14).describe('The other headlines (headline 2 onwards).'),
+      headlinePins: z
+        .array(z.enum(['', '1', '2', '3']))
+        .max(14)
+        .optional()
+        .describe('Per entry in headlines: "" = any position (default), "1"–"3" = always in that position.'),
       descriptions: z.array(adText(90, 'Beskrivelse')).min(2).max(4),
+      descriptionPins: z.array(z.enum(['', '1', '2'])).max(4).optional().describe('Per description: "" = any position (default), "1" or "2".'),
       finalUrl: z.string().url(),
       path1: z.string().max(1000).refine((t) => finalLength(t) <= 15, 'Visningssti må højst være 15 tegn').optional(),
       path2: z.string().max(1000).refine((t) => finalLength(t) <= 15, 'Visningssti må højst være 15 tegn').optional(),
@@ -1043,14 +1067,21 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
       if (c.type !== 'Search') throw new Error(`"${c.name}" er en ${c.type}-kampagne – responsive søgeannoncer bruges kun i søgekampagner.`);
       const g = await getAdGroup(ctx, c.id, input.adGroupId);
       const dup = (list: string[]) => list.filter((x, i) => list.findIndex((y) => y.toLowerCase() === x.toLowerCase()) !== i);
-      if (dup(input.headlines).length) throw new Error(`Overskrifterne skal være forskellige – disse går igen: ${[...new Set(dup(input.headlines))].map((h) => `"${h}"`).join(', ')}.`);
+      // The keyword stands alone as headline 1, pinned to position 1.
+      const headlines = [input.keywordHeadline, ...input.headlines];
+      const headlinePins: PinPosition[] = [1, ...input.headlines.map((_, i) => (Number(input.headlinePins?.[i]) || null) as PinPosition)];
+      const descriptionPins: PinPosition[] = input.descriptions.map((_, i) => (Number(input.descriptionPins?.[i]) || null) as PinPosition);
+      if (dup(headlines).length) throw new Error(`Overskrifterne skal være forskellige – disse går igen: ${[...new Set(dup(headlines))].map((h) => `"${h}"`).join(', ')}.`);
       if (dup(input.descriptions).length) throw new Error('Beskrivelserne skal være forskellige.');
       if (!/^https?:\/\//i.test(input.finalUrl)) throw new Error('Slut-URL skal starte med https://.');
       if (input.path2 && !input.path1) throw new Error('Visningssti 2 kræver visningssti 1.');
       for (const p of [input.path1, input.path2]) if (p && p.includes('/')) throw new Error(`Visningsstien "${p}" må ikke indeholde skråstreg – brug path1 og path2 til hver sin del.`);
       const notes = await servingBlockers(ctx, c, g);
-      if (input.headlines.some((h) => h.includes('!'))) notes.push('Microsofts redaktionelle regler tillader ikke udråbstegn i overskrifter – overskrifter med "!" risikerer at blive afvist.');
-      if (input.headlines.length < 8) notes.push(`Kun ${input.headlines.length} overskrifter – med 8–15 forskellige har Microsoft flere kombinationer at teste.`);
+      if (headlines.some((h) => h.includes('!'))) notes.push('Microsofts redaktionelle regler tillader ikke udråbstegn i overskrifter – overskrifter med "!" risikerer at blive afvist.');
+      if (headlines.length < 8) notes.push(`Kun ${headlines.length} overskrifter – med 8–15 forskellige har Microsoft flere kombinationer at teste.`);
+      const alsoFirst = input.headlines.filter((_, i) => headlinePins[i + 1] === 1);
+      if (alsoFirst.length) notes.push(`Også fastgjort til position 1: ${alsoFirst.map((h) => `"${h}"`).join(', ')} – så skiftes de med søgeordet, og søgeordet vises ikke altid først.`);
+      if (headlinePins.filter(Boolean).length === headlines.length) notes.push('Alle overskrifter er fastgjort – så kan Microsoft ikke teste kombinationer.');
       const host = (() => {
         try {
           return new URL(input.finalUrl).hostname.replace(/^www\./, '');
@@ -1070,8 +1101,27 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
       otherHosts.delete('');
       if (host && otherHosts.size && !otherHosts.has(host)) notes.push(`Slut-URL'en peger på ${host}, men de andre annoncer i gruppen bruger ${[...otherHosts].join(', ')}. Tjek, at det er den rigtige side.`);
       const lines: ChangeLine[] = [
-        ...input.headlines.map((h, i) => ({ entity: 'Annonce', field: `Overskrift ${i + 1}`, after: h, edit: { path: ['headlines', i], maxLength: h.includes('{') ? undefined : 30 } })),
-        ...input.descriptions.map((d, i) => ({ entity: 'Annonce', field: `Beskrivelse ${i + 1}`, after: d, edit: { path: ['descriptions', i], maxLength: d.includes('{') ? undefined : 90 } })),
+        {
+          entity: 'Annonce',
+          field: 'Overskrift 1 · søgeord',
+          after: input.keywordHeadline,
+          edit: { path: ['keywordHeadline'], maxLength: input.keywordHeadline.includes('{') ? undefined : 30 },
+          pin: { value: '1', options: ['', '1', '2', '3'], locked: 'Søgeordet står altid alene i position 1' },
+        },
+        ...input.headlines.map((h, i) => ({
+          entity: 'Annonce',
+          field: `Overskrift ${i + 2}`,
+          after: h,
+          edit: { path: ['headlines', i], maxLength: h.includes('{') ? undefined : 30 },
+          pin: { path: ['headlinePins', i], value: input.headlinePins?.[i] ?? '', options: ['', '1', '2', '3'] },
+        })),
+        ...input.descriptions.map((d, i) => ({
+          entity: 'Annonce',
+          field: `Beskrivelse ${i + 1}`,
+          after: d,
+          edit: { path: ['descriptions', i], maxLength: d.includes('{') ? undefined : 90 },
+          pin: { path: ['descriptionPins', i], value: input.descriptionPins?.[i] ?? '', options: ['', '1', '2'] },
+        })),
         { entity: 'Annonce', field: 'Slut-URL', after: input.finalUrl },
         ...(input.path1 ? [{ entity: 'Annonce', field: 'Visningssti', after: [input.path1, input.path2].filter(Boolean).join('/') }] : []),
       ];
@@ -1088,8 +1138,10 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
         },
         execute: async () => {
           const res = await ctx.backend.createResponsiveSearchAd(ctx.accountId, g.id, {
-            headlines: input.headlines,
+            headlines,
             descriptions: input.descriptions,
+            headlinePins,
+            descriptionPins,
             finalUrl: input.finalUrl,
             path1: input.path1,
             path2: input.path2,
@@ -1099,7 +1151,11 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
           const all = await ctx.backend.listAds(ctx.accountId, g.id);
           const ad = all.find((a) => a.id === id);
           if (!ad) throw new Error(`Microsoft svarede uden fejl, men annoncen${id ? ` (id ${id})` : ''} blev ikke fundet ved genlæsning. Tjek annoncegruppen i Microsoft Advertising.`);
-          const missing = input.headlines.filter((h) => !ad.headlines.includes(h));
+          const missing = headlines.filter((h) => !ad.headlines.includes(h));
+          // Pins as read back (when Microsoft returns them).
+          const pinsLost = ad.headlinePins
+            ? headlines.filter((h, i) => headlinePins[i] && ad.headlinePins![ad.headlines.indexOf(h)] !== headlinePins[i])
+            : [];
           const editorial = editorialNote(ad.editorialStatus, 'Annoncen');
           return {
             result: {
@@ -1109,6 +1165,8 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
               status: ad.status,
               editorialStatus: ad.editorialStatus ?? 'ukendt',
               ...(missing.length ? { headlinesNotSaved: missing } : {}),
+              pinnedHeadlines: headlines.flatMap((h, i) => (headlinePins[i] ? [{ headline: h, position: headlinePins[i] }] : [])),
+              ...(pinsLost.length ? { pinsNotConfirmed: pinsLost } : {}),
               warnings: [...notes, ...(editorial ? [editorial] : [])],
               instruction: 'The ad exists in Microsoft Advertising. Tell the user its editorial status – an ad under review (Inactive) does not serve yet.',
             },

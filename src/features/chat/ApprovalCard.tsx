@@ -3,17 +3,18 @@
  * spending rules apply, and Godkend/Afvis while it waits for the user.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { Ban, Check, CheckCircle2, Clock, Loader2, Plus, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from 'lucide-react';
+import { Ban, Check, CheckCircle2, Clock, Loader2, Pin, Plus, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { answerApproval } from '@/ai/approvals';
 import { undoActivity } from '@/ai/agent';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/controls';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { EASE } from '@/components/motion';
 import { fmtMoney } from '@/lib/format';
 import { cn, errorMessage } from '@/lib/utils';
-import { useActivity } from '@/stores/activity';
+import { useActivity, type ChangeLine } from '@/stores/activity';
 import type { ToolPart } from '@/stores/chat';
 
 function cell(v: string | number | null | undefined, currency: string) {
@@ -56,6 +57,41 @@ function EditableValue({ value, original, maxLength, onChange }: { value: string
         </span>
       )}
     </div>
+  );
+}
+
+/** Like Microsoft Advertising's pin menu for responsive search ad texts. */
+function PinMenu({ pin, value, onChange, kind }: { pin: NonNullable<ChangeLine['pin']>; value: string; onChange?: (v: string) => void; kind: 'headline' | 'description' }) {
+  const pinned = !!value;
+  const button = (
+    <button
+      type="button"
+      disabled={!onChange}
+      aria-label={pinned ? `Fastgjort til position ${value}` : 'Fastgør til en position'}
+      className={cn(
+        'inline-flex h-8 shrink-0 items-center gap-1 rounded-lg px-1.5 text-[12px] font-medium tabular transition-colors',
+        pinned ? 'text-brand' : 'text-subtle',
+        onChange ? 'hover:bg-line-2 data-[state=open]:bg-line-2' : 'cursor-default',
+      )}
+    >
+      <Pin className={cn('size-3.5', pinned && 'fill-current')} />
+      {pinned ? value : ''}
+    </button>
+  );
+  if (!onChange) return <Tooltip content={pin.locked ?? (pinned ? `Vises altid i position ${value}` : 'Vises i alle positioner')}>{button}</Tooltip>;
+  const label = (o: string) => (o ? `Vis kun i position ${o}` : `Vis ${kind === 'headline' ? 'overskriften' : 'beskrivelsen'} i alle positioner`);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={6} className="w-[250px]">
+        {pin.options.map((o) => (
+          <DropdownMenuItem key={o || 'any'} onSelect={() => onChange(o)}>
+            <span className={cn('flex-1', o === value && 'font-medium text-ink')}>{label(o)}</span>
+            {o === value && <Check className="!text-brand" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -301,13 +337,18 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
   const hasBefore = plan.changes.some((c) => c.before !== undefined);
   const budgetDelta = plan.dailyBudgetDelta;
   const [edits, setEdits] = useState<Record<number, string>>({});
+  const [pins, setPins] = useState<Record<number, string>>({});
+  const changedPins = Object.entries(pins).filter(([i, v]) => {
+    const pin = plan.changes[Number(i)]?.pin;
+    return pin?.path && v !== pin.value;
+  });
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
   const [manual, setManual] = useState<ManualItem[]>([]);
   const chosen = plan.changes.length - excluded.size + manual.length;
   const editable = waiting && plan.changes.some((c) => c.edit);
   // Corrections on rows that were ticked off don't count.
   const changed = Object.entries(edits).filter(([i, v]) => !excluded.has(Number(i)) && v.trim() !== String(plan.changes[Number(i)]?.after ?? ''));
-  const editCount = changed.length;
+  const editCount = changed.length + changedPins.length;
   const invalid = Object.entries(edits).some(([i, v]) => {
     if (excluded.has(Number(i))) return false;
     const max = plan.changes[Number(i)]?.edit?.maxLength;
@@ -316,7 +357,10 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
   const approve = () =>
     answerApproval(part.id, {
       approved: true,
-      edits: changed.map(([i, v]) => ({ path: plan.changes[Number(i)]!.edit!.path, value: v.trim() })),
+      edits: [
+        ...changed.map(([i, v]) => ({ path: plan.changes[Number(i)]!.edit!.path, value: v.trim() })),
+        ...changedPins.map(([i, v]) => ({ path: plan.changes[Number(i)]!.pin!.path!, value: v })),
+      ],
       excluded: plan.pick ? [...excluded] : undefined,
       added: plan.pick?.add && manual.length ? manual : undefined,
     });
@@ -366,16 +410,31 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
                   {hasBefore && <td className="px-3 py-1.5 text-muted line-through decoration-black/20">{cell(c.before, currency)}</td>}
                   {waiting && c.edit ? (
                     <td className="px-2 py-1">
-                      <EditableValue
-                        value={edits[i] ?? String(c.after ?? '')}
-                        original={String(c.after ?? '')}
-                        maxLength={c.edit.maxLength}
-                        onChange={(v) => setEdits((e) => ({ ...e, [i]: v }))}
-                      />
+                      <div className="flex items-center gap-1">
+                        <div className="min-w-0 flex-1">
+                          <EditableValue
+                            value={edits[i] ?? String(c.after ?? '')}
+                            original={String(c.after ?? '')}
+                            maxLength={c.edit.maxLength}
+                            onChange={(v) => setEdits((e) => ({ ...e, [i]: v }))}
+                          />
+                        </div>
+                        {c.pin && (
+                          <PinMenu
+                            pin={c.pin}
+                            kind={c.pin.options.includes('3') ? 'headline' : 'description'}
+                            value={pins[i] ?? c.pin.value}
+                            onChange={c.pin.path && !c.pin.locked ? (v) => setPins((p) => ({ ...p, [i]: v })) : undefined}
+                          />
+                        )}
+                      </div>
                     </td>
                   ) : (
-                    <td className="max-w-[320px] truncate px-3 py-1.5 font-medium text-ink" title={typeof c.after === 'string' ? c.after : undefined}>
-                      {cell(c.after, currency)}
+                    <td className="max-w-[320px] px-3 py-1.5 font-medium text-ink" title={typeof c.after === 'string' ? c.after : undefined}>
+                      <div className="flex items-center gap-1">
+                        <span className="min-w-0 flex-1 truncate">{cell(c.after, currency)}</span>
+                        {c.pin?.value && <PinMenu pin={c.pin} kind="headline" value={c.pin.value} />}
+                      </div>
                     </td>
                   )}
                 </tr>

@@ -61,7 +61,11 @@ export function buildReportRequest(accountId: string, spec: ReportSpec): Record<
   const def = REPORT_DEFS[spec.kind];
   const aggregation = def.aggregation ?? spec.aggregation;
   const withTime = aggregation !== 'Summary';
-  const columns = spec.columns?.length ? spec.columns : [...(withTime ? ['TimePeriod'] : []), ...def.dimensions, ...METRIC_COLUMNS];
+  // Microsoft needs at least one measure (NoMeasureSelected) and TimePeriod for time aggregations,
+  // so custom columns always keep the time column and the standard measures.
+  const columns = spec.columns?.length
+    ? [...new Set([...(withTime ? ['TimePeriod'] : []), ...spec.columns, ...METRIC_COLUMNS])]
+    : [...(withTime ? ['TimePeriod'] : []), ...def.dimensions, ...METRIC_COLUMNS];
   const account = Number(accountId);
   const scope: Record<string, unknown> = { AccountIds: [account] };
   if (spec.campaignIds?.length && !def.accountScopeOnly) {

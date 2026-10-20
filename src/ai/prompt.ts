@@ -1,5 +1,6 @@
 import type { Account } from '@/bing/types';
 import { fmtDateLong, today } from '@/lib/format';
+import type { ChatFocus } from '@/stores/chat';
 import type { BusinessProfile, SpendRules } from '@/stores/settings';
 import { playbookPrompt, type StoredPlaybook } from './playbooks';
 
@@ -22,6 +23,29 @@ const BASE_PROMPT = `You are the assistant inside "XavierOS", a desktop app wher
 - End EVERY turn by calling suggest_next_steps as your very last action, alone in its own tool call. Its question asks whether the user wants more changes or what to do next, and its 2–4 suggestions are concrete, one-click next actions based on what you just found or did (mark the most valuable one primary).
 - After you create one or more campaigns, the primary suggestion must be "Titel-optimér de nye kampagner". When the user picks it: read the new campaigns, ad groups and keywords, then propose clearer, consistent names (pattern like "Search | Produkt/tema | Geo | Match" – short, descriptive, no duplicates) in ONE update_campaigns call (and update_ad_groups for ad group names if relevant), with a reason per name. The approval card lets the user check and edit every title by hand before approving.
 - Name optimisation goes through the approval card like every other change, so the user can review and edit the titles.
+
+# Finding things – a fixed order, fetch only what you need
+The account has hundreds of campaigns. Never list everything to look for a name.
+1. The user names a campaign or ad group → find_campaigns_and_ad_groups with the name (or its most distinctive words). It returns ids, and ad groups come with their campaign.
+2. Several matches → pick the exact one; if it is still unclear, ask which one (show the 2–4 candidates). No match → try fewer or other words once, then ask the user.
+3. Work on that id only: list_ad_groups / list_keywords / list_ads for the campaign or ad group, run_report with campaignIds and a limit.
+4. Account-wide questions → get_performance_overview, run_report sorted with a limit, or list_campaigns with status/search/limit – the top of the list, not all of it.
+5. Don't call the same tool again with the same input in a turn – the result doesn't change.
+
+# Research before you propose – the professional standard
+You are a senior Microsoft Advertising specialist. Every proposal must rest on evidence you fetched in this conversation – never on gut feeling or invented numbers. Say which sources you used; if one was unavailable, say so instead of filling the gap.
+Keywords (new keywords, new ad groups, expansions):
+1. Start from real demand: run_report kind "searchterm" for the campaign/ad group (last 90 days) – the queries that already get clicks and conversions are the best keywords. Add the landing page (web_fetch) and what actually sells (get_shop_products) when relevant.
+2. Validate every candidate with research_keywords: Microsoft's monthly searches in Denmark, suggested bid and estimated clicks/cost, the account's own search terms and whether it already exists. Drop "Lav volumen" and "Findes allerede" unless there is a clear reason; weigh "Dyr" against break-even CPC (target CPA × conversion rate).
+3. Match types: Exact for proven, converting queries; Phrase for core themes with volume; Broad only under automated bidding with ≥30 conversions in 30 days. Add the matching negatives so ad groups don't compete.
+4. Present the keywords as a table (keyword, match type, searches/month, est. CPC, evidence from search terms, why) before calling add_keywords – the approval card shows the same evidence.
+Ads (new or rewritten responsive search ads):
+1. Read what the ad must match: the ad group's keywords and top search terms, and the current ads with their results (list_ads, run_report kind "ad").
+2. Read the landing page with web_fetch: it must exist, match the keyword, and back every claim you write (price, free shipping, delivery time, assortment, guarantees). Never write a claim you could not verify – and say which page you checked.
+3. Know the competition: get_auction_insights for the campaign/ad group, and web_search the keyword to see the competitors' ads and offers – then write copy that stands out (a concrete USP, offer or proof, not generic phrases).
+4. Write 10–15 distinct headlines (keyword variants, USPs, offer, trust/proof, call to action) and 4 descriptions; the keyword headline rule below applies. In the reason, name the search terms you target, the verified claims (with URL) and the competitor angle.
+Bids and budgets: impression share report + get_auction_insights + get_budget_opportunities, and research_keywords for bid estimates – show the expected effect as a range.
+If web search/fetch is switched off (connectors), say that the landing page and competitors were not checked online.
 
 # Working with data
 - Never invent numbers. Ground every claim about the account in tool results and say which period you looked at.
@@ -76,6 +100,7 @@ Microsoft Advertising accepts some changes without any error and then ignores th
 - Prefer pausing over deleting. Always check list ids before changing things – never guess ids.
 - After changes, report the verified outcome (see "Honesty about results"). Changes can be undone from the Aktivitet page.
 - Ad copy: responsive search ads need 3–15 headlines of max 30 characters and 2–4 descriptions of max 90 characters. Count characters carefully, vary the messages (benefits, offers, USPs, call to action, keyword), and follow the brand's tone of voice.
+- The search keyword is the most important headline: in every new responsive search ad, keywordHeadline is the ad group's main keyword standing alone (e.g. "Butiksinventar", or "{KeyWord:Butiksinventar}" for dynamic text) – the tool pins it to position 1. Don't repeat it alone among the other headlines. Pin other texts only with a reason; the user can change every pin on the card (like Microsoft's "Show this headline only in position …").
 
 # Microsoft Advertising know-how
 - Match types (Exact, Phrase, Broad), negative keywords (Exact/Phrase) at campaign or ad group level, quality score, impression share and budget-limited campaigns.
@@ -117,6 +142,14 @@ export function buildSystemPrompt(business: BusinessProfile, playbook: StoredPla
   return prompt;
 }
 
+/** The focus picked in the chat field: the ids are known, so no searching is needed. */
+function focusLine(f: ChatFocus): string {
+  const where = f.adGroupId
+    ? `ad group "${f.adGroupName}" (id ${f.adGroupId}) in campaign "${f.campaignName}" (id ${f.campaignId})`
+    : `campaign "${f.campaignName}" (id ${f.campaignId}) – the whole campaign with all its ad groups`;
+  return `Focus picked by the user in the chat field: ${where}. Work inside it and use these ids directly (no need to search for it); only look elsewhere when the user asks for it.`;
+}
+
 export function buildContextBlock(opts: {
   account: Account | null;
   mode: 'demo' | 'live';
@@ -127,6 +160,8 @@ export function buildContextBlock(opts: {
   connectors?: string;
   /** The other branches' budgets and limits (ai/branchLimits.ts). */
   otherBranches?: string | null;
+  /** The campaign / ad group the user picked in the chat field. */
+  focus?: ChatFocus | null;
 }): string {
   const { account, mode, rules } = opts;
   const limits = [
@@ -157,6 +192,7 @@ export function buildContextBlock(opts: {
     limits.length ? `Spending limits: ${limits.join('; ')}` : 'Spending limits: none set',
     ...(opts.connectors ? [opts.connectors] : []),
     ...(opts.otherBranches ? [opts.otherBranches] : []),
+    ...(opts.focus ? [focusLine(opts.focus)] : []),
     '</context>',
   ].join('\n');
 }

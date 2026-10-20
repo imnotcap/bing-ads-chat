@@ -13,6 +13,7 @@ import type {
   AdGroupPatch,
   AdPatch,
   AdsBackend,
+  AuctionCompetitor,
   BidStrategy,
   BudgetOpportunity,
   Campaign,
@@ -20,6 +21,7 @@ import type {
   EditorialStatus,
   ItemError,
   Keyword,
+  KeywordBidEstimate,
   KeywordIdea,
   KeywordPatch,
   MsService,
@@ -30,10 +32,13 @@ import type {
   NewCampaign,
   NewKeyword,
   NewResponsiveSearchAd,
+  PinPosition,
   ReportRow,
   ReportSpec,
+  SearchVolume,
 } from './types';
 import { extractFirstFile } from './zip';
+import { CampaignCache, type CampaignStore } from './campaignCache';
 
 type Json = Record<string, unknown>;
 
@@ -146,8 +151,19 @@ export class LiveBackend implements AdsBackend {
   private accounts: Account[] | null = null;
   private geo: Promise<Map<string, string>> | null = null;
 
-  constructor(creds: MsCredentials) {
+  private readonly campaignCache: CampaignCache | null;
+
+  constructor(creds: MsCredentials, campaignStore?: CampaignStore) {
     this.client = new MsAdsClient(creds);
+    this.campaignCache = campaignStore ? new CampaignCache(campaignStore, (id) => this.listCampaigns(id)) : null;
+  }
+
+  listCampaignsCached(accountId: string): Promise<Campaign[]> {
+    return this.campaignCache ? this.campaignCache.get(accountId) : this.listCampaigns(accountId);
+  }
+
+  campaignsChanged() {
+    this.campaignCache?.changed();
   }
 
   /** Verifies the credentials by reading the signed-in user. */
@@ -193,6 +209,12 @@ export class LiveBackend implements AdsBackend {
   }
 
   async listCampaigns(accountId: string): Promise<Campaign[]> {
+    const campaigns = await this.queryCampaigns(accountId);
+    this.campaignCache?.saved(accountId, campaigns);
+    return campaigns;
+  }
+
+  private async queryCampaigns(accountId: string): Promise<Campaign[]> {
     let fields: string | null = CAMPAIGN_FIELDS;
     const query = (type: string) =>
       this.cm<Json>(accountId, 'Campaigns/QueryByAccountId', 'POST', { AccountId: Number(accountId), CampaignType: type, ReturnAdditionalFields: fields });
@@ -245,6 +267,10 @@ export class LiveBackend implements AdsBackend {
       ReturnAdditionalFields: null,
     });
     const assets = (v: unknown) => arr<Json>(v).map((a) => str(((a.Asset ?? {}) as Json).Text)).filter(Boolean);
+    const pins = (v: unknown) =>
+      arr<Json>(v)
+        .filter((a) => str(((a.Asset ?? {}) as Json).Text))
+        .map((a) => (Number(/\d$/.exec(str(a.PinnedField))?.[0]) || null) as PinPosition);
     return arr<Json>(res.Ads).map((a) => ({
       id: str(a.Id),
       adGroupId,
@@ -252,6 +278,7 @@ export class LiveBackend implements AdsBackend {
       status: str(a.Status),
       headlines: a.Headlines ? assets(a.Headlines) : [a.TitlePart1, a.TitlePart2, a.TitlePart3].map(str).filter(Boolean),
       descriptions: a.Descriptions ? assets(a.Descriptions) : [a.Text, a.TextPart2].map(str).filter(Boolean),
+      ...(a.Headlines ? { headlinePins: pins(a.Headlines), descriptionPins: pins(a.Descriptions) } : {}),
       finalUrls: arr<string>(a.FinalUrls).map(str),
       path1: str(a.Path1) || null,
       path2: str(a.Path2) || null,
@@ -377,14 +404,18 @@ export class LiveBackend implements AdsBackend {
   }
 
   async createResponsiveSearchAd(accountId: string, adGroupId: string, ad: NewResponsiveSearchAd): Promise<MutationResult> {
-    const asset = (text: string) => ({ Asset: { Type: 'TextAsset', Text: text } });
+    // AssetLink.PinnedField: Headline1–3 / Description1–2; left out = any position.
+    const asset = (kind: 'Headline' | 'Description', pins?: PinPosition[]) => (text: string, i: number) => ({
+      Asset: { Type: 'TextAsset', Text: text },
+      ...(pins?.[i] ? { PinnedField: `${kind}${pins[i]}` } : {}),
+    });
     const res = await this.cm(accountId, 'Ads', 'POST', {
       AdGroupId: Number(adGroupId),
       Ads: [
         {
           Type: 'ResponsiveSearch',
-          Headlines: ad.headlines.map(asset),
-          Descriptions: ad.descriptions.map(asset),
+          Headlines: ad.headlines.map(asset('Headline', ad.headlinePins)),
+          Descriptions: ad.descriptions.map(asset('Description', ad.descriptionPins)),
           FinalUrls: [ad.finalUrl],
           Path1: ad.path1 || null,
           Path2: ad.path2 || null,
@@ -514,6 +545,105 @@ export class LiveBackend implements AdsBackend {
         };
       })
       .slice(0, input.limit ?? 50);
+  }
+
+  async searchVolumes(accountId: string, keywords: string[], opts: { language?: string; countryCode?: string; months?: number } = {}): Promise<SearchVolume[]> {
+    const end = new Date();
+    end.setDate(0); // the last completed month
+    const start = new Date(end.getFullYear(), end.getMonth() - Math.min(opts.months ?? 12, 24) + 1, 1);
+    const dmy = (d: Date) => ({ Day: d.getDate(), Month: d.getMonth() + 1, Year: d.getFullYear() });
+    const res = await this.client.call<Json>('adinsight', 'HistoricalSearchCount/Query', {
+      body: {
+        Keywords: keywords,
+        Language: opts.language ?? 'Danish',
+        PublisherCountries: [opts.countryCode ?? 'DK'],
+        StartDate: dmy(start),
+        EndDate: dmy(end),
+        TimePeriodRollup: 'Monthly',
+        Devices: ['Computers', 'Smartphones', 'Tablets'],
+      },
+      ...(await this.ctx(accountId)),
+    });
+    // One entry per keyword (null when the keyword is not valid), split by device – summed here.
+    return arr<Json | null>(res.KeywordSearchCounts).flatMap((k, i) => {
+      if (!k) return [];
+      const byMonth = new Map<string, number>();
+      for (const d of arr<Json>(k.SearchCountsByAttributes)) {
+        for (const h of arr<Json>(d.HistoricalSearchCounts)) {
+          const date = (h.DayMonthAndYear ?? {}) as Json;
+          const month = `${date.Year}-${String(date.Month).padStart(2, '0')}`;
+          byMonth.set(month, (byMonth.get(month) ?? 0) + Number(h.SearchCount ?? 0));
+        }
+      }
+      return [{ keyword: str(k.Keyword) || keywords[i]!, months: [...byMonth].sort().map(([month, searches]) => ({ month, searches })) }];
+    });
+  }
+
+  async bidEstimates(
+    accountId: string,
+    keywords: { text: string; matchType: string }[],
+    opts: { campaignId?: string; adGroupId?: string; language?: string; location?: string } = {},
+  ): Promise<KeywordBidEstimate[]> {
+    const country = (opts.location ?? 'Denmark').trim();
+    const locationId = (await this.countryIds(accountId)).get(country.toLowerCase());
+    const res = await this.client.call<Json>('adinsight', 'EstimatedBid/QueryByKeywords', {
+      body: {
+        Keywords: keywords.map((k) => ({ KeywordText: k.text, MatchTypes: [k.matchType] })),
+        TargetPositionForAds: 'MainLine',
+        Language: opts.language ?? (country.toLowerCase() === 'denmark' ? 'Danish' : 'English'),
+        LocationIds: locationId ? [Number(locationId)] : null,
+        CampaignId: opts.campaignId ? Number(opts.campaignId) : null,
+        AdGroupId: opts.adGroupId ? Number(opts.adGroupId) : null,
+        EntityLevelBid: 'Keyword',
+      },
+      ...(await this.ctx(accountId)),
+    });
+    const range = (a: unknown, b: unknown): [number, number] | null => (a === null || a === undefined || b === null || b === undefined ? null : [Number(a), Number(b)]);
+    return arr<Json | null>(res.KeywordEstimatedBids).flatMap((k, i) => {
+      const e = k ? arr<Json>(k.EstimatedBids)[0] : undefined;
+      const kw = keywords[i]!;
+      return [
+        {
+          keyword: str(k?.Keyword) || kw.text,
+          matchType: str(e?.MatchType) || kw.matchType,
+          estimatedMinBid: num(e?.EstimatedMinBid),
+          averageCpc: num(e?.AverageCPC),
+          ctr: num(e?.CTR),
+          clicksPerWeek: range(e?.MinClicksPerWeek, e?.MaxClicksPerWeek),
+          impressionsPerWeek: range(e?.MinImpressionsPerWeek, e?.MaxImpressionsPerWeek),
+          costPerWeek: range(e?.MinTotalCostPerWeek, e?.MaxTotalCostPerWeek),
+        },
+      ];
+    });
+  }
+
+  async auctionInsights(accountId: string, level: 'Account' | 'Campaign' | 'AdGroup' | 'Keyword', ids: string[], range: { from: string; to: string }): Promise<AuctionCompetitor[]> {
+    const dmy = (iso: string) => {
+      const [y, m, d] = iso.split('-').map(Number);
+      return { Day: d, Month: m, Year: y };
+    };
+    const res = await this.client.call<Json>('adinsight', 'AuctionInsightData/Query', {
+      body: {
+        EntityType: level,
+        EntityIds: level === 'Account' ? null : ids.map(Number),
+        SearchParameters: [{ Type: 'DateRangeSearchParameter', StartDate: dmy(range.from), EndDate: dmy(range.to) }],
+        ReturnAdditionalFields: 'AbsoluteTopOfPageRate',
+      },
+      ...(await this.ctx(accountId)),
+    });
+    const result = (res.Result ?? {}) as Json;
+    return arr<Json>(result.Entries).map((e) => {
+      const k = (e.AggregatedKpi ?? {}) as Json;
+      return {
+        domain: str(e.DisplayDomain),
+        impressionShare: num(k.ImpressionShare),
+        overlapRate: num(k.OverlapRate),
+        aboveRate: num(k.AboveRate),
+        topOfPageRate: num(k.TopOfPageRate),
+        absoluteTopOfPageRate: num(k.AbsoluteTopOfPageRate),
+        outrankingShare: num(k.OutrankingShare),
+      };
+    });
   }
 
   async budgetOpportunities(accountId: string, campaignId?: string): Promise<BudgetOpportunity[]> {

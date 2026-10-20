@@ -5,6 +5,7 @@
 import { BUILTIN_MS } from '@/bing/credentials';
 import { DEMO_ACCOUNTS } from '@/bing/demo/seed';
 import type { MsAccess } from '@/bing/client';
+import type { CampaignStore } from '@/bing/campaignCache';
 import { deleteSecret, getSecret } from '@/lib/platform';
 import { queryClient } from '@/lib/queryClient';
 import { useAccount } from '@/stores/account';
@@ -73,6 +74,14 @@ export async function saveSharedKey(name: SharedKeyName, value: string | null) {
 export function adsAccess(fresh: boolean): Promise<MsAccess> {
   return api<MsAccess>(`/workspace/ads/token${fresh ? '?fresh=1' : ''}`, { method: 'POST' });
 }
+
+/** The campaigns of the connected account, cached in the workspace (bing/campaignCache.ts). */
+export const campaignStore: CampaignStore = {
+  read: (accountId) => api(`/workspace/ads/campaigns?account=${encodeURIComponent(accountId)}`),
+  write: async (accountId, fetchedAt, campaigns) => {
+    await api('/workspace/ads/campaigns', { method: 'PUT', body: JSON.stringify({ accountId, fetchedAt, campaigns }) });
+  },
+};
 
 export const ERROR_105 =
   'Microsoft Advertising afviste nøglerne (fejl 105): developer tokenet er forkert eller ikke aktivt, ' +

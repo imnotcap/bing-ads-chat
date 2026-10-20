@@ -26,6 +26,7 @@ import { BRANCH_IDS, MAX_SECTION_CHARS, SECTION_IDS, cleanSections, defaultPlayb
 import { CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isConnectorId, type ConnectorId, type ConnectorSaveResult } from '../../src/workspace/connectors';
 import { AuthError, verifyMicrosoftIdToken, type MicrosoftIdentity } from './auth';
 import { AdsKeyError, adsProbe, adsRefresh, mergeAdsKeys, type AdsKeys } from './microsoftAds';
+import { clearCampaigns, initAdsCache, readCampaigns, writeCampaigns } from './adsCache';
 import { ConnectorError, daisyconAuthorizeUrl, daisyconExchange, emptyState, mergeInput, pkcePair, runTest, toSummary, type ConnState } from './connectors';
 
 export interface Env {
@@ -119,6 +120,7 @@ export class Workspace extends DurableObject<Env> {
     super(ctx, env);
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
     void this.ctx.blockConcurrencyWhile(async () => {
+      initAdsCache(this.ctx.storage.sql);
       this.boardMeta = (await this.ctx.storage.get<BoardMeta>('boards:meta')) ?? { version: 0 };
       this.boards = (await this.ctx.storage.get<BoardData>('boards:data')) ?? null;
     });
@@ -211,6 +213,7 @@ export class Workspace extends DurableObject<Env> {
         const ads: AdsConnection = { ...keys, refreshToken: probe.refreshToken, accountName: probe.name.slice(0, 120), accounts: probe.accounts, connectedBy: user.name, connectedAt: Date.now(), error: null };
         await this.ctx.storage.put('ads', ads);
         this.adsToken = { value: probe.accessToken, expiresAt: Date.now() + probe.expiresIn * 1000 };
+        clearCampaigns(this.ctx.storage.sql);
       } catch (e) {
         if (e instanceof AdsKeyError) return fail(e.message, 400);
         throw e;
@@ -220,7 +223,23 @@ export class Workspace extends DurableObject<Env> {
     if (path === '/workspace/ads' && method === 'DELETE') {
       await this.ctx.storage.delete('ads');
       this.adsToken = null;
+      clearCampaigns(this.ctx.storage.sql);
       return json(await this.info());
+    }
+    // The campaigns of the connected account, cached here (adsCache.ts).
+    if (path === '/workspace/ads/campaigns' && (method === 'GET' || method === 'PUT')) {
+      const ads = await this.ctx.storage.get<AdsConnection>('ads');
+      if (!ads) return fail('Microsoft Advertising er ikke forbundet.', 409);
+      if (method === 'GET') {
+        const accountId = url.searchParams.get('account') ?? '';
+        if (ads.accountId && accountId !== ads.accountId) return fail('Kun den forbundne konto kan hentes.', 403);
+        return json(readCampaigns(this.ctx.storage.sql, accountId));
+      }
+      const body = (await req.json()) as { accountId?: string; fetchedAt?: number; campaigns?: unknown };
+      const accountId = String(body.accountId ?? '');
+      if (ads.accountId && accountId !== ads.accountId) return fail('Kun den forbundne konto kan gemmes.', 403);
+      const error = writeCampaigns(this.ctx.storage, accountId, Number(body.fetchedAt), body.campaigns);
+      return error ? fail(error, 400) : json({ ok: true });
     }
     if (path === '/workspace/ads/token' && method === 'POST') {
       const ads = await this.ctx.storage.get<AdsConnection>('ads');

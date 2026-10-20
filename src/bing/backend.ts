@@ -1,4 +1,4 @@
-import { adsAccess } from '@/workspace/shared';
+import { adsAccess, campaignStore } from '@/workspace/shared';
 import { useConnection } from '@/stores/connection';
 import { DemoBackend } from './demo/backend';
 import { LiveBackend } from './live';
@@ -8,7 +8,7 @@ let cached: { key: string; backend: AdsBackend } | null = null;
 
 /** Microsoft Advertising through the workspace's shared sign-in (tokens come from Cloudflare). */
 export function createLiveBackend(): LiveBackend {
-  return new LiveBackend({ getAccess: adsAccess });
+  return new LiveBackend({ getAccess: adsAccess }, campaignStore);
 }
 
 /** The backend for the current connection mode (demo or live). */

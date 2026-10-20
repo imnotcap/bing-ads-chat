@@ -10,6 +10,11 @@ export interface ChangeLine {
   after?: string | number | null;
   /** The value can be corrected by the user on the approval card. */
   edit?: { path: (string | number)[]; maxLength?: number };
+  /**
+   * A position the text is pinned to (responsive search ads), changeable on the card:
+   * "" = any position. `locked`: shown but fixed, with the reason.
+   */
+  pin?: { path?: (string | number)[]; value: string; options: string[]; locked?: string };
   /** Extra columns when the plan is shown as a pick table (ChangePlan.pick). */
   cells?: Record<string, string | number | null>;
 }

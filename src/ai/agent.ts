@@ -186,6 +186,7 @@ export async function sendMessage(convId: string, text: string, attachments: Att
     rules: useSettings.getState().spend,
     connectors: connectorContext(settings.ai.connectors, provider),
     otherBranches: otherBranchesContext(limits),
+    focus: conv(convId).focus,
   });
   const content: Anthropic.Beta.BetaContentBlockParam[] = [];
   if (context !== conv(convId).lastContext) content.push({ type: 'text', text: context });
@@ -265,6 +266,8 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
     // Web search runs on Anthropic's side; the dynamic-filtering version needs a recent Opus/Sonnet.
     const dynamic = /^claude-(opus|sonnet)-5/.test(ai.model);
     tools.push({ type: dynamic ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: 5 } as unknown as Anthropic.Beta.BetaToolUnion);
+    // Reading a page (landing pages, prices, delivery terms, competitors) to check that ad copy is true.
+    tools.push({ type: dynamic ? 'web_fetch_20260209' : 'web_fetch_20250910', name: 'web_fetch', max_uses: 5 } as unknown as Anthropic.Beta.BetaToolUnion);
   }
   const system: Anthropic.Beta.BetaTextBlockParam[] = [{ type: 'text', text: buildSystemPrompt(settings.business, await playbookFor('microsoft_ads')) }];
   const memo = new Map<string, Promise<unknown>>();
@@ -330,10 +333,18 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
             partIds.set(ev.index, b.id);
             addPart(convId, itemId, { type: 'tool', id: b.id, name: b.name, label: toolLabel(b.name, {}), input: {}, status: 'streaming', startedAt: Date.now() });
           } else if (b.type === 'server_tool_use') {
-            addPart(convId, itemId, { type: 'tool', id: b.id, name: b.name, label: 'Søger på nettet', input: {}, status: 'running', startedAt: Date.now() });
+            const label = b.name === 'web_fetch' ? 'Læser side på nettet' : b.name === 'web_search' ? 'Søger på nettet' : 'Arbejder';
+            addPart(convId, itemId, { type: 'tool', id: b.id, name: b.name, label, input: {}, status: 'running', startedAt: Date.now() });
           } else if (b.type === 'web_search_tool_result') {
             const found = Array.isArray(b.content) ? b.content.length : 0;
             updateTool(convId, itemId, b.tool_use_id, { status: 'done', summary: found ? `${found} resultater` : 'Ingen resultater', endedAt: Date.now() });
+          } else if (b.type === 'web_fetch_tool_result') {
+            const content = b.content as { type?: string; url?: string };
+            const failed = content.type === 'web_fetch_tool_result_error';
+            updateTool(convId, itemId, b.tool_use_id, { status: failed ? 'error' : 'done', summary: failed ? 'Siden kunne ikke hentes' : (content.url ?? 'Side hentet'), endedAt: Date.now() });
+          } else if ('tool_use_id' in b && typeof b.tool_use_id === 'string' && b.type.endsWith('_tool_result')) {
+            // Other server tool results (e.g. the code web search filters with) – the step is done.
+            updateTool(convId, itemId, b.tool_use_id, { status: 'done', endedAt: Date.now() });
           }
         } else if (ev.type === 'content_block_delta') {
           const id = partIds.get(ev.index);

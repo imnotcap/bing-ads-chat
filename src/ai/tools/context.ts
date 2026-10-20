@@ -77,7 +77,8 @@ export function memo<T>(ctx: ToolContext, key: string, fn: () => Promise<T>): Pr
   return p;
 }
 
-export const getCampaigns = (ctx: ToolContext) => memo(ctx, 'campaigns', () => ctx.backend.listCampaigns(ctx.accountId));
+export const getCampaigns = (ctx: ToolContext) =>
+  memo(ctx, 'campaigns', () => (ctx.backend.listCampaignsCached ? ctx.backend.listCampaignsCached(ctx.accountId) : ctx.backend.listCampaigns(ctx.accountId)));
 
 export async function getCampaign(ctx: ToolContext, id: string): Promise<Campaign> {
   const c = (await getCampaigns(ctx)).find((x) => x.id === String(id));
