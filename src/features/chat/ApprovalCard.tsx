@@ -418,6 +418,20 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
                             maxLength={c.edit.maxLength}
                             onChange={(v) => setEdits((e) => ({ ...e, [i]: v }))}
                           />
+                          {c.suggestion && (edits[i] ?? String(c.after ?? '')) !== c.suggestion.value && (
+                            <div className="mt-1 flex items-start gap-1.5 px-0.5 text-[12px] leading-snug text-warning">
+                              <span className="min-w-0 flex-1">
+                                {c.suggestion.reason} Forslag: <span className="font-medium">{c.suggestion.value}</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setEdits((e) => ({ ...e, [i]: c.suggestion!.value }))}
+                                className="shrink-0 rounded-md bg-warning-bg px-1.5 py-px font-medium hover:brightness-95"
+                              >
+                                Ret
+                              </button>
+                            </div>
+                          )}
                         </div>
                         {c.pin && (
                           <PinMenu

@@ -22,6 +22,7 @@ import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 import { monthTotal, useUsage } from '@/stores/usage';
 import { applyEdits, applyPicks, requestApproval } from './approvals';
+import { proofreadPlan } from './proofread';
 import { evaluateGuardrails, type SpendContext } from './guardrails';
 import { buildContextBlock, buildSystemPrompt } from './prompt';
 import { playbookFor } from '@/workspace/playbooks';
@@ -623,6 +624,8 @@ async function executeTools(
     updateTool(convId, itemId, p.use.id, { status: 'running' });
     try {
       const change = await tool.plan(p.input, ctx);
+      // Keywords, ad texts and names are proofread in Danish before the user sees them.
+      if (change.plan) change.plan = await proofreadPlan(change.plan, signal);
       if (!change.plan) {
         planned.push({ id: p.use.id, name: tool.name, tool, input: p.input, plan: change, verdict: 'allow' });
         continue;
