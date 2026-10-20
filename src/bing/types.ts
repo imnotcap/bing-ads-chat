@@ -95,6 +95,8 @@ export interface Ad {
   status: EntityStatus;
   headlines: string[];
   descriptions: string[];
+  headlinePins?: PinPosition[];
+  descriptionPins?: PinPosition[];
   finalUrls: string[];
   path1?: string | null;
   path2?: string | null;
@@ -157,9 +159,16 @@ export interface KeywordPatch {
   bid?: number;
 }
 
+/** Where an RSA text always shows (Microsoft's PinnedField); null = any position. */
+export type PinPosition = 1 | 2 | 3 | null;
+
 export interface NewResponsiveSearchAd {
   headlines: string[];
   descriptions: string[];
+  /** Per headline: pinned to position 1–3, or null. */
+  headlinePins?: PinPosition[];
+  /** Per description: pinned to position 1–2, or null. */
+  descriptionPins?: PinPosition[];
   finalUrl: string;
   path1?: string;
   path2?: string;

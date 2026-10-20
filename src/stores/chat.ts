@@ -112,6 +112,16 @@ export interface Conversation {
   lastContext?: string;
   /** Gemini thought signatures per tool call id (sent back on the next Gemini request). */
   geminiSignatures?: Record<string, string>;
+  /** The campaign (and ad group) the user chose to work on in the chat field. */
+  focus?: ChatFocus | null;
+}
+
+export interface ChatFocus {
+  campaignId: string;
+  campaignName: string;
+  /** Empty: the whole campaign. */
+  adGroupId?: string;
+  adGroupName?: string;
 }
 
 /**
@@ -201,15 +211,29 @@ export const useChat = create<ChatState>()(
       // A run cannot survive a restart: mark anything that was in flight as stopped.
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<ChatState>;
+        const conversations = (p.conversations ?? []).filter(isRecent).map(stopInFlight);
         return {
           ...current,
-          activeId: p.activeId ?? null,
-          conversations: (p.conversations ?? []).map(stopInFlight),
+          activeId: conversations.some((c) => c.id === p.activeId) ? (p.activeId ?? null) : null,
+          conversations,
         };
       },
     },
   ),
 );
+
+/** Conversations are deleted 14 days after their last message. */
+export const KEEP_DAYS = 14;
+
+const isRecent = (c: Conversation) => c.updatedAt >= Date.now() - KEEP_DAYS * 86_400_000;
+
+/** Deletes conversations with no activity for KEEP_DAYS (never one that is running). */
+export function deleteOldConversations() {
+  const { conversations, running, activeId } = useChat.getState();
+  const keep = conversations.filter((c) => isRecent(c) || running[c.id]);
+  if (keep.length === conversations.length) return;
+  useChat.setState({ conversations: keep, activeId: keep.some((c) => c.id === activeId) ? activeId : null });
+}
 
 function stopInFlight(c: Conversation): Conversation {
   return {

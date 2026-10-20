@@ -186,6 +186,7 @@ export async function sendMessage(convId: string, text: string, attachments: Att
     rules: useSettings.getState().spend,
     connectors: connectorContext(settings.ai.connectors, provider),
     otherBranches: otherBranchesContext(limits),
+    focus: conv(convId).focus,
   });
   const content: Anthropic.Beta.BetaContentBlockParam[] = [];
   if (context !== conv(convId).lastContext) content.push({ type: 'text', text: context });

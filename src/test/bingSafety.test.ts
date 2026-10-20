@@ -265,7 +265,7 @@ describe('ad text limits as Microsoft counts them', () => {
     expect(finalLength('{KeyWord:Kontorstole} på tilbud')).toBe('Kontorstole på tilbud'.length);
     expect(finalLength('Køb {param2} nu')).toBe('Køb  nu'.trim().length);
     const t = writeTool('create_responsive_search_ad');
-    const base = { campaignId: '101', adGroupId: '1010', descriptions: ['Hurtig levering i hele Danmark', 'Stort udvalg af kontormøbler'], finalUrl: 'https://example.com', reason: 'x' };
+    const base = { campaignId: '101', adGroupId: '1010', keywordHeadline: 'Kontorstole', descriptions: ['Hurtig levering i hele Danmark', 'Stort udvalg af kontormøbler'], finalUrl: 'https://example.com', reason: 'x' };
     expect(t.schema.safeParse({ ...base, headlines: ['{KeyWord:Ergonomiske stole} på tilbud', 'B b', 'C c'] }).success).toBe(true);
     expect(t.schema.safeParse({ ...base, headlines: ['Denne overskrift er alt for lang til en annonce', 'B', 'C'] }).success).toBe(false);
     expect(t.schema.safeParse({ ...base, headlines: ['!!!', 'B', 'C'] }).success).toBe(false);

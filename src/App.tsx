@@ -31,6 +31,7 @@ import { navigate, useNavigationHistory } from '@/hooks/useNavigationHistory';
 import { queryClient } from '@/lib/queryClient';
 import { ensureFrameless } from '@/lib/window';
 import { useAccount } from '@/stores/account';
+import { deleteOldConversations } from '@/stores/chat';
 import { useSettings } from '@/stores/settings';
 import { isDashboardView, useUi } from '@/stores/ui';
 
@@ -80,6 +81,12 @@ function Shell() {
   useBudgetWatch();
   useShortcuts();
   useEffect(ensureFrameless, []);
+  // Conversations are deleted 14 days after their last message (checked every hour).
+  useEffect(() => {
+    deleteOldConversations();
+    const t = setInterval(deleteOldConversations, 3600_000);
+    return () => clearInterval(t);
+  }, []);
   useAutoUpdate();
   useDesktopShell();
   useNavigationHistory();

@@ -24,7 +24,7 @@ import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMe
 import { fmtUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useBoard, visibleBoards } from '@/stores/board';
-import { useChat, useConversationSummaries, type ConversationSummary } from '@/stores/chat';
+import { KEEP_DAYS, useChat, useConversationSummaries, type ConversationSummary } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
 import { useUi, type View } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
@@ -335,6 +335,9 @@ export function Sidebar() {
       <div className="mt-5 flex min-h-0 flex-1 flex-col px-3">
         <div className="flex items-center justify-between px-2 pb-2">
           <span className="text-[12px] font-medium text-subtle">Samtaler</span>
+          <span className="text-[11px] text-subtle" title="Samtaler slettes automatisk 14 dage efter den seneste besked">
+            Slettes efter {KEEP_DAYS} dage
+          </span>
         </div>
         <div className="relative mb-2 px-1">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />

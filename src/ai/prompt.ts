@@ -1,5 +1,6 @@
 import type { Account } from '@/bing/types';
 import { fmtDateLong, today } from '@/lib/format';
+import type { ChatFocus } from '@/stores/chat';
 import type { BusinessProfile, SpendRules } from '@/stores/settings';
 import { playbookPrompt, type StoredPlaybook } from './playbooks';
 
@@ -84,6 +85,7 @@ Microsoft Advertising accepts some changes without any error and then ignores th
 - Prefer pausing over deleting. Always check list ids before changing things – never guess ids.
 - After changes, report the verified outcome (see "Honesty about results"). Changes can be undone from the Aktivitet page.
 - Ad copy: responsive search ads need 3–15 headlines of max 30 characters and 2–4 descriptions of max 90 characters. Count characters carefully, vary the messages (benefits, offers, USPs, call to action, keyword), and follow the brand's tone of voice.
+- The search keyword is the most important headline: in every new responsive search ad, keywordHeadline is the ad group's main keyword standing alone (e.g. "Butiksinventar", or "{KeyWord:Butiksinventar}" for dynamic text) – the tool pins it to position 1. Don't repeat it alone among the other headlines. Pin other texts only with a reason; the user can change every pin on the card (like Microsoft's "Show this headline only in position …").
 
 # Microsoft Advertising know-how
 - Match types (Exact, Phrase, Broad), negative keywords (Exact/Phrase) at campaign or ad group level, quality score, impression share and budget-limited campaigns.
@@ -125,6 +127,14 @@ export function buildSystemPrompt(business: BusinessProfile, playbook: StoredPla
   return prompt;
 }
 
+/** The focus picked in the chat field: the ids are known, so no searching is needed. */
+function focusLine(f: ChatFocus): string {
+  const where = f.adGroupId
+    ? `ad group "${f.adGroupName}" (id ${f.adGroupId}) in campaign "${f.campaignName}" (id ${f.campaignId})`
+    : `campaign "${f.campaignName}" (id ${f.campaignId}) – the whole campaign with all its ad groups`;
+  return `Focus picked by the user in the chat field: ${where}. Work inside it and use these ids directly (no need to search for it); only look elsewhere when the user asks for it.`;
+}
+
 export function buildContextBlock(opts: {
   account: Account | null;
   mode: 'demo' | 'live';
@@ -135,6 +145,8 @@ export function buildContextBlock(opts: {
   connectors?: string;
   /** The other branches' budgets and limits (ai/branchLimits.ts). */
   otherBranches?: string | null;
+  /** The campaign / ad group the user picked in the chat field. */
+  focus?: ChatFocus | null;
 }): string {
   const { account, mode, rules } = opts;
   const limits = [
@@ -165,6 +177,7 @@ export function buildContextBlock(opts: {
     limits.length ? `Spending limits: ${limits.join('; ')}` : 'Spending limits: none set',
     ...(opts.connectors ? [opts.connectors] : []),
     ...(opts.otherBranches ? [opts.otherBranches] : []),
+    ...(opts.focus ? [focusLine(opts.focus)] : []),
     '</context>',
   ].join('\n');
 }

@@ -30,6 +30,7 @@ import type {
   NewCampaign,
   NewKeyword,
   NewResponsiveSearchAd,
+  PinPosition,
   ReportRow,
   ReportSpec,
 } from './types';
@@ -263,6 +264,10 @@ export class LiveBackend implements AdsBackend {
       ReturnAdditionalFields: null,
     });
     const assets = (v: unknown) => arr<Json>(v).map((a) => str(((a.Asset ?? {}) as Json).Text)).filter(Boolean);
+    const pins = (v: unknown) =>
+      arr<Json>(v)
+        .filter((a) => str(((a.Asset ?? {}) as Json).Text))
+        .map((a) => (Number(/\d$/.exec(str(a.PinnedField))?.[0]) || null) as PinPosition);
     return arr<Json>(res.Ads).map((a) => ({
       id: str(a.Id),
       adGroupId,
@@ -270,6 +275,7 @@ export class LiveBackend implements AdsBackend {
       status: str(a.Status),
       headlines: a.Headlines ? assets(a.Headlines) : [a.TitlePart1, a.TitlePart2, a.TitlePart3].map(str).filter(Boolean),
       descriptions: a.Descriptions ? assets(a.Descriptions) : [a.Text, a.TextPart2].map(str).filter(Boolean),
+      ...(a.Headlines ? { headlinePins: pins(a.Headlines), descriptionPins: pins(a.Descriptions) } : {}),
       finalUrls: arr<string>(a.FinalUrls).map(str),
       path1: str(a.Path1) || null,
       path2: str(a.Path2) || null,
@@ -395,14 +401,18 @@ export class LiveBackend implements AdsBackend {
   }
 
   async createResponsiveSearchAd(accountId: string, adGroupId: string, ad: NewResponsiveSearchAd): Promise<MutationResult> {
-    const asset = (text: string) => ({ Asset: { Type: 'TextAsset', Text: text } });
+    // AssetLink.PinnedField: Headline1–3 / Description1–2; left out = any position.
+    const asset = (kind: 'Headline' | 'Description', pins?: PinPosition[]) => (text: string, i: number) => ({
+      Asset: { Type: 'TextAsset', Text: text },
+      ...(pins?.[i] ? { PinnedField: `${kind}${pins[i]}` } : {}),
+    });
     const res = await this.cm(accountId, 'Ads', 'POST', {
       AdGroupId: Number(adGroupId),
       Ads: [
         {
           Type: 'ResponsiveSearch',
-          Headlines: ad.headlines.map(asset),
-          Descriptions: ad.descriptions.map(asset),
+          Headlines: ad.headlines.map(asset('Headline', ad.headlinePins)),
+          Descriptions: ad.descriptions.map(asset('Description', ad.descriptionPins)),
           FinalUrls: [ad.finalUrl],
           Path1: ad.path1 || null,
           Path2: ad.path2 || null,

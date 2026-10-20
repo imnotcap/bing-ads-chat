@@ -1,8 +1,8 @@
 /**
- * The row under the chat field (Claude style): approval mode on the left; model,
- * effort and the monthly AI-usage ring on the right.
+ * The row under the chat field (Claude style): the focus (campaign / ad group) and connectors on
+ * the left; model, effort and the monthly AI-usage ring on the right.
  */
-import { ChartColumn, Check, ChevronDown, Plug, Settings, ShieldCheck } from 'lucide-react';
+import { ChartColumn, Check, ChevronDown, Plug, Settings } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Popover } from 'radix-ui';
 import { memo, useEffect, useMemo, useState } from 'react';
@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
+import { FocusPicker } from './FocusPicker';
 
 
 const EFFORT_SHORT: Record<Effort, string> = { low: 'Lav', medium: 'Mellem', high: 'Høj', xhigh: 'Meget høj', max: 'Maks' };
@@ -215,9 +216,7 @@ export const ComposerFooter = memo(function ComposerFooter() {
 
   return (
     <div className="mt-1.5 flex items-center px-2">
-      <span className={cn(trigger, 'cursor-default hover:bg-transparent')} title="Assistenten ændrer aldrig noget uden din godkendelse">
-        <ShieldCheck className="size-3.5" /> Du godkender alt
-      </span>
+      <FocusPicker />
 
       <ConnectorsMenu />
 

@@ -80,3 +80,40 @@ describe('campaign cache', () => {
     expect(await cache.get('9')).toBe(list);
   });
 });
+
+describe('responsive search ad pins', () => {
+  beforeEach(() => DemoBackend.reset());
+
+  it('puts the keyword alone first, pinned to position 1, and keeps the pins the user picks', async () => {
+    const { applyEdits } = await import('@/ai/approvals');
+    const tool = getTool('create_responsive_search_ad')!;
+    if (tool.kind !== 'write') throw new Error('unexpected');
+    const c = ctx();
+    const input = tool.schema.parse({
+      campaignId: '102',
+      adGroupId: '1020',
+      keywordHeadline: 'Kontorstole',
+      headlines: ['Ergonomiske stole til kontoret', 'Hurtig levering i hele landet', 'Stort udvalg af kontorstole'],
+      descriptions: ['Find den rigtige kontorstol til din arbejdsdag.', 'Fri fragt over 500 kr. og 30 dages returret.'],
+      finalUrl: 'https://example.com/kontorstole',
+      reason: 'Ny annonce',
+    });
+    const planned = await tool.plan(input, c);
+    const lines = planned.plan!.changes;
+    expect(lines[0]).toMatchObject({ after: 'Kontorstole', pin: { value: '1' } });
+    expect(lines[0]!.pin!.locked).toBeTruthy();
+    expect(lines[1]!.pin).toMatchObject({ path: ['headlinePins', 0], value: '' });
+
+    // The user pins headline 3 to position 2 on the card (the model sent no pins at all).
+    const edited = tool.schema.parse(applyEdits(input, [{ path: lines[2]!.pin!.path!, value: '2' }]));
+    const exec = await (await tool.plan(edited, c)).execute();
+    const r = exec.result as { adId: string; pinnedHeadlines: { headline: string; position: number }[] };
+    expect(r.pinnedHeadlines).toEqual([
+      { headline: 'Kontorstole', position: 1 },
+      { headline: 'Hurtig levering i hele landet', position: 2 },
+    ]);
+    const ad = (await c.backend.listAds(c.accountId, '1020')).find((a) => a.id === r.adId)!;
+    expect(ad.headlines[0]).toBe('Kontorstole');
+    expect(ad.headlinePins).toEqual([1, null, 2, null]);
+  });
+});

@@ -380,6 +380,8 @@ export class DemoBackend implements AdsBackend {
       status: 'Active',
       headlines: ad.headlines,
       descriptions: ad.descriptions,
+      headlinePins: ad.headlinePins,
+      descriptionPins: ad.descriptionPins,
       finalUrls: [ad.finalUrl],
       path1: ad.path1 ?? null,
       path2: ad.path2 ?? null,

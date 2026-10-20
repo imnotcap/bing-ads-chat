@@ -44,9 +44,16 @@ export function applyEdits(input: unknown, edits: ApprovalEdit[]): unknown {
   const copy = structuredClone(input) as Record<string | number, unknown>;
   for (const { path, value } of edits) {
     let node: Record<string | number, unknown> | undefined = copy;
-    for (const key of path.slice(0, -1)) node = node?.[key] as Record<string | number, unknown> | undefined;
+    path.slice(0, -1).forEach((key, i) => {
+      // A list the model left out (e.g. pins on an ad) is created when the user sets a value in it.
+      if (node && node[key] === undefined) node[key] = typeof path[i + 1] === 'number' ? [] : {};
+      node = node?.[key] as Record<string | number, unknown> | undefined;
+    });
     const last = path[path.length - 1];
-    if (node && last !== undefined) node[last] = value.trim();
+    if (!node || last === undefined) continue;
+    node[last] = value.trim();
+    // Gaps in a list of texts become empty texts.
+    if (Array.isArray(node)) for (let i = 0; i < node.length; i++) if (node[i] === undefined) node[i] = '';
   }
   return copy;
 }
