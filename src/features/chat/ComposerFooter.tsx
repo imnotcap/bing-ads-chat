@@ -2,20 +2,26 @@
  * The row under the chat field (Claude style): the focus (campaign / ad group) and connectors on
  * the left; model, effort and the monthly AI-usage ring on the right.
  */
-import { ChartColumn, Check, ChevronDown, Plug, Settings } from 'lucide-react';
+import { ChartColumn, Check, ChevronDown, Loader2, Plug, Plus, Settings } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Popover } from 'radix-ui';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { CONNECTORS, isConnectorOn } from '@/ai/connectors';
 import { EFFORT_LABELS, PROVIDER_LABELS, availableModels, modelInfo, type Effort, type Provider } from '@/ai/models';
 import { Switch } from '@/components/ui/controls';
+import { Button } from '@/components/ui/button';
+import { toast } from '@/components/notifications/toast';
 import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/overlays';
-import { daysInMonth, fmtUsd, today } from '@/lib/format';
-import { cn } from '@/lib/utils';
+import { fmtUsd } from '@/lib/format';
+import { cn, errorMessage } from '@/lib/utils';
 import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
-import { monthTotal, useUsage } from '@/stores/usage';
+import { buyExtraUsage, refreshBilling, useBilling } from '@/workspace/billing';
+import { SITE_URL } from '@/workspace/api';
+import { PLANS } from '@/workspace/plans';
+import { useAccount } from '@/stores/account';
+import { openExternal } from '@/lib/platform';
 import { FocusPicker } from './FocusPicker';
 
 
@@ -29,12 +35,6 @@ const trigger =
 const nextMonthLabel = () => {
   const now = new Date();
   return new Intl.DateTimeFormat('da-DK', { day: 'numeric', month: 'short' }).format(new Date(now.getFullYear(), now.getMonth() + 1, 1));
-};
-
-const untilMidnight = () => {
-  const now = new Date();
-  const mins = Math.max(1, Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime()) / 60000));
-  return mins >= 60 ? `${Math.floor(mins / 60)} t ${mins % 60} min` : `${mins} min`;
 };
 
 const tone = (share: number) => (share >= 1 ? 'var(--color-negative)' : share >= 0.8 ? 'var(--color-warning)' : 'var(--color-brand)');
@@ -64,21 +64,42 @@ function UsageRow({ label, used, limit, reset }: { label: string; used: number; 
   );
 }
 
-/** Ring with this month's AI spend; opens a "Brug" popover right above it (Claude style). */
+/** Ring with this month's AI use; opens a "Brug" popover right above it (Claude style). */
 function UsageRing() {
-  const months = useUsage((s) => s.months);
-  const days = useUsage((s) => s.days);
-  const cap = useSettings((s) => s.ai.monthlyAiBudgetUsd);
+  const billing = useBilling((s) => s.state);
+  const pending = useBilling((s) => s.pending);
   const go = useUi((s) => s.go);
   const [open, setOpen] = useState(false);
-  const used = useMemo(() => monthTotal(months).costUsd, [months]);
-  const usedToday = days[today()] ?? 0;
-  const share = cap ? Math.min(1, used / cap) : 0;
+  const [confirm, setConfirm] = useState(false);
+  const [buying, setBuying] = useState(false);
+  useEffect(() => {
+    void refreshBilling();
+  }, []);
+  useEffect(() => {
+    if (open) void refreshBilling();
+    else setConfirm(false);
+  }, [open]);
+  const used = (billing?.usedUsd ?? 0) + pending;
+  const left = Math.max(0, (billing?.remainingUsd ?? 0) - pending);
+  const share = billing ? Math.min(1, used / Math.max(used + left, 0.0001)) : 0;
+  const isAdmin = useAccount((s) => s.user?.role === 'admin');
   const r = 6.5;
   const c = 2 * Math.PI * r;
   const openSettings = () => {
     setOpen(false);
     go('settings', 'ai');
+  };
+  const buy = async () => {
+    setBuying(true);
+    try {
+      const state = await buyExtraUsage();
+      setConfirm(false);
+      toast.success('Ekstra forbrug købt', { description: `${fmtUsd(state.pack.creditUsd)} lagt i virksomhedens pulje – nu ${fmtUsd(state.remainingUsd)} tilbage.` });
+    } catch (e) {
+      toast.error('Købet gik ikke igennem', { description: errorMessage(e) });
+    } finally {
+      setBuying(false);
+    }
   };
   const headerButton = 'grid size-7 place-items-center rounded-md text-muted transition-colors hover:bg-line-2 hover:text-ink';
 
@@ -112,7 +133,7 @@ function UsageRing() {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 4, scale: 0.98, transition: { duration: 0.12 } }}
                 transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                className="w-[330px] origin-[var(--radix-popover-content-transform-origin)] rounded-2xl border border-line bg-white p-4 shadow-pop"
+                className="w-[340px] origin-[var(--radix-popover-content-transform-origin)] rounded-2xl border border-line bg-white p-4 shadow-pop"
               >
                 <div className="mb-3 flex items-center justify-between">
                   <span className="text-[15px] font-semibold text-ink">Brug</span>
@@ -125,14 +146,56 @@ function UsageRing() {
                     </button>
                   </div>
                 </div>
-                <div className="grid gap-4">
-                  <UsageRow label="I dag" used={usedToday} limit={cap ? cap / daysInMonth() : null} reset={`Nulstilles om ${untilMidnight()}`} />
-                  <UsageRow label="Denne måned" used={used} limit={cap} reset={`Nulstilles ${nextMonthLabel()}`} />
-                </div>
-                {!cap && (
-                  <button type="button" onClick={openSettings} className="mt-3 text-[12.5px] font-medium text-brand hover:underline">
-                    Sæt et månedligt loft for AI-forbrug
-                  </button>
+                {!billing ? (
+                  <p className="text-[13px] text-muted">Forbruget kunne ikke hentes lige nu.</p>
+                ) : (
+                  <div className="grid gap-4">
+                    <UsageRow
+                      label="Virksomhedens pulje"
+                      used={Math.min(used, billing.includedUsd)}
+                      limit={billing.includedUsd}
+                      reset={`${PLANS[billing.plan].name} · ${billing.seats} ${billing.seats === 1 ? 'plads' : 'pladser'} · nulstilles ${nextMonthLabel()}`}
+                    />
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-[13.5px] font-semibold text-ink">Ekstra credits</span>
+                      <span className="text-[12.5px] tabular text-muted">{fmtUsd(billing.creditUsd)} tilbage</span>
+                    </div>
+                    {left <= 0 && (
+                      <div className="rounded-lg bg-negative-bg px-2.5 py-1.5 text-[12.5px] text-negative">
+                        Puljen er brugt – {isAdmin ? 'køb ekstra for at fortsætte.' : 'bed en administrator om at købe ekstra forbrug.'}
+                      </div>
+                    )}
+                    {!isAdmin ? (
+                      <p className="text-[12px] leading-relaxed text-subtle">Kun administratorer kan købe ekstra forbrug til virksomheden.</p>
+                    ) : confirm ? (
+                      <div className="grid gap-2 rounded-xl border border-brand/25 bg-brand-50/60 p-3">
+                        <div className="text-[13px] text-ink">
+                          Køb ekstra forbrug for <b>{fmtUsd(billing.pack.priceUsd)}</b> og få <b>{fmtUsd(billing.pack.creditUsd)}</b> mere AI-forbrug til virksomhedens pulje.
+                        </div>
+                        <div className="text-[12px] text-muted">Købet registreres med dit navn og kommer på næste faktura.</div>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="gradient" disabled={buying} onClick={() => void buy()}>
+                            {buying ? <Loader2 className="animate-spin" /> : <Check />} Køb for {fmtUsd(billing.pack.priceUsd)}
+                          </Button>
+                          <Button size="sm" variant="ghost" disabled={buying} onClick={() => setConfirm(false)}>
+                            Annullér
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button size="sm" variant={left <= 0 ? 'gradient' : 'secondary'} className="w-full" onClick={() => setConfirm(true)}>
+                        <Plus /> Køb ekstra forbrug · {fmtUsd(billing.pack.priceUsd)} for {fmtUsd(billing.pack.creditUsd)}
+                      </Button>
+                    )}
+                    {billing.purchases.length > 0 && (
+                      <div className="text-[12px] text-subtle">
+                        Købt denne måned: {billing.purchases.length} × {fmtUsd(billing.pack.priceUsd)}
+                      </div>
+                    )}
+                    <button type="button" onClick={() => void openExternal(`${SITE_URL}/konto/abonnement`)} className="justify-self-start text-[12.5px] font-medium text-brand hover:underline">
+                      Administrér abonnement på hjemmesiden
+                    </button>
+                  </div>
                 )}
               </motion.div>
             </Popover.Content>

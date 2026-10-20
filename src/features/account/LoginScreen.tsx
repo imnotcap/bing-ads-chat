@@ -17,7 +17,10 @@ import { MicrosoftLogo } from '@/features/settings/SignInDialog';
 import { isTauri } from '@/lib/platform';
 import { errorMessage } from '@/lib/utils';
 import { useAccount } from '@/stores/account';
-import { devSignIn, restoreSession, signIn, signOut } from '@/workspace/account';
+import { createCompany, devSignIn, restoreSession, signIn, signOut } from '@/workspace/account';
+import { PLANS, type PlanId } from '@/workspace/plans';
+import { SITE_URL } from '@/workspace/api';
+import { openExternal } from '@/lib/platform';
 import { loadConfig } from '@/workspace/api';
 
 const ACCESS = [
@@ -118,7 +121,7 @@ function SignInView() {
             setBusy(true);
             try {
               const user = await signIn();
-              if (user.status === 'active') toast.success(`Velkommen, ${user.name}`);
+              if (user?.status === 'active') toast.success(`Velkommen, ${user.name}`);
             } catch (e) {
               toast.error('Login mislykkedes', { description: errorMessage(e), duration: 12_000 });
             } finally {
@@ -151,6 +154,76 @@ function SignInView() {
             </span>
           </div>
         ))}
+      </div>
+    </Frame>
+  );
+}
+
+/** Signed in with Microsoft, but no company yet: create one here, or ask for an invitation. */
+function NeedsCompanyView() {
+  const who = useAccount((s) => s.needsCompany);
+  const [name, setName] = useState('');
+  const [plan, setPlan] = useState<PlanId>('teams');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Frame>
+      <div className="flex flex-col items-center text-center">
+        <LogoMark className="size-12" />
+        <h1 className="mt-4 text-[22px] font-semibold tracking-[-0.02em] text-ink">Opret din virksomhed</h1>
+        <p className="mt-1.5 text-[14px] leading-relaxed text-muted">
+          <b className="text-ink">{who?.email}</b> hører ikke til en virksomhed i XavierOS endnu. Opret virksomheden – du bliver administrator og kan invitere dine kolleger.
+        </p>
+      </div>
+      <form
+        className="mt-6 grid gap-4"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          try {
+            const user = await createCompany(name, plan);
+            toast.success(`Velkommen, ${user.name}`, { description: `${name.trim()} er oprettet.` });
+          } catch (err) {
+            toast.error('Virksomheden blev ikke oprettet', { description: errorMessage(err) });
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <Field label="Virksomhedens navn" htmlFor="company-name">
+          <Input id="company-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Fx Inventarland ApS" autoFocus />
+        </Field>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Abonnement">
+          {(Object.values(PLANS) as (typeof PLANS)[PlanId][]).map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              role="radio"
+              aria-checked={plan === p.id}
+              onClick={() => setPlan(p.id)}
+              className={`rounded-xl border p-3 text-left transition-colors ${plan === p.id ? 'border-brand bg-brand-50/60 ring-2 ring-brand/15' : 'border-line hover:border-black/15'}`}
+            >
+              <div className="text-[14px] font-semibold text-ink">{p.name}</div>
+              <div className="text-[12.5px] text-muted">
+                ${p.priceUsd} {p.maxSeats > 1 ? 'pr. medarbejder' : ''}/md.
+              </div>
+              <div className="mt-1 text-[12px] leading-snug text-subtle">{p.tagline}</div>
+            </button>
+          ))}
+        </div>
+        <Button type="submit" variant="gradient" disabled={busy || name.trim().length < 2}>
+          {busy && <Loader2 className="animate-spin" />} Opret virksomhed
+        </Button>
+      </form>
+      <div className="mt-5 border-t border-line pt-4 text-[12.5px] leading-relaxed text-muted">
+        Arbejder du i en virksomhed, der allerede bruger XavierOS? Bed en administrator om at invitere <b>{who?.email}</b>, og log ind igen.
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" onClick={() => void openExternal(`${SITE_URL}/priser`)}>
+            Se priser
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => useAccount.getState().signedOut()}>
+            <LogOut /> Tilbage
+          </Button>
+        </div>
       </div>
     </Frame>
   );
@@ -198,6 +271,7 @@ function PendingView() {
 export function AccountGate() {
   const status = useAccount((s) => s.status);
   if (status === 'signedOut') return <SignInView />;
+  if (status === 'needsCompany') return <NeedsCompanyView />;
   if (status === 'pending') return <PendingView />;
   if (status === 'loading')
     return (

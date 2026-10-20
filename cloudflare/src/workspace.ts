@@ -20,18 +20,22 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import { applyOp, boardOfOp, canSeeBoard, dataFor, isBoardData, mayApply, memberIdOf, type BoardData, type BoardOp } from '../../src/board/model';
-import { INVENTARLAND_URL, INVENTARLAND_VIEWS, type AdsAccess, type InventarlandView, type SharedKeyName, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
+import { INVENTARLAND_URL, INVENTARLAND_VIEWS, type AdsAccess, type CompanyInfo, type Invitation, type Role, type InventarlandView, type SharedKeyName, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
 import { LIMIT_BRANCH_IDS, cleanLimits, isLimitBranchId, type StoredLimits } from '../../src/ai/branchLimits';
 import { BRANCH_IDS, MAX_SECTION_CHARS, SECTION_IDS, cleanSections, defaultPlaybook, isBranchId, type PlaybookSections, type SectionId, type StoredPlaybook } from '../../src/ai/playbooks';
 import { CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isConnectorId, type ConnectorId, type ConnectorSaveResult } from '../../src/workspace/connectors';
-import { AuthError, verifyMicrosoftIdToken, type MicrosoftIdentity } from './auth';
+import { AuthError, type MicrosoftIdentity } from './auth';
 import { AdsKeyError, adsProbe, adsRefresh, mergeAdsKeys, type AdsKeys } from './microsoftAds';
 import { clearCampaigns, initAdsCache, readCampaigns, writeCampaigns } from './adsCache';
+import { allPurchases, billingState, buyPack, initBilling, recordUsage } from './billing';
+import type { Directory } from './directory';
+import { PLANS, includedUsage, isPlanId } from '../../src/workspace/plans';
 import { ConnectorError, daisyconAuthorizeUrl, daisyconExchange, emptyState, mergeInput, pkcePair, runTest, toSummary, type ConnState } from './connectors';
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
   WORKSPACE: DurableObjectNamespace<Workspace>;
+  DIRECTORY: DurableObjectNamespace<Directory>;
   /** Comma-separated Application (client) IDs whose Microsoft logins are accepted. */
   MS_CLIENT_ID?: string;
   MS_TENANT?: string;
@@ -100,12 +104,6 @@ async function sha256(text: string) {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-const list = (v?: string) =>
-  (v ?? '')
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-
 const pad = (v: number) => `op:${String(v).padStart(12, '0')}`;
 const hint = (v: string) => v.slice(-4);
 
@@ -121,6 +119,7 @@ export class Workspace extends DurableObject<Env> {
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
     void this.ctx.blockConcurrencyWhile(async () => {
       initAdsCache(this.ctx.storage.sql);
+      initBilling(this.ctx.storage.sql);
       this.boardMeta = (await this.ctx.storage.get<BoardMeta>('boards:meta')) ?? { version: 0 };
       this.boards = (await this.ctx.storage.get<BoardData>('boards:data')) ?? null;
     });
@@ -132,6 +131,15 @@ export class Workspace extends DurableObject<Env> {
     try {
       // From the Worker's nightly schedule only (requests from outside always start with /api).
       if (url.pathname === '/internal/check-connections') return json(await this.checkConnections());
+      // From the Worker after the register of companies (directory.ts) has approved the person.
+      if (url.pathname === '/internal/sign-in') {
+        const body = (await req.json()) as { who: MicrosoftIdentity; role: Role | null; companyId: string };
+        return this.signIn(body.who, body.role, body.companyId);
+      }
+      if (url.pathname === '/internal/knows') {
+        const { email } = (await req.json()) as { email: string };
+        return json({ known: (await this.users()).some((u) => u.email.toLowerCase() === email.toLowerCase()) });
+      }
       return await this.route(req, url, path);
     } catch (e) {
       if (e instanceof AuthError) return fail(e.message, e.status);
@@ -144,20 +152,7 @@ export class Workspace extends DurableObject<Env> {
     const method = req.method;
 
     /* ------------------------------ signing in ------------------------------ */
-    if (path === '/auth/session' && method === 'POST') {
-      const { idToken } = (await req.json()) as { idToken?: string };
-      if (!idToken) return fail('Mangler login-bevis.', 400);
-      const clientIds = list(this.env.MS_CLIENT_ID);
-      if (!clientIds.length) return fail('Cloudflare-workeren mangler MS_CLIENT_ID.', 500);
-      return this.signIn(await verifyMicrosoftIdToken(idToken, { clientIds }));
-    }
-    if (path === '/auth/dev' && method === 'POST') {
-      if (this.env.DEV_LOGIN !== '1') return fail('Ikke fundet.', 404);
-      const body = (await req.json()) as { email?: string; name?: string };
-      const email = (body.email ?? '').trim().toLowerCase();
-      if (!email.includes('@')) return fail('Skriv en e-mailadresse.', 400);
-      return this.signIn({ oid: `dev:${email}`, tid: 'dev', email, name: (body.name ?? '').trim() || email.split('@')[0]! });
-    }
+    // Signing in happens in the Worker (worker.ts → directory.ts → /internal/sign-in).
 
     // Everything else needs a session (a header, or the WebSocket protocol list).
     const protocols = (req.headers.get('Sec-WebSocket-Protocol') ?? '').split(',').map((p) => p.trim());
@@ -175,6 +170,68 @@ export class Workspace extends DurableObject<Env> {
       return json({ ok: true });
     }
     if (user.status !== 'active') return fail('En administrator skal give dig adgang først.', 403);
+
+    if (path === '/me' && method === 'PATCH') {
+      const { name } = (await req.json()) as { name?: string };
+      const clean = (name ?? '').trim().replace(/\s+/g, ' ').slice(0, 80);
+      if (clean.length < 2) return fail('Skriv dit navn.', 400);
+      const next = { ...user, name: clean };
+      await this.ctx.storage.put(`user:${user.id}`, next);
+      return json({ user: next });
+    }
+
+    /* ------------------------------ the company ------------------------------ */
+    if (path === '/company' && method === 'GET') return json(await this.company());
+    if (path === '/company' && method === 'PATCH') {
+      if (user.role !== 'admin') return fail('Kun administratorer kan ændre virksomheden.', 403);
+      const body = (await req.json()) as { name?: string; domains?: string[] };
+      return this.directory('/update', { name: body.name, domains: body.domains });
+    }
+    if (path === '/company/plan' && method === 'PUT') {
+      if (user.role !== 'admin') return fail('Kun administratorer kan skifte abonnement.', 403);
+      const { plan } = (await req.json()) as { plan?: string };
+      if (!isPlanId(plan)) return fail('Ukendt abonnement.', 400);
+      const people = (await this.users()).filter((u) => u.status === 'active').length;
+      if (people > PLANS[plan].maxSeats) return fail(`${PLANS[plan].name} er til ${PLANS[plan].maxSeats} person – fjern medarbejdere først, eller behold Teams.`, 409);
+      const res = await this.directory('/update', { plan });
+      this.companyCache = null;
+      return res;
+    }
+    if (path === '/team/invites' && (method === 'GET' || method === 'POST' || method === 'DELETE')) {
+      if (user.role !== 'admin') return fail('Kun administratorer kan invitere.', 403);
+      if (method === 'GET') return this.directory('/invites', {});
+      const body = (await req.json()) as { email?: string; role?: Role };
+      if (method === 'DELETE') return this.directory('/uninvite', { email: body.email });
+      const company = await this.company();
+      const people = (await this.users()).filter((u) => u.status === 'active').length;
+      const invited = ((await (await this.directory('/invites', {})).json()) as { invites: Invitation[] }).invites.length;
+      if (people + invited >= PLANS[company.plan].maxSeats) return fail(`${PLANS[company.plan].name} har plads til ${PLANS[company.plan].maxSeats} – skift til Teams for at invitere flere.`, 409);
+      return this.directory('/invite', { email: body.email, role: body.role === 'admin' ? 'admin' : 'member', invitedBy: user.name });
+    }
+
+    /* ----------------------- subscription and usage pool ----------------------- */
+    if (path.startsWith('/billing')) {
+      const company = await this.company();
+      const people = (await this.users()).filter((u) => u.status === 'active');
+      const state = () => json(billingState(this.ctx.storage.sql, company.plan, people));
+      if (path === '/billing' && method === 'GET') return state();
+      if (path === '/billing/usage' && method === 'POST') {
+        const cost = Number(((await req.json()) as { costUsd?: number }).costUsd);
+        if (!Number.isFinite(cost) || cost < 0 || cost > 50) return fail('Ugyldigt forbrug.', 400);
+        recordUsage(this.ctx.storage, includedUsage(company.plan, people.length), user.id, cost);
+        return state();
+      }
+      if (path === '/billing/packs' && method === 'POST') {
+        if (user.role !== 'admin') return fail('Kun administratorer kan købe ekstra forbrug til virksomheden.', 403);
+        buyPack(this.ctx.storage, user.id);
+        return state();
+      }
+      if (path === '/billing/purchases' && method === 'GET') {
+        if (user.role !== 'admin') return fail('Kun administratorer kan se købene.', 403);
+        const names = new Map((await this.users()).map((u) => [u.id, u.name]));
+        return json({ purchases: allPurchases(this.ctx.storage.sql, names) });
+      }
+    }
 
     /* --------------------------------- people --------------------------------- */
     if (path === '/users' && method === 'GET') return json({ users: await this.users() });
@@ -338,18 +395,19 @@ export class Workspace extends DurableObject<Env> {
 
   /* ------------------------------- accounts ------------------------------- */
 
-  private async signIn(who: MicrosoftIdentity): Promise<Response> {
+  /** The register of companies has approved the person (member, invited or by domain). */
+  private async signIn(who: MicrosoftIdentity, role: Role | null, companyId: string): Promise<Response> {
+    if (!(await this.ctx.storage.get<string>('companyId'))) await this.ctx.storage.put('companyId', companyId);
     const id = (await sha256(`${who.tid}:${who.oid}`)).slice(0, 24);
     const now = Date.now();
     let user = await this.ctx.storage.get<WorkspaceUser>(`user:${id}`);
-    if (user) user = { ...user, email: who.email, name: who.name, lastSeenAt: now };
+    if (user) user = { ...user, email: who.email, lastSeenAt: now, status: 'active' };
     else {
       const first = !(await this.ctx.storage.list({ prefix: 'user:', limit: 1 })).size;
-      const domain = who.email.split('@')[1] ?? '';
-      const allowed = first || list(this.env.ALLOWED_DOMAINS).includes(domain);
-      user = { id, email: who.email, name: who.name, role: first ? 'admin' : 'member', status: allowed ? 'active' : 'pending', createdAt: now, lastSeenAt: now };
+      user = { id, email: who.email, name: who.name, role: first ? 'admin' : (role ?? 'member'), status: 'active', createdAt: now, lastSeenAt: now };
     }
-    const session = `s_${randomToken(40)}`;
+    // The company id leads the token, so the Worker knows which workspace it belongs to.
+    const session = `${companyId}.s_${randomToken(40)}`;
     await this.ctx.storage.put({ [`user:${id}`]: user, [`session:${await sha256(session)}`]: { userId: id, expires: now + SESSION_DAYS * 86400_000 } satisfies Session });
     return json({ session, user });
   }
@@ -368,6 +426,27 @@ export class Workspace extends DurableObject<Env> {
     return { user, hash };
   }
 
+  private companyCache: { at: number; value: CompanyInfo } | null = null;
+
+  /** This workspace's company (from the register, kept for a minute). */
+  private async company(): Promise<CompanyInfo> {
+    if (this.companyCache && Date.now() - this.companyCache.at < 60_000) return this.companyCache.value;
+    const res = await this.directory('/company', {});
+    if (!res.ok) throw new AuthError('Virksomheden findes ikke.', 404);
+    const value = (await res.json()) as CompanyInfo;
+    this.companyCache = { at: Date.now(), value };
+    return value;
+  }
+
+  /** A call to the register of companies about this company. */
+  private async directory(path: string, body: Record<string, unknown>): Promise<Response> {
+    const companyId = (await this.ctx.storage.get<string>('companyId')) ?? 'main';
+    const stub = this.env.DIRECTORY.get(this.env.DIRECTORY.idFromName('directory'));
+    const res = await stub.fetch(`https://directory${path}?company=${encodeURIComponent(companyId)}`, { method: 'POST', body: JSON.stringify({ ...body, companyId }) });
+    if (path === '/update') this.companyCache = null;
+    return new Response(res.body, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...CORS } });
+  }
+
   private async users(): Promise<WorkspaceUser[]> {
     const rows = await this.ctx.storage.list<WorkspaceUser>({ prefix: 'user:' });
     return [...rows.values()].sort((a, b) => a.createdAt - b.createdAt);
@@ -383,6 +462,7 @@ export class Workspace extends DurableObject<Env> {
     if (patch === null) {
       await this.ctx.storage.delete(`user:${id}`);
       await this.dropSessions(id);
+      await this.directory('/removed', { email: target.email });
     } else {
       const next: WorkspaceUser = {
         ...target,

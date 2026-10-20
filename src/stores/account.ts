@@ -4,9 +4,10 @@
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { PublicConfig, WorkspaceInfo, WorkspaceUser } from '@/workspace/types';
+import type { NeedsCompany, PublicConfig, WorkspaceInfo, WorkspaceUser } from '@/workspace/types';
 
-export type AccountStatus = 'loading' | 'signedOut' | 'pending' | 'ready';
+/** 'needsCompany': signed in with Microsoft, but not part of a company in XavierOS yet. */
+export type AccountStatus = 'loading' | 'signedOut' | 'needsCompany' | 'pending' | 'ready';
 
 interface AccountState {
   status: AccountStatus;
@@ -19,6 +20,8 @@ interface AccountState {
   offline: boolean;
   /** Why the user was signed out (shown on the login screen). */
   reason: string | null;
+  /** The Microsoft sign-in waiting for a company to be created (or an invitation). */
+  needsCompany: NeedsCompany | null;
   set: (patch: Partial<Omit<AccountState, 'set' | 'signedOut'>>) => void;
   signedOut: (reason?: string) => void;
 }
@@ -32,8 +35,9 @@ export const useAccount = create<AccountState>()(
       login: null,
       offline: false,
       reason: null,
+      needsCompany: null,
       set: (patch) => set(patch),
-      signedOut: (reason) => set({ status: 'signedOut', user: null, workspace: null, offline: false, reason: reason ?? null }),
+      signedOut: (reason) => set({ status: 'signedOut', user: null, workspace: null, offline: false, reason: reason ?? null, needsCompany: null }),
     }),
     {
       name: 'bac.account',

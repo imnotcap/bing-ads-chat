@@ -15,7 +15,28 @@ import { useConnection } from '@/stores/connection';
 import { api, ApiError, getSession, loadConfig, setSession } from './api';
 import { loadLimits } from './limits';
 import { moveLocalConnections, refreshWorkspace } from './shared';
-import type { SessionResponse, UserStatus, WorkspaceUser } from './types';
+import type { PlanId } from './plans';
+import type { NeedsCompany, SessionResponse, UserStatus, WorkspaceUser } from './types';
+
+/** A Microsoft sign-in either opens the person's company, or asks for one to be created. */
+async function answered(res: SessionResponse | NeedsCompany): Promise<WorkspaceUser | null> {
+  if ('needsCompany' in res) {
+    useAccount.getState().set({ status: 'needsCompany', needsCompany: res, user: null, reason: null });
+    return null;
+  }
+  await started(res);
+  return res.user;
+}
+
+/** Creates the company for the person waiting in 'needsCompany'; they become its admin. */
+export async function createCompany(name: string, plan: PlanId): Promise<WorkspaceUser> {
+  const ticket = useAccount.getState().needsCompany?.ticket;
+  if (!ticket) throw new Error('Log ind med Microsoft først.');
+  const res = await api<SessionResponse>('/signup', { method: 'POST', auth: false, body: JSON.stringify({ ticket, name, plan }) });
+  useAccount.getState().set({ needsCompany: null });
+  await started(res);
+  return res.user;
+}
 
 async function started(res: SessionResponse) {
   await setSession(res.session);
@@ -30,7 +51,7 @@ async function afterSignIn() {
   void loadLimits();
 }
 
-export async function signIn(): Promise<WorkspaceUser> {
+export async function signIn(): Promise<WorkspaceUser | null> {
   const cfg = await loadConfig();
   const clientId = cfg.clientId || BUILTIN_MS.clientId;
   if (!clientId) throw new Error('Login er ikke sat op endnu: Cloudflare-workeren mangler MS_CLIENT_ID (se docs/RELEASE.md).');
@@ -39,16 +60,12 @@ export async function signIn(): Promise<WorkspaceUser> {
   // The same sign-in gives access to the user's Outlook calendar.
   if (tokens.refresh_token) await setSecret('ms_graph_refresh_token', tokens.refresh_token);
   useAccount.getState().set({ login: { clientId, tenant: cfg.tenant } });
-  const res = await api<SessionResponse>('/auth/session', { method: 'POST', auth: false, body: JSON.stringify({ idToken: tokens.id_token }) });
-  await started(res);
-  return res.user;
+  return answered(await api<SessionResponse | NeedsCompany>('/auth/session', { method: 'POST', auth: false, body: JSON.stringify({ idToken: tokens.id_token }) }));
 }
 
 /** Local development only (the Worker runs with DEV_LOGIN=1): sign in with an e-mail address. */
-export async function devSignIn(email: string, name: string): Promise<WorkspaceUser> {
-  const res = await api<SessionResponse>('/auth/dev', { method: 'POST', auth: false, body: JSON.stringify({ email, name }) });
-  await started(res);
-  return res.user;
+export async function devSignIn(email: string, name: string): Promise<WorkspaceUser | null> {
+  return answered(await api<SessionResponse | NeedsCompany>('/auth/dev', { method: 'POST', auth: false, body: JSON.stringify({ email, name }) }));
 }
 
 /** On start (and "Tjek igen"): is this PC still signed in, and has an admin let them in? */
