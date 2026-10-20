@@ -6,7 +6,7 @@
  * invoicing – there is no card payment yet). The real API bill comes from
  * Anthropic/Google as before.
  */
-import { EXTRA_USAGE_PACK, PLANS, billedSeats, includedUsage, monthlyPrice, type PlanId } from '../../src/workspace/plans';
+import { EXTRA_USAGE_PACK, PLANS, billedSeats, creditSpent, includedUsage, monthlyPrice, type PlanId } from '../../src/workspace/plans';
 import type { BillingPurchase, BillingState } from '../../src/workspace/types';
 
 export function initBilling(sql: SqlStorage) {
@@ -85,9 +85,7 @@ export function billingState(sql: SqlStorage, plan: PlanId, people: PoolPerson[]
 /** Adds the cost of one AI request. What goes beyond the month's included use is paid with credits. */
 export function recordUsage(storage: DurableObjectStorage, includedUsd: number, userId: string, costUsd: number, month = monthOf()) {
   storage.transactionSync(() => {
-    const before = monthUsed(storage.sql, month);
-    const after = before + costUsd;
-    const overflow = Math.max(0, after - includedUsd) - Math.max(0, before - includedUsd);
+    const overflow = creditSpent(monthUsed(storage.sql, month), costUsd, includedUsd);
     storage.sql.exec(
       'INSERT INTO pool_usage (month, user_id, used_usd) VALUES (?, ?, ?) ON CONFLICT (month, user_id) DO UPDATE SET used_usd = used_usd + excluded.used_usd',
       month,

@@ -11,8 +11,9 @@
  *   cloudflare/public/XavierOS-Setup.exe             download page installer
  *   cloudflare/public/Bing-Ads-Chat-Setup.exe        same file under the old name (old links)
  *   cloudflare/public/version.json                   shown on the download page
- * and deploys the Worker with wrangler (needs CLOUDFLARE_API_TOKEN, and BING_ADS_CHAT_SITE_URL +
- * CLOUDFLARE_ACCOUNT_ID from scripts/resolve-site.mjs).
+ * and deploys the Worker with wrangler, together with the website that `pnpm site:build` put in
+ * cloudflare/public (needs CLOUDFLARE_API_TOKEN, and BING_ADS_CHAT_SITE_URL + CLOUDFLARE_ACCOUNT_ID
+ * from scripts/resolve-site.mjs).
  * Release notes come from RELEASE_NOTES (CI: the commit message).
  */
 import { execSync } from 'node:child_process';
@@ -73,6 +74,8 @@ const sizeMb = (statSync(join(bundleDir, themed ?? setup)).size / 1048576).toFix
 writeFileSync(join(pub, 'version.json'), `${JSON.stringify({ version, date: pubDate, notes, sizeMb }, null, 2)}\n`);
 
 if (deploy) {
+  // The website is the Worker's front page – never deploy without it.
+  if (!existsSync(join(pub, 'index.html'))) throw new Error('Hjemmesiden er ikke bygget – kør `pnpm site:build` først. Intet er udgivet.');
   if (!process.env.CLOUDFLARE_API_TOKEN) throw new Error('CLOUDFLARE_API_TOKEN mangler – tilføj den som GitHub-secret (se docs/RELEASE.md).');
   // The workspace accepts Microsoft logins made with the app's own registration.
   // Without it nobody could sign in to the new version – stop before anything is deployed.
@@ -88,6 +91,7 @@ if (deploy) {
 
 console.log(`
 ✔ XavierOS ${version} er udgivet.
-  Download-side:   ${site}
+  Hjemmeside:      ${site}
+  Download-side:   ${site}/download
   Opdateringsfeed: ${site}/updates/latest.json
 `);

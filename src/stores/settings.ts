@@ -17,8 +17,6 @@ export interface AiSettings {
   model: ModelId;
   effort: Effort;
   showThinking: boolean;
-  /** Monthly cap for Claude API usage in USD; sending is blocked when reached. */
-  monthlyAiBudgetUsd: number | null;
   usdToDkk: number;
   maxToolRounds: number;
   /** Models users may pick (set by the admin). Empty = all. */
@@ -84,7 +82,7 @@ export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
       spend: DEFAULT_SPEND_RULES,
-      ai: { model: 'claude-opus-5-5', effort: 'medium', showThinking: true, monthlyAiBudgetUsd: 25, usdToDkk: 6.9, maxToolRounds: 30, enabledModels: [], customModels: [], connectors: {}, followUps: true, followUpOutlook: true, followUpMail: true },
+      ai: { model: 'claude-opus-5-5', effort: 'medium', showThinking: true, usdToDkk: 6.9, maxToolRounds: 30, enabledModels: [], customModels: [], connectors: {}, followUps: true, followUpOutlook: true, followUpMail: true },
       business: {
         companyName: '',
         website: '',

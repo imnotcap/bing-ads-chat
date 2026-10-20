@@ -66,3 +66,10 @@ export const billedSeats = (plan: PlanId, people: number) => Math.min(PLANS[plan
 export const monthlyPrice = (plan: PlanId, people: number) => PLANS[plan].priceUsd * billedSeats(plan, people);
 
 export const includedUsage = (plan: PlanId, people: number) => PLANS[plan].includedUsd * billedSeats(plan, people);
+
+/**
+ * How much of one AI request is paid with bought credits: only the part that goes beyond
+ * the month's included use (usedBefore is the pool's use before this request).
+ */
+export const creditSpent = (usedBefore: number, costUsd: number, includedUsd: number) =>
+  Math.max(0, usedBefore + costUsd - includedUsd) - Math.max(0, usedBefore - includedUsd);

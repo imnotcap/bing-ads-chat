@@ -15,4 +15,8 @@ coverage
 cloudflare/public/updates/
 cloudflare/public/*.exe
 cloudflare/public/version.json
+# Built from website/ by `pnpm site:build`
+cloudflare/public/index.html
+cloudflare/public/assets/
+cloudflare/public/media/
 .wrangler/
