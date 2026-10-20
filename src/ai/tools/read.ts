@@ -8,6 +8,7 @@ import { previousRange } from '@/lib/format';
 import { round } from '@/lib/utils';
 import { useActivity } from '@/stores/activity';
 import type { VisualColumn } from '../visuals';
+import { matchByName } from './find';
 import { accountBlocker, adGroupBlocker, bidLabel, bidsIgnoredReason, campaignBlocker, CONVERSION_BASED, currentAccount, editorialNote, last30, MIN_CONVERSIONS_30D } from './checks';
 import {
   PERIOD_DESCRIPTION,
@@ -121,18 +122,24 @@ export const readTools = [
     name: 'list_campaigns',
     kind: 'read',
     description:
-      'List campaigns with id, status, type, daily budget (and whether it is shared), bid strategy, whether keyword/ad group bids are used at all (false under automated bidding), and why a campaign is not serving – optionally with performance metrics for a period. Sorted by spend.',
+      'List campaigns with id, status, type, daily budget (and whether it is shared), bid strategy, whether keyword/ad group bids are used at all (false under automated bidding), and why a campaign is not serving – optionally with performance metrics for a period. Returns at most `limit` campaigns (default 25), sorted by spend, plus how many matched in total. To find a campaign the user names, use find_campaigns_and_ad_groups (or `search` here) – never list everything to look for a name.',
     schema: z.object({
+      search: z.string().optional().describe('Only campaigns whose name contains these words (any order, ignores case and "|").'),
+      ids: z.array(z.string()).max(100).optional().describe('Only these campaign ids.'),
       period: z.string().optional().describe(PERIOD_DESCRIPTION),
       includeMetrics: withMetrics,
       status: z.enum(['all', 'active', 'paused']).optional().describe('Filter by status (default all, deleted are never shown).'),
+      limit: z.number().int().min(1).max(200).optional().describe('Max campaigns returned (default 25).'),
     }),
     label: () => 'Henter kampagner',
     async run(input, ctx) {
       const period = resolvePeriod(input.period, ctx);
-      const campaigns = (await getCampaigns(ctx)).filter((c) =>
+      let campaigns = (await getCampaigns(ctx)).filter((c) =>
         input.status === 'active' ? c.status === 'Active' : input.status === 'paused' ? c.status !== 'Active' : true,
       );
+      if (input.ids?.length) campaigns = campaigns.filter((c) => input.ids!.includes(c.id));
+      if (input.search?.trim()) campaigns = matchByName(campaigns, input.search, 60);
+      const limit = Math.min(input.limit ?? 25, ctx.rules.maxRows ?? 200);
       const metrics = input.includeMetrics === false ? null : await getReport(ctx, { kind: 'campaign', range: period, aggregation: 'Summary' });
       const byId = new Map((metrics ?? []).map((r) => [r.campaignId, r]));
       const rows = campaigns.map((c) => ({
@@ -155,19 +162,21 @@ export const readTools = [
         }),
         ...(metrics ? metricFields(byId.get(c.id)) : {}),
       }));
-      const sorted = metrics ? sortRows(rows, 'spend', 'desc') : rows;
+      const sorted = (metrics && !input.search ? sortRows(rows, 'spend', 'desc') : rows).slice(0, limit);
       return {
         result: {
           period: metrics ? period : undefined,
           currency: ctx.currency,
+          totalMatching: rows.length,
           campaigns: sorted,
-          ...(!campaigns.length && input.status !== 'active' && input.status !== 'paused'
+          ...(rows.length > sorted.length ? { note: `Showing ${sorted.length} of ${rows.length} – use search, status or ids to get the ones you need.` } : {}),
+          ...(!campaigns.length && input.status !== 'active' && input.status !== 'paused' && !input.search && !input.ids?.length
             ? {
                 note: 'The connected account has no campaigns. Tell the user which account is connected (see <context>); the account is set by the Konto-ID under Indstillinger → Forbindelser → Microsoft Advertising.',
               }
             : {}),
         },
-        summary: `${campaigns.length} kampagner`,
+        summary: rows.length > sorted.length ? `${sorted.length} af ${rows.length} kampagner` : `${rows.length} kampagner`,
         preview: {
           columns: [
             { key: 'name', label: 'Kampagne' },
@@ -349,7 +358,7 @@ Rows contain dimensions plus impressions, clicks, spend, conversions, revenue, c
       columns: z
         .array(z.string())
         .optional()
-        .describe('Advanced, live accounts only: raw Microsoft Advertising report column names replacing the defaults (e.g. ImpressionSharePercent, ImpressionLostToBudgetPercent).'),
+        .describe('Advanced, live accounts only: raw Microsoft Advertising report column names (e.g. ImpressionSharePercent, ImpressionLostToBudgetPercent). They replace the default dimension columns; the standard measures (impressions, clicks, spend, conversions, revenue) are always added.'),
     }),
     label: (i) => `Kører rapport: ${REPORT_LABELS[i.kind as ReportKind] ?? i.kind}`,
     async run(input, ctx) {

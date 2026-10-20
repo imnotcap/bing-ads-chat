@@ -2,13 +2,14 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import type { AnyTool } from './context';
 import { displayTools } from './display';
+import { findTools } from './find';
 export { TERMINAL_TOOLS } from './display';
 import { inventarlandTools } from './inventarland';
 import { readTools } from './read';
 import { trainingTools } from './training';
 import { writeTools } from './write';
 
-export const ALL_TOOLS: AnyTool[] = [...readTools, ...inventarlandTools, ...writeTools, ...trainingTools, ...displayTools];
+export const ALL_TOOLS: AnyTool[] = [...findTools, ...readTools, ...inventarlandTools, ...writeTools, ...trainingTools, ...displayTools];
 
 const byName = new Map(ALL_TOOLS.map((t) => [t.name, t]));
 

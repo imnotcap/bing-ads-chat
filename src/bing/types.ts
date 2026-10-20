@@ -277,7 +277,12 @@ export type MsService = 'campaign' | 'reporting' | 'customer' | 'adinsight' | 'b
 export interface AdsBackend {
   readonly mode: 'live' | 'demo';
   listAccounts(): Promise<Account[]>;
+  /** Straight from the source (Microsoft) – use after changes and to confirm them. */
   listCampaigns(accountId: string): Promise<Campaign[]>;
+  /** The same list from a shared cache when it is recent enough (live: Cloudflare, see bing/campaignCache.ts). */
+  listCampaignsCached?(accountId: string): Promise<Campaign[]>;
+  /** A change was made: the next cached read goes to Microsoft. */
+  campaignsChanged?(): void;
   listAdGroups(accountId: string, campaignId: string): Promise<AdGroup[]>;
   listKeywords(accountId: string, adGroupId: string): Promise<Keyword[]>;
   listAds(accountId: string, adGroupId: string): Promise<Ad[]>;

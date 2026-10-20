@@ -34,6 +34,7 @@ import type {
   ReportSpec,
 } from './types';
 import { extractFirstFile } from './zip';
+import { CampaignCache, type CampaignStore } from './campaignCache';
 
 type Json = Record<string, unknown>;
 
@@ -146,8 +147,19 @@ export class LiveBackend implements AdsBackend {
   private accounts: Account[] | null = null;
   private geo: Promise<Map<string, string>> | null = null;
 
-  constructor(creds: MsCredentials) {
+  private readonly campaignCache: CampaignCache | null;
+
+  constructor(creds: MsCredentials, campaignStore?: CampaignStore) {
     this.client = new MsAdsClient(creds);
+    this.campaignCache = campaignStore ? new CampaignCache(campaignStore, (id) => this.listCampaigns(id)) : null;
+  }
+
+  listCampaignsCached(accountId: string): Promise<Campaign[]> {
+    return this.campaignCache ? this.campaignCache.get(accountId) : this.listCampaigns(accountId);
+  }
+
+  campaignsChanged() {
+    this.campaignCache?.changed();
   }
 
   /** Verifies the credentials by reading the signed-in user. */
@@ -193,6 +205,12 @@ export class LiveBackend implements AdsBackend {
   }
 
   async listCampaigns(accountId: string): Promise<Campaign[]> {
+    const campaigns = await this.queryCampaigns(accountId);
+    this.campaignCache?.saved(accountId, campaigns);
+    return campaigns;
+  }
+
+  private async queryCampaigns(accountId: string): Promise<Campaign[]> {
     let fields: string | null = CAMPAIGN_FIELDS;
     const query = (type: string) =>
       this.cm<Json>(accountId, 'Campaigns/QueryByAccountId', 'POST', { AccountId: Number(accountId), CampaignType: type, ReturnAdditionalFields: fields });

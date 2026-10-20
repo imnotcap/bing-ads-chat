@@ -132,6 +132,7 @@ function learningNote(ctx: ToolContext, c: Campaign): string | null {
 /** Fresh read of a list (the per-turn cache is cleared first). */
 function fresh(ctx: ToolContext) {
   ctx.memo.clear();
+  ctx.backend.campaignsChanged?.();
 }
 
 export const writeTools = [
