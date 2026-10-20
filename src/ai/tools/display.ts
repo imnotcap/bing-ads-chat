@@ -15,8 +15,8 @@ export const displayTools = [
   defineRead({
     name: 'create_file',
     kind: 'display',
-    description: `Give the user a file they can save (shown as a file card with "Gem fil", saved to Downloads › XavierOS). ALWAYS use this when the user asks for a file, a download, an export, something to import, a list to send on, or a calendar entry – never paste the file's content into your reply instead. Your reply text only says briefly what the file contains.
-Formats (text only): csv/tsv for spreadsheets and imports (opens in Excel – use semicolon ";" as separator and decimal comma for Danish Excel, a header row, one record per line, quote fields containing ";"), txt, md (checklists, notes, reports), json, html, xml, and ics for calendar entries (VCALENDAR with VEVENT, DTSTART/DTEND as local time YYYYMMDDTHHMMSS, SUMMARY, DESCRIPTION, a VALARM reminder). Excel (.xlsx), Word and PDF files cannot be made – offer CSV or Markdown instead and say so.`,
+    description: `Give the user a file they can save (shown as a file card with "Gem fil", saved to Downloads › XavierOS). ALWAYS use this when the user asks for a file, a download, an export, something to import or a list to send on – never paste the file's content into your reply instead. Your reply text only says briefly what the file contains.
+Formats (text only): csv/tsv for spreadsheets and imports (opens in Excel – use semicolon ";" as separator and decimal comma for Danish Excel, a header row, one record per line, quote fields containing ";"), txt, md (checklists, notes, reports), json, html, xml, and ics only when the user explicitly asks for a calendar FILE (VCALENDAR with VEVENT, DTSTART/DTEND as local time YYYYMMDDTHHMMSS, SUMMARY, DESCRIPTION, a VALARM reminder). For a follow-up, reminder or review later use schedule_follow_up instead. Excel (.xlsx), Word and PDF files cannot be made – offer CSV or Markdown instead and say so.`,
     schema: z.object({
       fileName: z
         .string()
@@ -32,6 +32,26 @@ Formats (text only): csv/tsv for spreadsheets and imports (opens in Excel – us
         result: 'The file is shown to the user with a "Gem fil" button. Do not repeat its content in your reply.',
         summary: input.fileName,
         visual: { type: 'file', fileName: input.fileName, content: input.content, description: input.description },
+      };
+    },
+  }),
+  defineRead({
+    name: 'schedule_follow_up',
+    kind: 'display',
+    description: `Prepare a follow-up for the user – whenever they ask for a follow-up, a reminder, a review/check later ("følg op", "mind mig om", "sæt en opfølgning", "gennemgang om en uge") or say yes to one. The user sees a follow-up card filled with your title, date, time, description and checklist, and clicks "Opret opfølgning" to get a card on their personal planning board, a reminder in their Outlook calendar and a mail to themselves – exactly like the follow-up after changes. Never make an .ics file for this. Nothing is created until the user clicks, so don't say it is created.`,
+    schema: z.object({
+      title: z.string().min(1).max(120).describe('Short Danish title, e.g. "Gennemgang: Kontormøbler – salg erhvervsmøbler".'),
+      description: z.string().max(2000).describe('What to check and why, with the numbers to compare (Danish).'),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('The day (YYYY-MM-DD). Default one week from today.'),
+      time: z.string().regex(/^\d{2}:\d{2}$/).optional().describe('Local time HH:MM, default 09:00.'),
+      checklist: z.array(z.string().max(120)).max(8).optional().describe('Short Danish to-do items for the planning card.'),
+    }),
+    label: () => 'Forbereder opfølgning',
+    async run(input) {
+      return {
+        result:
+          'The follow-up card is shown under your reply, filled with these values. The user can adjust it and clicks "Opret opfølgning" to create the planning card, Outlook reminder and mail. It is NOT created yet – say it is ready to create.',
+        summary: input.date ? `Klar til ${input.date}` : 'Klar til oprettelse',
       };
     },
   }),

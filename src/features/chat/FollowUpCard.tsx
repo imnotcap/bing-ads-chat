@@ -2,7 +2,8 @@
  * After the assistant has changed something (campaigns, ad groups, keywords, ads …)
  * it offers a follow-up under the reply: a card on the user's personal planning
  * board ("Min planlægning", made if missing), a reminder in the Outlook calendar and
- * a mail to the user themselves. "/test" shows the same card without any changes.
+ * a mail to the user themselves. The same card appears when the user asks for a
+ * follow-up in the chat (schedule_follow_up fills it in), and "/test" shows it too.
  */
 import { motion } from 'motion/react';
 import { ArrowRight, CalendarClock, Check, ExternalLink, FlaskConical, Loader2, Mail, SquareKanban } from 'lucide-react';
@@ -33,6 +34,21 @@ const PRESETS = [
 
 function fmtValue(v: string | number | null | undefined) {
   return v === null || v === undefined || v === '' ? '–' : String(v);
+}
+
+interface FollowUpRequest {
+  title: string;
+  description: string;
+  date?: string;
+  time?: string;
+  checklist?: string[];
+}
+
+/** A follow-up the user asked for in the chat (the assistant's schedule_follow_up). */
+export function requestedFollowUp(item: AssistantItem): FollowUpRequest | null {
+  const part = item.parts.find((p): p is ToolPart => p.type === 'tool' && p.name === 'schedule_follow_up' && p.status === 'done');
+  const input = part?.input as Partial<FollowUpRequest> | undefined;
+  return input?.title ? { title: input.title, description: input.description ?? '', date: input.date, time: input.time, checklist: input.checklist } : null;
 }
 
 /** The changes in a reply that were carried out. */
@@ -74,19 +90,24 @@ export function FollowUpCard({ item }: { item: AssistantItem }) {
   const test = !!item.test;
   const setAi = useSettings((s) => s.setAi);
   const changes = useMemo(() => completedChanges(item), [item]);
+  // Asked for by the user: shown even without changes, filled in by the assistant.
+  const request = useMemo(() => requestedFollowUp(item), [item]);
+  const asked = test || !!request;
   const firstTitle = changes[0]?.plan?.title ?? 'Ændring';
-  const [title, setTitle] = useState(test ? 'Test: opfølgning fra XavierOS' : `Følg op: ${firstTitle}${changes.length > 1 ? ` (+${changes.length - 1})` : ''}`);
-  const [due, setDue] = useState(isoDay(test ? 1 : 7));
-  const [time, setTime] = useState('09:00');
+  const [title, setTitle] = useState(
+    request?.title ?? (test ? 'Test: opfølgning fra XavierOS' : `Følg op: ${firstTitle}${changes.length > 1 ? ` (+${changes.length - 1})` : ''}`),
+  );
+  const [due, setDue] = useState(request?.date && request.date >= isoDay(0) ? request.date : isoDay(test ? 1 : 7));
+  const [time, setTime] = useState(request?.time ?? '09:00');
   const [toBoard, setToBoard] = useState(true);
   const canOutlook = outlookAvailable();
-  const [toOutlook, setToOutlook] = useState((test || outlookDefault) && canOutlook);
+  const [toOutlook, setToOutlook] = useState((asked || outlookDefault) && canOutlook);
   const canMail = canOutlook && !!email;
-  const [toMail, setToMail] = useState((test || mailDefault) && canMail);
+  const [toMail, setToMail] = useState((asked || mailDefault) && canMail);
   const [busy, setBusy] = useState(false);
   const state = item.followUp;
 
-  if (!convId || (!changes.length && !test)) return null;
+  if (!convId || (!changes.length && !asked)) return null;
   if (state?.status === 'dismissed') return null;
 
   if (state?.status === 'created') {
@@ -122,12 +143,16 @@ export function FollowUpCard({ item }: { item: AssistantItem }) {
       </motion.div>
     );
   }
-  if (!enabled && !test) return null;
+  if (!enabled && !asked) return null;
 
   const create = async () => {
     setBusy(true);
     try {
-      const description = test ? TEST_DESCRIPTION : describe(changes);
+      const description = test
+        ? TEST_DESCRIPTION
+        : request
+          ? [request.description.trim(), changes.length ? describe(changes) : ''].filter(Boolean).join('\n\n')
+          : describe(changes);
       const subject = title.trim() || 'Følg op på annonceændringer';
       let boardId = '';
       let cardId = '';
@@ -136,7 +161,7 @@ export function FollowUpCard({ item }: { item: AssistantItem }) {
           title: subject,
           description,
           due,
-          checklist: ['Tjek tallene for det, der blev ændret', 'Beslut: behold, justér eller rul tilbage'],
+          checklist: request?.checklist?.length ? request.checklist : ['Tjek tallene for det, der blev ændret', 'Beslut: behold, justér eller rul tilbage'],
           conversationId: convId,
           activityIds: changes.map((c) => c.activityId).filter((x): x is string => !!x),
         }));
@@ -185,11 +210,13 @@ export function FollowUpCard({ item }: { item: AssistantItem }) {
           {test ? <FlaskConical className="size-4" /> : <CalendarClock className="size-4" />}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[14px] font-semibold text-ink">{test ? 'Test af opfølgning' : 'Skal jeg sætte en opfølgning på?'}</div>
+          <div className="text-[14px] font-semibold text-ink">{test ? 'Test af opfølgning' : request ? 'Opfølgning klar' : 'Skal jeg sætte en opfølgning på?'}</div>
           <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
             {test
               ? 'Prøv opfølgningen af uden Microsoft Advertising: vælg hvad der skal laves, og klik Opret.'
-              : `Så får du et kort i din personlige planlægning${canOutlook ? ', en påmindelse i Outlook og en mail' : ''}, når det er tid til at tjekke, om ændringen virkede.`}
+              : request
+                ? `Tjek tidspunktet og klik Opret – så kommer den i din personlige planlægning${canOutlook ? ', i din Outlook-kalender og som mail til dig' : ''}.`
+                : `Så får du et kort i din personlige planlægning${canOutlook ? ', en påmindelse i Outlook og en mail' : ''}, når det er tid til at tjekke, om ændringen virkede.`}
           </p>
         </div>
       </div>
@@ -237,7 +264,7 @@ export function FollowUpCard({ item }: { item: AssistantItem }) {
               checked={toOutlook}
               onChange={(e) => {
                 setToOutlook(e.target.checked);
-                if (!test) setAi({ followUpOutlook: e.target.checked });
+                if (!asked) setAi({ followUpOutlook: e.target.checked });
               }}
               className="size-4 accent-[var(--color-brand)]"
             />
@@ -253,7 +280,7 @@ export function FollowUpCard({ item }: { item: AssistantItem }) {
               checked={toMail}
               onChange={(e) => {
                 setToMail(e.target.checked);
-                if (!test) setAi({ followUpMail: e.target.checked });
+                if (!asked) setAi({ followUpMail: e.target.checked });
               }}
               className="size-4 shrink-0 accent-[var(--color-brand)]"
             />
@@ -267,7 +294,7 @@ export function FollowUpCard({ item }: { item: AssistantItem }) {
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => updateItem(convId, item.id, (it) => ({ ...it, followUp: { status: 'dismissed' } }))}>
             Nej tak
           </Button>
-          {!test && (
+          {!asked && (
             <button type="button" onClick={() => setAi({ followUps: false })} className="ml-auto text-[12px] text-subtle hover:text-muted hover:underline">
               Spørg ikke igen
             </button>

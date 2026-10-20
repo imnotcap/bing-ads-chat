@@ -103,3 +103,16 @@ describe('research tools', () => {
     expect(planned.plan!.changes[0]!.field).toMatch(/søgn\.\/md\./);
   });
 });
+
+describe('follow-ups the user asks for', () => {
+  it('fills the follow-up card from schedule_follow_up', async () => {
+    const { requestedFollowUp } = await import('@/features/chat/FollowUpCard');
+    const tool = getTool('schedule_follow_up')!;
+    if (tool.kind === 'write') throw new Error('unexpected');
+    const input = tool.schema.parse({ title: 'Gennemgang: Kontormøbler', description: 'Tjek CPA', date: '2026-11-02', time: '10:30', checklist: ['Sammenlign CPA'] });
+    const out = await tool.run(input, ctx());
+    expect(String(out.result)).toMatch(/NOT created yet/);
+    const item = { kind: 'assistant', id: 'a', ts: 0, model: 'm', status: 'done', parts: [{ type: 'tool', id: 't', name: 'schedule_follow_up', label: '', input, status: 'done', startedAt: 0 }] } as const;
+    expect(requestedFollowUp(item as never)).toEqual({ title: 'Gennemgang: Kontormøbler', description: 'Tjek CPA', date: '2026-11-02', time: '10:30', checklist: ['Sammenlign CPA'] });
+  });
+});
