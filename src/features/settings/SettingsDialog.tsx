@@ -12,7 +12,7 @@ import { Badge, Segmented, SwitchRow } from '@/components/ui/controls';
 import { Field, Input, NumberInput, Textarea } from '@/components/ui/input';
 import { Dialog } from '@/components/ui/overlays';
 import { fmtMoney, fmtNumber, fmtUsd, monthKey } from '@/lib/format';
-import { isTauri, openExternal } from '@/lib/platform';
+import { isTauri } from '@/lib/platform';
 import { queryClient } from '@/lib/queryClient';
 import { checkForUpdate, openDownloadPage } from '@/lib/updater';
 import { offerUpdate } from '@/hooks/useAutoUpdate';
@@ -24,7 +24,6 @@ import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 import { useUi, type SettingsTab } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
-import { SITE_URL } from '@/workspace/api';
 import { refreshBilling, useBilling } from '@/workspace/billing';
 import { PLANS } from '@/workspace/plans';
 import { ModelsTab } from './ModelsTab';
@@ -156,9 +155,6 @@ function AiTab() {
                 transition={{ duration: 0.8, ease: EASE }}
               />
             </div>
-            <button type="button" onClick={() => void openExternal(`${SITE_URL}/konto/abonnement`)} className="mt-2 text-[12.5px] font-medium text-brand hover:underline">
-              Abonnement og ekstra forbrug administreres på hjemmesiden
-            </button>
           </div>
         )}
         {Object.keys(current).length > 0 && (

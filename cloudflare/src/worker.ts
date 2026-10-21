@@ -1,7 +1,6 @@
 /**
  * XavierOS on Cloudflare Workers:
- * - Static files from ./public: the website (built from website/), the installer and
- *   the update feed.
+ * - Static files from ./public: the download page, the installer and the update feed.
  * - /api/…: each company's own workspace (workspace.ts) – people, the shared Microsoft
  *   Advertising and AI connections, boards and the AI-usage pool – and the register of
  *   companies (directory.ts), which routes a Microsoft sign-in to the right company.

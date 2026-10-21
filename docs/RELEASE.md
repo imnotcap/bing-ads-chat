@@ -5,8 +5,7 @@ fra Cloudflare, så ingen skal hente en ny exe-fil efter den første installatio
 
 | Del | Adresse |
 | --- | --- |
-| Hjemmeside (forside, priser, konto) | https://bing-ads-chat.casperjohansen.workers.dev (findes automatisk ud fra API-tokenet – står også i Actions-loggen under **Find the Cloudflare address**) |
-| Download-side | https://bing-ads-chat.casperjohansen.workers.dev/download |
+| Download-side | https://bing-ads-chat.casperjohansen.workers.dev (findes automatisk ud fra API-tokenet – står også i Actions-loggen under **Find the Cloudflare address**) |
 | Opdateringsfeed (signeret) | https://bing-ads-chat.casperjohansen.workers.dev/updates/latest.json |
 | Kildekode + byggeri | https://github.com/imnotcap/bing-ads-chat (GitHub Actions bygger Windows) |
 
@@ -57,15 +56,6 @@ Inventarland-data (webshoppens salg og de andre annoncekanaler) forbindes også 
 **Indstillinger → Forbindelser → Inventarland** med en Inventarland-bruger med rollen *Læser* – se README.
 
 Uden `MS_CLIENT_ID` stopper udgivelsen med en fejl, så ingen bliver låst ude af en ny version.
-
-**Login på hjemmesiden** (Konto → Profil, Abonnement, Team) bruger samme app-registrering, men fra browseren.
-Under **Godkendelse** i app-registreringen: *Tilføj en platform → Enkeltsideprogram (SPA)* → omdirigerings-URI
-`https://bing-ads-chat.casperjohansen.workers.dev/login` (hjemmesidens adresse + `/login`) → Konfigurer. Uden den
-afviser Microsoft login på hjemmesiden (AADSTS50011); appen virker som før.
-
-Hjemmesiden ligger i `website/` og bygges med `pnpm site:build` ind i `cloudflare/public` – det gør udgivelsen
-selv. Lokalt: `pnpm site:dev` (port 4620) med `wrangler dev` på 8787. Klippene af appen i `website/public/media`
-optages med `scripts/record-site-media.mjs` (se filen).
 
 Client ID og developer token ligger i den app, man henter, så alle med installeren kan læse dem. De giver ikke
 adgang til noget alene: man skal stadig logge ind med en Microsoft-bruger.

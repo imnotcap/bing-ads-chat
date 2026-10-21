@@ -134,6 +134,5 @@ pub fn open_download_page(app: AppHandle) -> Result<(), String> {
     let Some(url) = option_env!("BING_ADS_CHAT_SITE_URL") else {
         return Err("Download-siden er ikke sat op i denne version.".into());
     };
-    let page = format!("{}/download", url.trim_end_matches('/'));
-    app.opener().open_url(page, None::<&str>).map_err(|e| e.to_string())
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }

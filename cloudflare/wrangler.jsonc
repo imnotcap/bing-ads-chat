@@ -1,19 +1,17 @@
 {
   // XavierOS on Cloudflare Workers Free:
-  //   /, /priser, /konto/…      the website (website/, built into ./public by `pnpm site:build`;
-  //                             every other path gets its index.html)
-  //   /download                 download page (finds the latest version in /version.json)
+  //   /                         download page (finds the latest version in /version.json)
   //   /XavierOS-Setup.exe       latest Windows installer (also /Bing-Ads-Chat-Setup.exe, the old name)
   //   /updates/latest.json      signed update feed the app checks (tauri-plugin-updater)
-  //   /api/…                    the companies (src/directory.ts) and each company's workspace:
-  //                             people, shared connections, boards, subscription (src/workspace.ts)
+  //   /api/…                    shared workspace: accounts, shared connections, planning boards
+  //                             (src/workspace.ts, one Durable Object for the whole department)
   // Deployed by GitHub Actions (.github/workflows/build-windows.yml → scripts/publish.mjs), which
   // also sets MS_CLIENT_ID from the GitHub secret of the same name.
   "name": "bing-ads-chat",
   "main": "src/worker.ts",
   "compatibility_date": "2025-09-01",
   "workers_dev": true,
-  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
+  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "404-page", "run_worker_first": ["/api/*"] },
   // Every night at 04:17 UTC: the data sources are tested again (keeps logins alive).
   "triggers": { "crons": ["17 4 * * *"] },
   "vars": {

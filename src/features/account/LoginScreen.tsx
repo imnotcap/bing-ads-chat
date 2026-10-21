@@ -19,8 +19,6 @@ import { errorMessage } from '@/lib/utils';
 import { useAccount } from '@/stores/account';
 import { createCompany, devSignIn, restoreSession, signIn, signOut } from '@/workspace/account';
 import { PLANS, type PlanId } from '@/workspace/plans';
-import { SITE_URL } from '@/workspace/api';
-import { openExternal } from '@/lib/platform';
 import { loadConfig } from '@/workspace/api';
 
 const ACCESS = [
@@ -217,9 +215,6 @@ function NeedsCompanyView() {
       <div className="mt-5 border-t border-line pt-4 text-[12.5px] leading-relaxed text-muted">
         Arbejder du i en virksomhed, der allerede bruger XavierOS? Bed en administrator om at invitere <b>{who?.email}</b>, og log ind igen.
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button size="sm" variant="secondary" onClick={() => void openExternal(`${SITE_URL}/priser`)}>
-            Se priser
-          </Button>
           <Button size="sm" variant="ghost" onClick={() => useAccount.getState().signedOut()}>
             <LogOut /> Tilbage
           </Button>

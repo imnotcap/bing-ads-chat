@@ -12,8 +12,6 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build",
     "preview": "vite preview",
-    "site:dev": "vite --config website/vite.config.ts",
-    "site:build": "vite build --config website/vite.config.ts",
     "tauri": "tauri",
     "app:dev": "tauri dev",
     "app:build": "tauri build",

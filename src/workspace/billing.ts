@@ -1,8 +1,7 @@
 /**
  * The company's subscription and shared AI-usage pool (cloudflare/src/billing.ts): how
  * much of the month's included use and bought credits is left, and buying an extra-usage
- * pack (admins). The cost of every AI request is reported here. Plans, seats and
- * invoices are managed on the website (Konto → Abonnement).
+ * pack (admins). The cost of every AI request is reported here.
  */
 import { create } from 'zustand';
 import { fmtUsd } from '@/lib/format';

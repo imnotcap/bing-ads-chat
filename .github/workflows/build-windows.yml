@@ -162,18 +162,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v6
-
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: pnpm
-
-      # The website (website/) is built into cloudflare/public next to the installer.
-      - name: Build the website
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm site:build
 
       - uses: actions/download-artifact@v8
         with:
@@ -186,7 +177,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node scripts/resolve-site.mjs
 
-      - name: Publish update feed + website
+      - name: Publish update feed + download page
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}

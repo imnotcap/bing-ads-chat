@@ -18,10 +18,8 @@ import { cn, errorMessage } from '@/lib/utils';
 import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
 import { buyExtraUsage, refreshBilling, useBilling } from '@/workspace/billing';
-import { SITE_URL } from '@/workspace/api';
 import { PLANS } from '@/workspace/plans';
 import { useAccount } from '@/stores/account';
-import { openExternal } from '@/lib/platform';
 import { FocusPicker } from './FocusPicker';
 
 
@@ -192,9 +190,6 @@ function UsageRing() {
                         Købt denne måned: {billing.purchases.length} × {fmtUsd(billing.pack.priceUsd)}
                       </div>
                     )}
-                    <button type="button" onClick={() => void openExternal(`${SITE_URL}/konto/abonnement`)} className="justify-self-start text-[12.5px] font-medium text-brand hover:underline">
-                      Administrér abonnement på hjemmesiden
-                    </button>
                   </div>
                 )}
               </motion.div>
