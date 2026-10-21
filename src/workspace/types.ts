@@ -2,6 +2,7 @@
  * What the app and the Cloudflare Worker (cloudflare/src/workspace.ts) send each other.
  * Keep this file free of app imports: the Worker bundles it on its own.
  */
+import type { PlanId } from './plans';
 
 export type Role = 'admin' | 'member';
 /** 'pending': signed in, but an admin has to let them in first. */
@@ -15,6 +16,62 @@ export interface WorkspaceUser {
   status: UserStatus;
   createdAt: number;
   lastSeenAt: number;
+}
+
+/** A company using XavierOS – one workspace each (cloudflare/src/directory.ts). */
+export interface CompanyInfo {
+  id: string;
+  name: string;
+  plan: PlanId;
+  createdAt: number;
+  /** People with this e-mail domain join without an invitation (e.g. "inventarland.dk"). */
+  domains: string[];
+}
+
+export interface Invitation {
+  email: string;
+  role: Role;
+  invitedBy: string;
+  at: number;
+}
+
+/** Signed in with Microsoft, but not part of a company yet: create one, or ask for an invitation. */
+export interface NeedsCompany {
+  needsCompany: true;
+  email: string;
+  name: string;
+  /** Short-lived proof of the Microsoft sign-in, used to create the company. */
+  ticket: string;
+}
+
+export interface BillingPurchase {
+  at: number;
+  priceUsd: number;
+  creditUsd: number;
+  /** Who bought it. */
+  by: string;
+}
+
+/** The company's subscription and shared AI-usage pool this month (cloudflare/src/billing.ts). */
+export interface BillingState {
+  month: string;
+  plan: PlanId;
+  /** Billed seats (the plan's minimum, or the number of people). */
+  seats: number;
+  people: number;
+  priceMonthlyUsd: number;
+  pricePerSeatUsd: number;
+  /** AI use in the pool this month (seats × the plan's included use). */
+  includedUsd: number;
+  usedUsd: number;
+  includedLeftUsd: number;
+  /** Bought credits not used yet. */
+  creditUsd: number;
+  remainingUsd: number;
+  pack: { priceUsd: number; creditUsd: number };
+  byPerson: { name: string; usedUsd: number }[];
+  /** This month's purchases. */
+  purchases: BillingPurchase[];
 }
 
 export interface SharedKeyInfo {

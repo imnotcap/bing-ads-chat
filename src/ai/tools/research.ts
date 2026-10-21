@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import type { KeywordBidEstimate, ReportRow, SearchVolume } from '@/bing/types';
 import { round } from '@/lib/utils';
+import { foreignWords } from '../proofread';
 import { defineRead, getReport, resolvePeriod, type ToolContext } from './context';
 
 const fold = (s: string) =>
@@ -60,9 +61,10 @@ function termEvidence(keyword: string, terms: ReportRow[]) {
   };
 }
 
-type Verdict = 'Findes allerede' | 'Bevist (konverterer)' | 'Lovende' | 'Lav volumen' | 'Dyr' | 'Ingen data';
+type Verdict = 'Findes allerede' | 'Ikke dansk' | 'Bevist (konverterer)' | 'Lovende' | 'Lav volumen' | 'Dyr' | 'Ingen data';
 
 function verdictOf(o: {
+  keyword: string;
   existing: unknown[];
   volume: ReturnType<typeof volumeStats>;
   evidence: ReturnType<typeof termEvidence>;
@@ -71,6 +73,8 @@ function verdictOf(o: {
 }): { verdict: Verdict; why: string } {
   const { volume, evidence, bid, accountCpc } = o;
   if (o.existing.length) return { verdict: 'Findes allerede', why: 'Søgeordet ligger allerede i kontoen – tilføj det ikke igen; brug det eksisterende eller en anden matchtype.' };
+  const foreign = foreignWords(o.keyword);
+  if (foreign) return { verdict: 'Ikke dansk', why: `${foreign.reason} Brug "${foreign.suggestion}".` };
   if (evidence.conversions > 0) return { verdict: 'Bevist (konverterer)', why: `Søgetermer med ordene har givet ${evidence.conversions} konverteringer på ${evidence.clicks} klik de seneste 90 dage.` };
   if (bid?.averageCpc && accountCpc && bid.averageCpc > accountCpc * 2)
     return { verdict: 'Dyr', why: `Anslået CPC ${bid.averageCpc} er over dobbelt så høj som kontoens gennemsnit (${round(accountCpc, 2)}).` };
@@ -117,7 +121,7 @@ async function researchKeywords(
     const already = (existing ?? [])
       .filter((r) => r.keyword && same(r.keyword, k.text))
       .map((r) => ({ where: `${r.campaignName} › ${r.adGroupName}`, matchType: r.matchType, clicks: r.clicks ?? 0, conversions: r.conversions ?? 0 }));
-    const { verdict, why } = verdictOf({ existing: already, volume, evidence, bid, accountCpc });
+    const { verdict, why } = verdictOf({ keyword: k.text, existing: already, volume, evidence, bid, accountCpc });
     return { keyword: k.text, matchType: k.matchType, volume, bid, evidence, existsIn: already, verdict, why };
   });
   return { rows, errors, accountCpc, range };

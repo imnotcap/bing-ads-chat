@@ -1,9 +1,7 @@
 import { motion } from 'motion/react';
 import {
-  SquareKanban,
   FlaskConical,
   LayoutDashboard,
-  LayoutGrid,
   MessageSquare,
   MoreHorizontal,
   Pencil,
@@ -15,7 +13,6 @@ import {
   Trash2,
   Users,
   Wallet,
-  type LucideIcon,
 } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import { AnimatedList } from '@/components/reactbits';
@@ -23,10 +20,9 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { fmtUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useBoard, visibleBoards } from '@/stores/board';
 import { KEEP_DAYS, useChat, useConversationSummaries, type ConversationSummary } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
-import { useUi, type View } from '@/stores/ui';
+import { isDashboardView, useUi } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
 import { signOut } from '@/workspace/account';
 import { goDemo } from '@/workspace/shared';
@@ -35,42 +31,40 @@ import { MicrosoftLogo } from '@/features/settings/SignInDialog';
 import { toast } from '@/components/notifications/toast';
 
 // The chat sidebar links into the dashboard workspace, which has its own sidebar.
-const NAV: { view: View; label: string; icon: LucideIcon }[] = [
-  { view: 'chat', label: 'Chat', icon: MessageSquare },
-  { view: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { view: 'board', label: 'Planlægning', icon: SquareKanban },
-  { view: 'campaigns', label: 'Kampagner', icon: LayoutGrid },
-];
-
-function NavButton({ item }: { item: (typeof NAV)[number] }) {
+/**
+ * Chat ↔ Dashboard, always at the top of the sidebar (both the chat's and the
+ * dashboard's) – and as two icons in the top bar when the sidebar is hidden.
+ */
+export function ModeNav({ compact = false }: { compact?: boolean }) {
   const view = useUi((s) => s.view);
   const go = useUi((s) => s.go);
-  const openBoard = useUi((s) => s.openBoard);
+  const lastDashView = useUi((s) => s.lastDashView);
   const pending = useChat((s) => Object.values(s.running).some(Boolean));
-  const active = view === item.view;
+  const dash = isDashboardView(view);
+  const options = [
+    { id: 'chat', label: 'Chat', icon: MessageSquare, active: !dash, onClick: () => go('chat'), dot: pending },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, active: dash, onClick: () => go(dash ? 'dashboard' : lastDashView), dot: false },
+  ];
   return (
-    <button
-      type="button"
-      onClick={() => {
-        if (item.view !== 'board') return go(item.view);
-        const { boardId } = useUi.getState();
-        const { boards: all, meId } = useBoard.getState();
-        const boards = visibleBoards(all, meId);
-        const target = boards.find((b) => b.id === boardId) ?? boards.find((b) => !b.ownerId) ?? boards[0];
-        if (target) openBoard(target.id);
-        else go('dashboard');
-      }}
-      aria-current={active ? 'page' : undefined}
-      className={cn(
-        'group relative flex h-9 w-full items-center gap-2.5 rounded-[10px] px-3 text-[13.5px] font-medium transition-colors',
-        active ? 'text-ink' : 'text-muted hover:bg-line-2 hover:text-ink',
-      )}
-    >
-      {active && <motion.span layoutId="nav-active" className="absolute inset-0 rounded-[10px] bg-line-2" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
-      <item.icon className="relative size-[17px] shrink-0" strokeWidth={1.8} />
-      <span className="relative">{item.label}</span>
-      {item.view === 'chat' && pending && <span className="absolute right-2.5 top-2.5 size-2 animate-pulse rounded-full bg-brand" />}
-    </button>
+    <div className={cn('grid grid-cols-2 rounded-[11px] bg-line-2 p-0.5', compact ? 'h-8 w-[76px]' : 'h-9')} role="tablist" aria-label="Chat eller dashboard">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          role="tab"
+          aria-selected={o.active}
+          aria-label={o.label}
+          title={compact ? o.label : undefined}
+          onClick={o.onClick}
+          className={cn('relative flex items-center justify-center gap-1.5 rounded-[9px] text-[13px] font-medium transition-colors', o.active ? 'text-ink' : 'text-muted hover:text-ink')}
+        >
+          {o.active && <motion.span layoutId={compact ? 'mode-nav-compact' : 'mode-nav'} className="absolute inset-0 rounded-[9px] bg-white shadow-sm" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
+          <o.icon className="relative size-[15px] shrink-0" strokeWidth={1.9} />
+          {!compact && <span className="relative">{o.label}</span>}
+          {o.dot && <span className="absolute right-1.5 top-1.5 size-1.5 animate-pulse rounded-full bg-brand" />}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -319,18 +313,13 @@ export function Sidebar() {
 
   return (
     <div className="flex h-full w-[260px] flex-col">
-      <div className="px-3 pt-3">
+      <div className="grid gap-2 px-3 pt-3">
+        <ModeNav />
         <Button variant="secondary" className="h-9 w-full justify-start" onClick={startNew}>
           <SquarePen /> Ny samtale
           <span className="ml-auto text-[11px] font-normal text-subtle">Ctrl N</span>
         </Button>
       </div>
-
-      <nav aria-label="Hovedmenu" className="mt-3 grid gap-0.5 px-3">
-        {NAV.map((item) => (
-          <NavButton key={item.view} item={item} />
-        ))}
-      </nav>
 
       <div className="mt-5 flex min-h-0 flex-1 flex-col px-3">
         <div className="flex items-center justify-between px-2 pb-2">

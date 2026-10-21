@@ -20,8 +20,10 @@ import { useActivity } from '@/stores/activity';
 import { useChat, type ApiMessage, type AssistantItem, type Conversation, type Part, type ToolPart } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
-import { monthTotal, useUsage } from '@/stores/usage';
+import { useUsage } from '@/stores/usage';
+import { refreshBilling, reportUsage, usageBlocked } from '@/workspace/billing';
 import { applyEdits, applyPicks, requestApproval } from './approvals';
+import { proofreadPlan } from './proofread';
 import { evaluateGuardrails, type SpendContext } from './guardrails';
 import { buildContextBlock, buildSystemPrompt } from './prompt';
 import { playbookFor } from '@/workspace/playbooks';
@@ -169,10 +171,10 @@ export async function sendMessage(convId: string, text: string, attachments: Att
         : 'Der er ingen fælles Claude API-nøgle (eller serveren kunne ikke nås). Tilføj den under Indstillinger → Forbindelser.',
     );
   }
-  const cap = settings.ai.monthlyAiBudgetUsd;
-  if (cap !== null && monthTotal(useUsage.getState().months).costUsd >= cap) {
-    return fail(`Månedens AI-budget på $${cap} er brugt. Hæv grænsen under Indstillinger → AI-assistent for at fortsætte.`);
-  }
+  // The user's subscription: the month's included AI use plus bought credits.
+  await refreshBilling();
+  const blocked = usageBlocked();
+  if (blocked) return fail(blocked);
 
   repairHistory(convId);
   // The team's shared budget and limits per branch (Microsoft's become the spending rules).
@@ -278,8 +280,8 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
       notice(convId, itemId, 'warning', `Stoppede efter ${ai.maxToolRounds} værktøjsrunder. Skriv "fortsæt", hvis assistenten skal arbejde videre.`);
       return;
     }
-    if (ai.monthlyAiBudgetUsd !== null && monthTotal(useUsage.getState().months).costUsd >= ai.monthlyAiBudgetUsd) {
-      notice(convId, itemId, 'warning', 'Månedens AI-budget er brugt – assistenten stoppede her.');
+    if (usageBlocked()) {
+      notice(convId, itemId, 'warning', 'Dit AI-forbrug for måneden er brugt – assistenten stoppede her. Køb ekstra forbrug i Brug-ringen nederst til højre i chatfeltet.');
       return;
     }
 
@@ -369,6 +371,7 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
     }
 
     const cost = useUsage.getState().record(message.model || ai.model, message.usage);
+    reportUsage(cost);
     updateAssistant(convId, itemId, (it) => ({ ...it, costUsd: (it.costUsd ?? 0) + cost }));
 
     for (const b of message.content) {
@@ -421,8 +424,8 @@ async function runGeminiLoop(convId: string, itemId: string, apiKey: string, sig
       notice(convId, itemId, 'warning', `Stoppede efter ${ai.maxToolRounds} værktøjsrunder. Skriv "fortsæt", hvis assistenten skal arbejde videre.`);
       return;
     }
-    if (ai.monthlyAiBudgetUsd !== null && monthTotal(useUsage.getState().months).costUsd >= ai.monthlyAiBudgetUsd) {
-      notice(convId, itemId, 'warning', 'Månedens AI-budget er brugt – assistenten stoppede her.');
+    if (usageBlocked()) {
+      notice(convId, itemId, 'warning', 'Dit AI-forbrug for måneden er brugt – assistenten stoppede her. Køb ekstra forbrug i Brug-ringen nederst til højre i chatfeltet.');
       return;
     }
 
@@ -484,6 +487,7 @@ async function runGeminiLoop(convId: string, itemId: string, apiKey: string, sig
     }
 
     const cost = useUsage.getState().record(ai.model, geminiTokenUsage(usage));
+    reportUsage(cost);
     updateAssistant(convId, itemId, (it) => ({ ...it, costUsd: (it.costUsd ?? 0) + cost }));
 
     if (finishReason && ['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'RECITATION'].includes(finishReason)) {
@@ -623,6 +627,8 @@ async function executeTools(
     updateTool(convId, itemId, p.use.id, { status: 'running' });
     try {
       const change = await tool.plan(p.input, ctx);
+      // Keywords, ad texts and names are proofread in Danish before the user sees them.
+      if (change.plan) change.plan = await proofreadPlan(change.plan, signal);
       if (!change.plan) {
         planned.push({ id: p.use.id, name: tool.name, tool, input: p.input, plan: change, verdict: 'allow' });
         continue;

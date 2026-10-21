@@ -18,6 +18,7 @@ import { Markdown } from './Markdown';
 import { startChat } from './startChat';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolSteps } from './ToolSteps';
+import { withoutToolNames } from './toolNames';
 
 export const UserMessage = memo(function UserMessage({ item }: { item: UserItem }) {
   return (
@@ -158,10 +159,12 @@ function Suggestions({ question, items, active }: { question: string; items: Sug
 export const AssistantMessage = memo(function AssistantMessage({ item, currency, isLast }: { item: AssistantItem; currency: string; isLast: boolean }) {
   const live = item.status === 'streaming';
   const groups = groupParts(item.parts);
-  const text = item.parts
-    .filter((p) => p.type === 'text')
-    .map((p) => (p as { text: string }).text)
-    .join('\n\n');
+  const text = withoutToolNames(
+    item.parts
+      .filter((p) => p.type === 'text')
+      .map((p) => (p as { text: string }).text)
+      .join('\n\n'),
+  );
   const lastPart = item.parts[item.parts.length - 1];
   const waitingForFirst = live && (!lastPart || (lastPart.type === 'tool' && lastPart.status !== 'running' && lastPart.status !== 'streaming' && lastPart.status !== 'awaiting_approval'));
 
@@ -175,9 +178,9 @@ export const AssistantMessage = memo(function AssistantMessage({ item, currency,
           g.kind === 'steps' ? (
             <ToolSteps key={g.parts[0]!.id} parts={g.parts} currency={currency} />
           ) : g.part.type === 'text' ? (
-            g.part.text.trim() ? (
+            withoutToolNames(g.part.text).trim() ? (
               <div key={g.part.id} className={cn(live && i === groups.length - 1 && 'streaming-caret')}>
-                <Markdown text={g.part.text} />
+                <Markdown text={withoutToolNames(g.part.text)} />
               </div>
             ) : null
           ) : g.part.type === 'thinking' ? (

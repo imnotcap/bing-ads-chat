@@ -658,7 +658,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
       const research = await researchKeywords(ctx, input.keywords, { campaignId: c.id, adGroupId: g.id }).catch(() => null);
       const fmt = (n: number) => n.toLocaleString('da-DK');
       for (const r of research?.rows ?? []) {
-        if (r.verdict === 'Lav volumen' || r.verdict === 'Dyr' || r.verdict === 'Ingen data' || r.verdict === 'Findes allerede') notes.push(`"${r.keyword}": ${r.verdict.toLowerCase()} – ${r.why}`);
+        if (r.verdict === 'Lav volumen' || r.verdict === 'Dyr' || r.verdict === 'Ingen data' || r.verdict === 'Findes allerede' || r.verdict === 'Ikke dansk') notes.push(`"${r.keyword}": ${r.verdict.toLowerCase()} – ${r.why}`);
       }
       const lines: ChangeLine[] = input.keywords.map((k, i) => {
         const r = research?.rows[i];

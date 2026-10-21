@@ -21,12 +21,14 @@
   "durable_objects": {
     "bindings": [
       { "name": "WORKSPACE", "class_name": "Workspace" },
-      { "name": "TEAMS", "class_name": "TeamBoard" }
+      { "name": "TEAMS", "class_name": "TeamBoard" },
+      { "name": "DIRECTORY", "class_name": "Directory" }
     ]
   },
   // SQLite-backed Durable Objects are included in the Workers Free plan.
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["TeamBoard"] },
-    { "tag": "v2", "new_sqlite_classes": ["Workspace"] }
+    { "tag": "v2", "new_sqlite_classes": ["Workspace"] },
+    { "tag": "v3", "new_sqlite_classes": ["Directory"] }
   ]
 }

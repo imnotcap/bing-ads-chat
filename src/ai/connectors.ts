@@ -33,7 +33,7 @@ export const CONNECTORS: Connector[] = [
   { id: 'web', label: 'Websøgning', description: 'Søg og læs på nettet: landingssider, priser, konkurrenter og trends (koster lidt ekstra pr. søgning)', icon: Globe, defaultOn: true, providers: ['anthropic'] },
 ];
 
-const DISPLAY_ALWAYS = new Set(['suggest_next_steps', 'create_file']);
+const DISPLAY_ALWAYS = new Set(['suggest_next_steps', 'create_file', 'schedule_follow_up']);
 /** Not tied to a connector: training needs approval like every change. */
 const ALWAYS = new Set(['train_playbook']);
 

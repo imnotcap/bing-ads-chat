@@ -4,11 +4,8 @@
  * controls. Empty areas are drag regions for moving the window.
  */
 import { getVersion } from '@tauri-apps/api/app';
-import { motion } from 'motion/react';
 import {
   ArrowDownToLine,
-  LayoutDashboard,
-  MessageSquare,
   ClipboardCopy,
   EllipsisVertical,
   FileText,
@@ -51,11 +48,12 @@ import { activeConversation, useActiveSummary, useChat } from '@/stores/chat';
 import { useShallow } from 'zustand/react/shallow';
 import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
-import { isDashboardView, useUi } from '@/stores/ui';
+import { useUi } from '@/stores/ui';
 import { Badge } from '../ui/controls';
 import { Button } from '../ui/button';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '../ui/overlays';
 import { LogoMark } from './Logo';
+import { ModeNav } from './Sidebar';
 import { UpdateButton } from './UpdatePrompt';
 import { NotificationBell } from '../notifications/NotificationBell';
 
@@ -422,36 +420,6 @@ function ConversationActions() {
   );
 }
 
-/** Chat ↔ Dashboard switch in the middle of the top bar. */
-function ModeSwitch() {
-  const view = useUi((s) => s.view);
-  const go = useUi((s) => s.go);
-  const lastDashView = useUi((s) => s.lastDashView);
-  const options = [
-    { value: 'chat' as const, label: 'Chat', icon: MessageSquare },
-    { value: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
-  ];
-  const active = isDashboardView(view) ? 'dashboard' : 'chat';
-  return (
-    <div className="flex h-8 items-center rounded-[10px] bg-line-2 p-0.5" role="tablist" aria-label="Visning">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          role="tab"
-          aria-selected={active === o.value}
-          onClick={() => (o.value === 'dashboard' ? (active === 'dashboard' ? go('dashboard') : go(lastDashView)) : go('chat'))}
-          className={cn('relative flex h-7 items-center gap-1.5 rounded-lg px-3 text-[12.5px] font-medium transition-colors', active === o.value ? 'text-ink' : 'text-muted hover:text-ink')}
-        >
-          {active === o.value && <motion.span layoutId="mode-switch" className="absolute inset-0 rounded-lg bg-white shadow-sm" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
-          <o.icon className="relative size-3.5" />
-          <span className="relative">{o.label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function TopBar() {
   const view = useUi((s) => s.view);
   const canBack = useUi((s) => s.historyIndex > 0);
@@ -492,7 +460,8 @@ export function TopBar() {
       </div>
 
       <div data-tauri-drag-region className="h-full min-w-6 flex-1" />
-      <ModeSwitch />
+      {/* Chat ↔ Dashboard lives in the sidebar; with the sidebar hidden it is here. */}
+      {sidebarCollapsed && <ModeNav compact />}
       <div data-tauri-drag-region className="h-full min-w-6 flex-1" />
 
       <UpdateButton />

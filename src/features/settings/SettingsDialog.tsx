@@ -24,6 +24,8 @@ import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 import { useUi, type SettingsTab } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
+import { refreshBilling, useBilling } from '@/workspace/billing';
+import { PLANS } from '@/workspace/plans';
 import { ModelsTab } from './ModelsTab';
 import { startFollowUpTest } from '@/features/chat/followUpTest';
 import { UsersTab } from './UsersTab';
@@ -70,7 +72,10 @@ function AiTab() {
   const total = monthTotal(months);
   const current = months[monthKey()] ?? {};
   const history = Object.keys(months).sort().reverse().slice(0, 6);
-  const cap = ai.monthlyAiBudgetUsd;
+  const pool = useBilling((s) => s.state);
+  useEffect(() => {
+    void refreshBilling();
+  }, []);
 
   return (
     <div className="grid gap-5">
@@ -113,7 +118,7 @@ function AiTab() {
         </div>
       </Card>
 
-      <Card title="AI-forbrug" description="Anslået ud fra listepriserne (Claude) og de priser, du har angivet for Gemini. Den faktiske regning ses hos Anthropic og Google.">
+      <Card title="AI-forbrug" description="Dit forbrug på denne pc, anslået ud fra listepriserne (Claude) og de priser, du har angivet for Gemini. Det trækkes fra virksomhedens fælles pulje.">
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl bg-line-2/60 p-4">
             <div className="text-[12px] text-muted">Denne måned</div>
@@ -133,19 +138,20 @@ function AiTab() {
             <div className="text-[12px] text-muted">af input læst fra cache</div>
           </div>
         </div>
-        {cap !== null && (
+        {pool && (
           <div className="mt-4">
             <div className="mb-1.5 flex justify-between text-[12px] text-muted">
-              <span>Månedligt AI-budget</span>
+              <span>Virksomhedens pulje ({PLANS[pool.plan].name})</span>
               <span>
-                {fmtUsd(total.costUsd)} af {fmtUsd(cap)}
+                {fmtUsd(pool.usedUsd)} af {fmtUsd(pool.includedUsd)}
+                {pool.creditUsd > 0 && ` + ${fmtUsd(pool.creditUsd)} ekstra`}
               </span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-line">
               <motion.div
-                className={cn('h-full rounded-full', total.costUsd >= cap ? 'bg-negative' : 'bg-gradient-to-r from-brand to-violet')}
+                className={cn('h-full rounded-full', pool.remainingUsd <= 0 ? 'bg-negative' : 'bg-gradient-to-r from-brand to-violet')}
                 initial={{ width: 0 }}
-                animate={{ width: `${Math.min(100, (total.costUsd / cap) * 100)}%` }}
+                animate={{ width: `${Math.min(100, pool.includedUsd ? (pool.usedUsd / pool.includedUsd) * 100 : 100)}%` }}
                 transition={{ duration: 0.8, ease: EASE }}
               />
             </div>
@@ -181,10 +187,7 @@ function AiTab() {
             ))}
           </div>
         )}
-        <div className="mt-5 grid gap-4 border-t border-line-2 pt-4 md:grid-cols-3">
-          <Field label="Månedligt AI-budget" hint="Assistenten stopper, når grænsen er nået. Tom = ingen grænse.">
-            <NumberInput value={cap} onChange={(monthlyAiBudgetUsd) => setAi({ monthlyAiBudgetUsd })} suffix="USD" />
-          </Field>
+        <div className="mt-5 grid gap-4 border-t border-line-2 pt-4 md:grid-cols-2">
           <Field label="Kurs USD → DKK" hint="Kun til visning.">
             <NumberInput value={ai.usdToDkk} onChange={(v) => setAi({ usdToDkk: v ?? 6.9 })} step={0.01} placeholder="6,90" />
           </Field>

@@ -17,8 +17,6 @@ export interface AiSettings {
   model: ModelId;
   effort: Effort;
   showThinking: boolean;
-  /** Monthly cap for Claude API usage in USD; sending is blocked when reached. */
-  monthlyAiBudgetUsd: number | null;
   usdToDkk: number;
   maxToolRounds: number;
   /** Models users may pick (set by the admin). Empty = all. */
@@ -84,7 +82,7 @@ export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
       spend: DEFAULT_SPEND_RULES,
-      ai: { model: 'claude-opus-5-5', effort: 'medium', showThinking: true, monthlyAiBudgetUsd: 25, usdToDkk: 6.9, maxToolRounds: 30, enabledModels: [], customModels: [], connectors: {}, followUps: true, followUpOutlook: true, followUpMail: true },
+      ai: { model: 'claude-opus-5-5', effort: 'medium', showThinking: true, usdToDkk: 6.9, maxToolRounds: 30, enabledModels: [], customModels: [], connectors: {}, followUps: true, followUpOutlook: true, followUpMail: true },
       business: {
         companyName: '',
         website: '',
@@ -117,16 +115,21 @@ export const useSettings = create<SettingsState>()(
     }),
     {
       name: 'bac.settings',
-      version: 3,
+      version: 4,
       // v2: simpler design – click sparks are opt-in.
       // v3: the aurora background is gone, and animations no longer follow Windows by
       //     default (with Windows' animation effects off the orb and ASCII stood still).
+      // v4: web search back on – the assistant checks landing pages and competitors online.
       migrate: (persisted, version) => {
         const p = (persisted ?? {}) as Partial<SettingsState>;
         if (version < 2 && p.appearance) p.appearance = { ...p.appearance, clickSpark: false };
         if (version < 3 && p.appearance) {
           const { auroraBackground: _removed, ...appearance } = p.appearance as SettingsState['appearance'] & { auroraBackground?: boolean };
           p.appearance = { ...appearance, animations: appearance.animations === 'reduced' ? 'reduced' : 'full' };
+        }
+        if (version < 4 && p.ai?.connectors) {
+          const { web: _web, ...connectors } = p.ai.connectors;
+          p.ai = { ...p.ai, connectors };
         }
         return p as SettingsState;
       },

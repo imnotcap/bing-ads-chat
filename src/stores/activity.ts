@@ -15,6 +15,8 @@ export interface ChangeLine {
    * "" = any position. `locked`: shown but fixed, with the reason.
    */
   pin?: { path?: (string | number)[]; value: string; options: string[]; locked?: string };
+  /** A language correction from the proofreader (ai/proofread.ts), applied with one click. */
+  suggestion?: { value: string; reason: string };
   /** Extra columns when the plan is shown as a pick table (ChangePlan.pick). */
   cells?: Record<string, string | number | null>;
 }
