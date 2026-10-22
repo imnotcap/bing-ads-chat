@@ -6,7 +6,9 @@
   //   /api/…                    shared workspace: accounts, shared connections, planning boards
   //                             (src/workspace.ts, one Durable Object for the whole department)
   // Deployed by GitHub Actions (.github/workflows/build-windows.yml → scripts/publish.mjs), which
-  // also sets MS_CLIENT_ID from the GitHub secret of the same name.
+  // also sets MS_CLIENT_ID from the GitHub secret of the same name and attaches the app's own
+  // domain (app.xavieros.dk, release.config.json) once xavieros.dk is active on the account.
+  // workers.dev stays on: installed apps from before the domain keep updating through it.
   "name": "bing-ads-chat",
   "main": "src/worker.ts",
   "compatibility_date": "2025-09-01",
