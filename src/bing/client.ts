@@ -93,10 +93,22 @@ export class MsAdsClient {
   }
 
   async call<T = unknown>(service: MsService, path: string, opts: CallOptions = {}): Promise<T> {
-    const url = `${SERVICE_URLS[service]}/${path.replace(/^\/+/, '')}`;
+    return this.request<T>(`${SERVICE_URLS[service]}/${path.replace(/^\/+/, '')}`, opts, 'bearer');
+  }
+
+  /**
+   * Microsoft Merchant Center's Content API (product catalogue and offer status): the
+   * same sign-in, but the token goes in an AuthenticationToken header.
+   * Docs: https://learn.microsoft.com/advertising/shopping-content/manage-products
+   */
+  async content<T = unknown>(url: string, opts: CallOptions = {}): Promise<T> {
+    return this.request<T>(url, { method: 'GET', ...opts }, 'token');
+  }
+
+  private async request<T>(url: string, opts: CallOptions, auth: 'bearer' | 'token'): Promise<T> {
     const access = await this.current();
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${access.accessToken}`,
+      ...(auth === 'bearer' ? { Authorization: `Bearer ${access.accessToken}` } : { AuthenticationToken: access.accessToken }),
       DeveloperToken: access.developerToken,
       'Content-Type': 'application/json',
       Accept: 'application/json',

@@ -51,7 +51,7 @@ export const REPORT_DEFS: Record<ReportKind, ReportDef> = {
   },
 };
 
-function msDate(iso: string) {
+export function msDate(iso: string) {
   const [y, m, d] = iso.split('-').map(Number);
   return { Day: d, Month: m, Year: y };
 }

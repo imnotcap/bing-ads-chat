@@ -11,6 +11,7 @@ import { EASE } from '@/components/motion';
 import { TooltipProvider } from '@/components/ui/overlays';
 import { ActivityPage } from '@/features/activity/ActivityPage';
 import { CampaignsPage } from '@/features/campaigns/CampaignsPage';
+import { ProductsPage } from '@/features/products/ProductsPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { BoardPage } from '@/features/board/BoardPage';
 import { ChatView } from '@/features/chat/ChatView';
@@ -153,6 +154,7 @@ function Shell() {
               )}
               {view === 'dashboard' && <DashboardPage key="dashboard" />}
               {view === 'campaigns' && <CampaignsPage key="campaigns" />}
+              {view === 'products' && <ProductsPage key="products" />}
               {view === 'activity' && <ActivityPage key="activity" />}
               {view === 'board' && <BoardPage key="board" />}
             </AnimatePresence>

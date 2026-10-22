@@ -6,6 +6,8 @@ import type { Campaign, ReportRow } from '@/bing/types';
 import { presetRange, previousRange, type DateRange } from '@/lib/format';
 import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
+import { queryClient } from '@/lib/queryClient';
+import { loadProducts } from '@/workspace/products';
 
 function useKeyBase() {
   const mode = useConnection((s) => s.mode);
@@ -65,4 +67,23 @@ export function useSpendStatus() {
     enabled: !!accountId,
     queryFn: async () => getSpendStatus(await getBackend(), accountId!, monthlyBudget),
   });
+}
+
+/** Products worth showing in the period (shared cache on Cloudflare, see workspace/products.ts). */
+export function useProducts(range: DateRange) {
+  const { accountId, base } = useKeyBase();
+  return useQuery({
+    queryKey: ['products', ...base, range.from, range.to],
+    enabled: !!accountId,
+    staleTime: 10 * 60_000,
+    queryFn: ({ signal }) => loadProducts(accountId!, range, { signal }),
+  });
+}
+
+/** Fetches the products from Microsoft again (the Opdatér button). */
+export async function refreshProducts(range: DateRange) {
+  const { accountId, mode, revision } = useConnection.getState();
+  if (!accountId) return;
+  const fresh = await loadProducts(accountId, range, { force: true });
+  queryClient.setQueryData(['products', mode, accountId, revision, range.from, range.to], fresh);
 }

@@ -4,7 +4,7 @@
  * categories are listed at the bottom so they can be shown again.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { Activity, ChevronDown, Eye, EyeOff, LayoutDashboard, Plus, Search, Sparkles, SquareKanban, UserRound,
+import { Activity, ChevronDown, Eye, EyeOff, LayoutDashboard, Package, Plus, Search, Sparkles, SquareKanban, UserRound,
   UsersRound, type LucideIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
@@ -165,6 +165,7 @@ export function DashboardSidebar() {
         label: 'Betalt markedsføring',
         items: [
           { id: 'msads', label: 'Microsoft Ads', brand: 'microsoft_ads', active: view === 'campaigns', onSelect: () => go('campaigns') },
+          nav('products', 'Produkter', Package, 'products'),
           { id: 'gads', label: 'Google Ads', brand: 'google_ads', active: false, soon: true },
           { id: 'meta', label: 'Meta Ads', brand: 'meta', active: false, soon: true },
           { id: 'linkedin', label: 'LinkedIn Ads', brand: 'linkedin', active: false, soon: true },

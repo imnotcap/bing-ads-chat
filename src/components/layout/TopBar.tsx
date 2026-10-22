@@ -19,6 +19,7 @@ import {
   LayoutGrid,
   Activity,
   Menu,
+  Package,
   Minus,
   PanelLeft,
   PanelRight,
@@ -57,7 +58,7 @@ import { ModeNav } from './Sidebar';
 import { UpdateButton } from './UpdatePrompt';
 import { NotificationBell } from '../notifications/NotificationBell';
 
-const PAGE_TITLES = { dashboard: 'Dashboard', campaigns: 'Microsoft Ads · Kampagner', activity: 'Aktivitet', board: 'Planlægning' } as const;
+const PAGE_TITLES = { dashboard: 'Dashboard', campaigns: 'Microsoft Ads · Kampagner', products: 'Microsoft Ads · Produkter', activity: 'Aktivitet', board: 'Planlægning' } as const;
 
 function IconButton({ label, onClick, disabled, children, shortcut }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode; shortcut?: string }) {
   return (
@@ -232,6 +233,9 @@ function AppMenu() {
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => go('campaigns')}>
           <LayoutGrid /> Kampagner
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => go('products')}>
+          <Package /> Produkter
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => go('activity')}>
           <Activity /> Aktivitet

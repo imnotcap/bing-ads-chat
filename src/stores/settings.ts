@@ -4,6 +4,7 @@ import type { ConnectorId } from '@/ai/connectors';
 import type { Effort, ModelId, ModelInfo } from '@/ai/models';
 import type { DatePreset } from '@/lib/format';
 import { DEFAULT_LIMITS, type BranchLimits } from '@/ai/branchLimits';
+import { DEFAULT_PRODUCT_COLUMNS } from '@/features/products/defaults';
 
 /**
  * Microsoft Advertising's budget and limits – a local mirror of the shared branch limits
@@ -59,6 +60,8 @@ export interface Appearance {
   navHidden: string[];
   /** Planning board cards: compact (text and icons) or detailed (description, checklist, people). */
   boardCards: 'simple' | 'detailed';
+  /** Produkter: the table's columns, in order (see features/products/columns.tsx). */
+  productColumns: string[];
 }
 
 export const DEFAULT_SPEND_RULES: SpendRules = DEFAULT_LIMITS;
@@ -103,6 +106,7 @@ export const useSettings = create<SettingsState>()(
         navCollapsed: {},
         navHidden: [],
         boardCards: 'detailed',
+        productColumns: DEFAULT_PRODUCT_COLUMNS,
       },
       datePreset: 'last30',
       onboarded: false,

@@ -7,6 +7,7 @@ import { searchOperations } from '@/bing/msOperations';
 import { previousRange } from '@/lib/format';
 import { round } from '@/lib/utils';
 import { useActivity } from '@/stores/activity';
+import { loadProducts } from '@/workspace/products';
 import type { VisualColumn } from '../visuals';
 import { matchByName } from './find';
 import { accountBlocker, adGroupBlocker, bidLabel, bidsIgnoredReason, campaignBlocker, CONVERSION_BASED, currentAccount, editorialNote, last30, MIN_CONVERSIONS_30D } from './checks';
@@ -19,6 +20,7 @@ import {
   getCampaigns,
   getKeywords,
   getReport,
+  memo,
   resolvePeriod,
   statusLabel,
 } from './context';
@@ -64,6 +66,14 @@ function sortRows<T extends object>(rows: T[], key: string, dir: 'asc' | 'desc')
 }
 
 const withMetrics = z.boolean().optional().describe('Include performance metrics for the period (default true).');
+
+const PRODUCT_FILTERS = {
+  all: 'alle',
+  losing: 'forbrug større end konverteringsværdien',
+  growing: 'konverteringsværdi steget mod perioden før',
+  falling: 'konverteringsværdi faldet mod perioden før',
+  problems: 'advarsler eller afvisninger i Merchant Center',
+} as const;
 
 export const readTools = [
   defineRead({
@@ -113,6 +123,72 @@ export const readTools = [
         preview: {
           columns: [{ key: 'name', label: 'Kampagne' }, ...METRIC_COLS],
           rows: top.map((c) => ({ name: c.campaignName ?? '', ...metricFields(c) })),
+        },
+      };
+    },
+  }),
+
+  defineRead({
+    name: 'list_products',
+    kind: 'read',
+    description: `Products in the Shopping and Performance Max campaigns (Microsoft's product report) that sold something in the period or the period before – products that never sold are left out, the catalogue has thousands. Per product: product id (offer id), title, brand, price, Merchant Center status and issues, the campaigns/ad groups it showed in, and metrics for the period and the period before. Use it for questions about products, best sellers, products that cost more than they earn, rising/falling products and feed problems. Filter and sort here – don't ask for everything. The same list is on the app's Produkter page (Dashboard → Produkter).`,
+    schema: z.object({
+      period: z.string().optional().describe(PERIOD_DESCRIPTION),
+      search: z.string().optional().describe('Only products whose title, product id or brand contains this text.'),
+      filter: z.enum(['all', 'losing', 'growing', 'falling', 'problems']).optional().describe(Object.entries(PRODUCT_FILTERS).map(([k, v]) => `${k}: ${v}`).join('; ')),
+      campaignId: z.string().optional().describe('Only products that showed in this campaign.'),
+      sortBy: z.enum(['revenue', 'spend', 'roas', 'clicks', 'conversions', 'revenueChange']).optional().describe('Default revenue (largest first; revenueChange = biggest change first).'),
+      limit: z.number().int().min(1).max(100).optional().describe('Max products (default 25).'),
+    }),
+    label: (i) => (i.search ? `Finder produkter: ${i.search}` : 'Henter produkter'),
+    async run(input, ctx) {
+      const period = resolvePeriod(input.period, ctx);
+      const overview = await memo(ctx, `products:${period.from}:${period.to}`, () => loadProducts(ctx.accountId, period, { backend: ctx.backend, signal: ctx.signal }));
+      const q = (input.search ?? '').trim().toLowerCase();
+      const filter = input.filter ?? 'all';
+      const rows = overview.products
+        .map((p) => ({ p, d: derive(p.metrics), prev: derive(p.previous), revenueChange: change(p.metrics.revenue, p.previous.revenue) }))
+        .filter(({ p, d, revenueChange }) => {
+          if (q && !`${p.title} ${p.id} ${p.brand ?? ''}`.toLowerCase().includes(q)) return false;
+          if (input.campaignId && !p.placements.some((x) => x.campaignId === String(input.campaignId))) return false;
+          if (filter === 'losing') return d.spend > d.revenue;
+          if (filter === 'growing') return (revenueChange ?? (d.revenue > 0 ? 1 : 0)) > 0;
+          if (filter === 'falling') return (revenueChange ?? 0) < 0;
+          if (filter === 'problems') return p.status?.status === 'warning' || p.status?.status === 'disapproved' || !!p.status?.issues.length;
+          return true;
+        });
+      const sortBy = input.sortBy ?? 'revenue';
+      const key = (r: (typeof rows)[number]) => (sortBy === 'revenueChange' ? Math.abs(r.revenueChange ?? 0) : (r.d[sortBy] ?? -Infinity));
+      const top = [...rows].sort((a, b) => key(b) - key(a)).slice(0, input.limit ?? 25);
+      return {
+        result: {
+          period,
+          previousPeriod: previousRange(period),
+          currency: ctx.currency,
+          productsWithSales: overview.products.length,
+          productsWithActivityInReport: overview.scanned,
+          matching: rows.length,
+          products: top.map(({ p, d, prev, revenueChange }) =>
+            compact({
+              id: p.id,
+              title: p.title,
+              brand: p.brand,
+              price: p.price,
+              status: p.status?.status,
+              issues: p.status?.issues.length ? p.status.issues : undefined,
+              shownInCampaigns: p.status?.servingCampaigns,
+              activeProductCampaigns: p.status?.totalCampaigns,
+              ...metricFields({ ...d }),
+              previous: { spend: prev.spend, clicks: prev.clicks, conversions: prev.conversions, revenue: prev.revenue, roas: prev.roas },
+              revenueChange,
+              campaigns: p.placements.slice(0, 5).map((x) => compact({ campaignId: x.campaignId, campaign: x.campaignName, adGroup: x.adGroupName, spend: round(x.metrics.spend, 2), revenue: round(x.metrics.revenue, 2) })),
+            }),
+          ),
+        },
+        summary: `${period.label} · ${rows.length} produkter${filter !== 'all' ? ` (${PRODUCT_FILTERS[filter]})` : ''}`,
+        preview: {
+          columns: [{ key: 'title', label: 'Produkt' }, ...METRIC_COLS],
+          rows: top.map(({ p, d }) => ({ title: p.title, ...metricFields({ ...d }) })),
         },
       };
     },
