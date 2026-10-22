@@ -3,9 +3,10 @@
  * by the assistant are persisted in localStorage so the demo behaves like a real
  * account across restarts ("Nulstil demo" in Indstillinger restores it).
  */
-import { parseIso, toIso, today } from '@/lib/format';
+import { parseIso, previousRange, toIso, today, type DateRange } from '@/lib/format';
 import { sleep } from '@/lib/utils';
 import { EMPTY_METRICS, addMetrics, derive } from '../metrics';
+import { aggregateProducts, offerIdOf, productStatuses, type CatalogOffer } from '../products';
 import type {
   Account,
   Ad,
@@ -30,11 +31,13 @@ import type {
   NewCampaign,
   NewKeyword,
   NewResponsiveSearchAd,
+  ProductPerformance,
   ReportAggregation,
   ReportRow,
   ReportSpec,
   SearchVolume,
 } from '../types';
+import { demoProducts } from './products';
 import { DEMO_ACCOUNTS, createSeedState, type DemoState } from './seed';
 import { Simulator, hash } from './simulate';
 
@@ -513,6 +516,60 @@ export class DemoBackend implements AdsBackend {
     return [...groups.values()]
       .map(({ row, m }) => ({ ...row, ...derive(m) }))
       .sort((a, b) => (a.date && b.date && a.date !== b.date ? a.date.localeCompare(b.date) : (b.spend ?? 0) - (a.spend ?? 0)));
+  }
+
+  /**
+   * The Shopping and Performance Max traffic split over the demo catalogue, as rows of
+   * Microsoft's product report – then the same aggregation as with a real account.
+   */
+  async productPerformance(accountId: string, range: DateRange): Promise<ProductPerformance[]> {
+    await sleep(this.latencyMs * 3);
+    const catalogue = demoProducts();
+    const shopping = this.state.campaigns.filter((c) => c.accountId === accountId && (c.type === 'Shopping' || c.type === 'PerformanceMax'));
+    const adGroups = new Map(this.state.adGroups.map((g) => [g.id, g]));
+    const rowsFor = (r: DateRange) => {
+      const rows: Record<string, string>[] = [];
+      const days = this.sim.range(r.from, r.to);
+      for (const unit of this.sim.units(accountId, shopping.map((c) => c.id))) {
+        const c = shopping.find((x) => x.id === unit.campaignId)!;
+        const total = days.reduce((acc, d) => addMetrics(acc, this.sim.unitDay(accountId, unit, d)), { ...EMPTY_METRICS });
+        if (!total.impressions) continue;
+        // Performance Max only shows the best sellers; Shopping shows the whole catalogue.
+        const shown = c.type === 'PerformanceMax' ? catalogue.slice(0, 14) : catalogue;
+        const weight = shown.reduce((s, p) => s + p.weight, 0);
+        for (const p of shown) {
+          const share = p.weight / weight;
+          const jitter = 0.75 + hash(`${p.id}|${c.id}|${r.from}`) * 0.5;
+          const impressions = Math.round(total.impressions * share * jitter);
+          if (!impressions) continue;
+          const clicks = Math.round(total.clicks * share * jitter);
+          const exact = total.conversions * share * p.cvr * jitter;
+          const conversions = Math.floor(exact + hash(`${p.id}|${c.id}|${r.from}|conv`));
+          rows.push({
+            MerchantProductId: p.id,
+            Title: p.title,
+            Brand: p.brand,
+            Price: String(p.price),
+            ProductCategory1: p.category,
+            CampaignId: c.id,
+            CampaignName: c.name,
+            CampaignType: c.type,
+            AdGroupId: unit.adGroupId,
+            AdGroupName: adGroups.get(unit.adGroupId)?.name ?? '',
+            Impressions: String(impressions),
+            Clicks: String(clicks),
+            Spend: (total.spend * share * jitter).toFixed(2),
+            Conversions: String(conversions),
+            Revenue: (conversions * p.price * (0.9 + hash(`${p.id}|rev`) * 0.3)).toFixed(2),
+          });
+        }
+      }
+      return rows;
+    };
+    const products = aggregateProducts(rowsFor(range), rowsFor(previousRange(range)));
+    const catalog = new Map<string, CatalogOffer>(catalogue.map((p) => [offerIdOf(p.id), { title: p.title, imageUrl: null, link: null, price: p.price, availability: p.availability }]));
+    const issues = new Map(catalogue.flatMap((p) => (p.issue ? [[offerIdOf(p.id), p.issue] as const] : [])));
+    return productStatuses(products, catalog, issues, shopping.filter((c) => c.status === 'Active').length);
   }
 
   async keywordIdeas(_accountId: string, input: { queries: string[]; url?: string; language?: string; location?: string; limit?: number }): Promise<KeywordIdea[]> {

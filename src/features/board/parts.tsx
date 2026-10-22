@@ -1,6 +1,6 @@
 /** Small building blocks shared by the board and the card dialog. */
 import { AnimatePresence, motion } from 'motion/react';
-import { Check, ChevronDown, ChevronUp, ChevronsUp, Equal, Pencil, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, ChevronsUp, Equal, Pencil, Trash2, X } from '@/components/icons';
 import { Popover } from 'radix-ui';
 import { useState } from 'react';
 import { EASE } from '@/components/motion';

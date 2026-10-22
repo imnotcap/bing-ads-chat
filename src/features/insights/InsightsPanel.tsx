@@ -3,7 +3,7 @@
  * and each section (Nøgletal, Månedsbudget, …) can be folded on its own.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertTriangle, ArrowRight, CalendarDays, ChevronDown, Info, LayoutGrid, PanelRightClose, RefreshCw, Sparkles, TrendingUp, Wallet, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CalendarDays, ChevronDown, Info, LayoutGrid, Package, PanelRightClose, RefreshCw, Sparkles, TrendingUp, Wallet, type LucideIcon } from '@/components/icons';
 import { useMemo, type ReactNode } from 'react';
 import { ChartBlock } from '@/components/blocks/ChartBlock';
 import { ChangeBadge } from '@/components/blocks/ChangeBadge';
@@ -12,9 +12,9 @@ import { EASE } from '@/components/motion';
 import { Button } from '@/components/ui/button';
 import { Select, Tooltip } from '@/components/ui/overlays';
 import { change } from '@/bing/metrics';
-import { useAccountTrend, useCampaigns, useSelectedRange, useSpendStatus } from '@/hooks/useAdsData';
+import { useAccountTrend, useCampaigns, useProducts, useSelectedRange, useSpendStatus } from '@/hooks/useAdsData';
 import { queryClient } from '@/lib/queryClient';
-import { DATE_PRESET_LABELS, fmtMoney, fmtNumber, type DatePreset } from '@/lib/format';
+import { DATE_PRESET_LABELS, fmtMoney, fmtNumber, type DatePreset, type DateRange } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
@@ -70,6 +70,38 @@ function LinkButton({ children, onClick }: { children: ReactNode; onClick: () =>
     <button type="button" onClick={onClick} className="inline-flex items-center gap-1 text-[12.5px] font-medium text-brand hover:underline">
       {children} <ArrowRight className="size-3" />
     </button>
+  );
+}
+
+/** The best-selling products (only loaded while the section is open – the list is large). */
+function TopProducts({ range, currency }: { range: DateRange; currency: string }) {
+  const { data, isLoading, error } = useProducts(range);
+  if (error) return <p className="text-[12.5px] text-muted">Produkterne kunne ikke hentes.</p>;
+  if (isLoading || !data) return <Skeleton className="h-28" />;
+  const top = [...data.products].sort((a, b) => b.metrics.revenue - a.metrics.revenue).slice(0, 6);
+  if (!top.length) return <p className="text-[12.5px] text-muted">Ingen produkter med salg i perioden.</p>;
+  const max = top[0]?.metrics.revenue || 1;
+  return (
+    <div className="-mx-1.5 grid gap-0.5">
+      {top.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          onClick={() => startChat(`Hvordan klarer produktet "${p.title}" (produkt-id ${p.id}) sig, og hvad kan forbedres?`)}
+          className="group rounded-lg px-1.5 py-1.5 text-left transition-colors hover:bg-line-2"
+        >
+          <div className="flex items-center gap-2 text-[12.5px]">
+            <span className={cn('size-1.5 shrink-0 rounded-full', p.status?.status === 'disapproved' ? 'bg-negative' : p.status?.issues.length ? 'bg-warning' : 'bg-positive')} />
+            <span className="truncate text-ink-2 group-hover:text-ink">{p.title}</span>
+            <span className="ml-auto shrink-0 tabular text-muted">{fmtMoney(p.metrics.revenue, currency, 0)}</span>
+          </div>
+          <div className="ml-3.5 mt-1 h-1 overflow-hidden rounded-full bg-line-2">
+            <motion.div className="h-full rounded-full bg-teal/60" initial={{ width: 0 }} animate={{ width: `${(p.metrics.revenue / max) * 100}%` }} transition={{ duration: 0.7, ease: EASE }} />
+          </div>
+        </button>
+      ))}
+      <p className="px-1.5 pt-1 text-[11.5px] text-subtle">{fmtNumber(data.products.length)} produkter med salg · sorteret efter konv.værdi</p>
+    </div>
   );
 }
 
@@ -285,6 +317,10 @@ function PanelContent() {
               })}
             </div>
           )}
+        </Section>
+
+        <Section id="products" title="Produkter" icon={Package} action={<LinkButton onClick={() => go('products')}>Se alle produkter</LinkButton>}>
+          <TopProducts range={range} currency={currency} />
         </Section>
       </div>
     </div>

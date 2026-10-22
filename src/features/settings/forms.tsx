@@ -1,5 +1,5 @@
 /** Forms shared by the settings page and onboarding. */
-import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Eye, EyeOff, KeyRound, Loader2, LogIn, PlugZap, ShieldCheck, Unplug, Users } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Eye, EyeOff, KeyRound, Loader2, LogIn, PlugZap, ShieldCheck, Unplug, Users } from '@/components/icons';
 import { useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
@@ -382,7 +382,7 @@ const MS_STEPS = [
   <>
     <b>Konto-ID og Kunde-ID:</b> åbn kontoen på ads.microsoft.com – adressen indeholder <code className="text-[12px]">aid=</code> (Konto-ID) og <code className="text-[12px]">cid=</code> (Kunde-ID).
   </>,
-  <>Gem: Cloudflare tester nøglerne, og alle i appen arbejder på de samme konti. Refresh tokenet holdes friskt hver nat.</>,
+  <>Gem: Cloudflare tester nøglerne, og alle i appen arbejder på de samme konti. Refresh tokenet holdes friskt hver hverdag om morgenen.</>,
 ];
 
 /** How to get the Microsoft Advertising keys. `collapsible`: folded like the other connections. */

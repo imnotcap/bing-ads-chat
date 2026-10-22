@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowDown, Upload } from 'lucide-react';
+import { ArrowDown, Upload } from '@/components/icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { stopConversation } from '@/ai/agent';
 import type { Attachment } from '@/lib/attachments';

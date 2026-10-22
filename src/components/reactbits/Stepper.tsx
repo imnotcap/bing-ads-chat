@@ -1,6 +1,6 @@
 /** Multi-step flow with animated step indicators and sliding content (React Bits style). */
 import { AnimatePresence, motion } from 'motion/react';
-import { Check } from 'lucide-react';
+import { Check } from '@/components/icons';
 import { Children, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { EASE } from '../motion';

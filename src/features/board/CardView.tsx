@@ -4,8 +4,9 @@
  * - detailed: description, labels, date and priority, the checklist and the people
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { Archive, CalendarDays, Check, CheckSquare, Circle, CircleCheck, CircleDashed, Copy, Hand, MessageSquare, MoreVertical, PanelTop, Text } from 'lucide-react';
+import { Archive, CalendarDays, Check, CheckSquare, Circle, CircleCheck, CircleDashed, Copy, Hand, MessageSquare, MoreVertical, PanelTop, Text } from '@/components/icons';
 import { EASE } from '@/components/motion';
+import { ContextMenu } from '@/components/ui/contextMenu';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { cn } from '@/lib/utils';
 import { LABEL_COLORS, dueState, fmtDue, useBoard, type Board, type Card } from '@/stores/board';
@@ -75,7 +76,7 @@ function DoneToggle({ card, alwaysVisible }: { card: Card; alwaysVisible?: boole
       className={cn('mt-px shrink-0 transition-colors', !alwaysVisible && !card.done && 'w-0 overflow-hidden opacity-0 group-hover/card:w-[18px] group-hover/card:opacity-100')}
     >
       {card.done ? (
-        <CircleCheck className="size-[18px] fill-positive text-white" />
+        <CircleCheck className="size-[18px] text-positive" />
       ) : alwaysVisible ? (
         <CircleDashed className="size-[18px] text-subtle hover:text-positive" />
       ) : (
@@ -264,21 +265,39 @@ export function CardView({
   overlay?: boolean;
   onOpen?: () => void;
 }) {
+  const meId = useBoard((s) => s.meId);
+  const st = useBoard.getState;
+  const claimed = card.memberIds.includes(meId);
   return (
     <div className="relative">
-      <div
-        onClick={onOpen}
-        className={cn(
-          'group/card relative cursor-pointer overflow-hidden border border-black/[0.06] bg-white text-left shadow-[0_1px_2px_rgb(18_18_22/0.05)] transition-[box-shadow,border-color,opacity,transform] duration-200',
-          variant === 'detailed' ? 'rounded-2xl' : 'rounded-xl',
-          'hover:border-black/[0.1] hover:shadow-[0_8px_24px_-12px_rgb(18_18_22/0.22)]',
-          dragging && 'opacity-0',
-          overlay && 'rotate-[2.5deg] cursor-grabbing shadow-[0_22px_48px_-16px_rgb(18_18_22/0.4)]',
-        )}
+      <ContextMenu
+        label={card.title}
+        items={
+          overlay
+            ? []
+            : [
+                onOpen && { label: 'Åbn kortet', icon: <PanelTop />, onSelect: onOpen },
+                { label: claimed ? 'Slip opgaven' : 'Tag opgaven', icon: <Hand />, onSelect: () => st().toggleMember(card.id, meId) },
+                { label: card.done ? 'Genåbn' : 'Markér som færdig', icon: <CircleCheck />, onSelect: () => st().updateCard(card.id, { done: !card.done }) },
+                { label: 'Kopiér kortet', icon: <Copy />, onSelect: () => st().copyCard(card.id), separated: true },
+                { label: 'Arkivér', icon: <Archive />, onSelect: () => st().archiveCard(card.id) },
+              ]
+        }
       >
-        {card.cover && <div className={variant === 'detailed' ? 'h-10' : 'h-6'} style={{ background: `linear-gradient(120deg, ${LABEL_COLORS[card.cover].solid}, ${LABEL_COLORS[card.cover].soft})` }} />}
-        {variant === 'detailed' ? <DetailedCard card={card} board={board} onOpen={onOpen} /> : <SimpleCard card={card} />}
-      </div>
+        <div
+          onClick={onOpen}
+          className={cn(
+            'group/card relative cursor-pointer overflow-hidden border border-black/[0.06] bg-white text-left shadow-[0_1px_2px_rgb(18_18_22/0.05)] transition-[box-shadow,border-color,opacity,transform] duration-200',
+            variant === 'detailed' ? 'rounded-2xl' : 'rounded-xl',
+            'hover:border-black/[0.1] hover:shadow-[0_8px_24px_-12px_rgb(18_18_22/0.22)]',
+            dragging && 'opacity-0',
+            overlay && 'rotate-[2.5deg] cursor-grabbing shadow-[0_22px_48px_-16px_rgb(18_18_22/0.4)]',
+          )}
+        >
+          {card.cover && <div className={variant === 'detailed' ? 'h-10' : 'h-6'} style={{ background: `linear-gradient(120deg, ${LABEL_COLORS[card.cover].solid}, ${LABEL_COLORS[card.cover].soft})` }} />}
+          {variant === 'detailed' ? <DetailedCard card={card} board={board} onOpen={onOpen} /> : <SimpleCard card={card} />}
+        </div>
+      </ContextMenu>
       <AnimatePresence>
         {dragging && (
           <motion.div

@@ -6,7 +6,7 @@
  * follow-up in the chat (schedule_follow_up fills it in), and "/test" shows it too.
  */
 import { motion } from 'motion/react';
-import { ArrowRight, CalendarClock, Check, ExternalLink, FlaskConical, Loader2, Mail, SquareKanban } from 'lucide-react';
+import { ArrowRight, CalendarClock, Check, ExternalLink, FlaskConical, Loader2, Mail, SquareKanban } from '@/components/icons';
 import { useMemo, useState } from 'react';
 import { EASE } from '@/components/motion';
 import { toast } from '@/components/notifications/toast';

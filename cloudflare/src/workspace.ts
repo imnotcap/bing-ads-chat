@@ -27,6 +27,7 @@ import { CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isConnectorId, type
 import { AuthError, type MicrosoftIdentity } from './auth';
 import { AdsKeyError, adsProbe, adsRefresh, mergeAdsKeys, type AdsKeys } from './microsoftAds';
 import { clearCampaigns, initAdsCache, readCampaigns, writeCampaigns } from './adsCache';
+import { clearProducts, initProductCache, readProducts, writeProducts } from './productCache';
 import { allPurchases, billingState, buyPack, initBilling, recordUsage } from './billing';
 import type { Directory } from './directory';
 import { PLANS, includedUsage, isPlanId } from '../../src/workspace/plans';
@@ -119,6 +120,7 @@ export class Workspace extends DurableObject<Env> {
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
     void this.ctx.blockConcurrencyWhile(async () => {
       initAdsCache(this.ctx.storage.sql);
+      initProductCache(this.ctx.storage.sql);
       initBilling(this.ctx.storage.sql);
       this.boardMeta = (await this.ctx.storage.get<BoardMeta>('boards:meta')) ?? { version: 0 };
       this.boards = (await this.ctx.storage.get<BoardData>('boards:data')) ?? null;
@@ -129,7 +131,7 @@ export class Workspace extends DurableObject<Env> {
     const url = new URL(req.url);
     const path = url.pathname.replace(/^\/api/, '');
     try {
-      // From the Worker's nightly schedule only (requests from outside always start with /api).
+      // From the Worker's weekday schedule only (requests from outside always start with /api).
       if (url.pathname === '/internal/check-connections') return json(await this.checkConnections());
       // From the Worker after the register of companies (directory.ts) has approved the person.
       if (url.pathname === '/internal/sign-in') {
@@ -271,6 +273,7 @@ export class Workspace extends DurableObject<Env> {
         await this.ctx.storage.put('ads', ads);
         this.adsToken = { value: probe.accessToken, expiresAt: Date.now() + probe.expiresIn * 1000 };
         clearCampaigns(this.ctx.storage.sql);
+        clearProducts(this.ctx.storage.sql);
       } catch (e) {
         if (e instanceof AdsKeyError) return fail(e.message, 400);
         throw e;
@@ -281,6 +284,7 @@ export class Workspace extends DurableObject<Env> {
       await this.ctx.storage.delete('ads');
       this.adsToken = null;
       clearCampaigns(this.ctx.storage.sql);
+      clearProducts(this.ctx.storage.sql);
       return json(await this.info());
     }
     // The campaigns of the connected account, cached here (adsCache.ts).
@@ -296,6 +300,21 @@ export class Workspace extends DurableObject<Env> {
       const accountId = String(body.accountId ?? '');
       if (ads.accountId && accountId !== ads.accountId) return fail('Kun den forbundne konto kan gemmes.', 403);
       const error = writeCampaigns(this.ctx.storage, accountId, Number(body.fetchedAt), body.campaigns);
+      return error ? fail(error, 400) : json({ ok: true });
+    }
+    // The product overview of the connected account, cached here (productCache.ts).
+    if (path === '/workspace/ads/products' && (method === 'GET' || method === 'PUT')) {
+      const ads = await this.ctx.storage.get<AdsConnection>('ads');
+      if (!ads) return fail('Microsoft Advertising er ikke forbundet.', 409);
+      if (method === 'GET') {
+        const accountId = url.searchParams.get('account') ?? '';
+        if (ads.accountId && accountId !== ads.accountId) return fail('Kun den forbundne konto kan hentes.', 403);
+        return json(readProducts(this.ctx.storage.sql, accountId, url.searchParams.get('period') ?? ''));
+      }
+      const body = (await req.json()) as { accountId?: string; period?: string; fetchedAt?: number; scanned?: number; products?: unknown };
+      const accountId = String(body.accountId ?? '');
+      if (ads.accountId && accountId !== ads.accountId) return fail('Kun den forbundne konto kan gemmes.', 403);
+      const error = writeProducts(this.ctx.storage, accountId, String(body.period ?? ''), Number(body.fetchedAt), Number(body.scanned), body.products);
       return error ? fail(error, 400) : json({ ok: true });
     }
     if (path === '/workspace/ads/token' && method === 'POST') {
@@ -631,7 +650,7 @@ export class Workspace extends DurableObject<Env> {
     return fail('Ikke fundet.', 404);
   }
 
-  /** Every night: tests every saved connection again (keeps refresh tokens alive, shows broken ones). */
+  /** Weekday mornings: tests every saved connection again (keeps refresh tokens alive, shows broken ones). */
   private async checkConnections() {
     const results: Record<string, string> = {};
     // Microsoft Advertising: a refresh keeps the token alive (it lapses after 90 unused days).

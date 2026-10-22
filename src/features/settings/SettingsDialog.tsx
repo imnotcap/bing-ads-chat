@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Bot, Building2, Cpu, Database, Download, ExternalLink, FlaskConical, GraduationCap, Info, Loader2, Palette, Plug, Search, ShieldCheck, Users, Wallet, X, type LucideIcon } from 'lucide-react';
+import { Bot, Building2, Cpu, Database, Download, ExternalLink, FlaskConical, GraduationCap, Info, Loader2, Palette, Plug, Search, ShieldCheck, Users, Wallet, X, type LucideIcon } from '@/components/icons';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';

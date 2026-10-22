@@ -6,6 +6,8 @@ import type { Campaign, ReportRow } from '@/bing/types';
 import { presetRange, previousRange, type DateRange } from '@/lib/format';
 import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
+import { queryClient } from '@/lib/queryClient';
+import { loadProducts } from '@/workspace/products';
 
 function useKeyBase() {
   const mode = useConnection((s) => s.mode);
@@ -64,5 +66,45 @@ export function useSpendStatus() {
     queryKey: ['spend', ...base, monthlyBudget],
     enabled: !!accountId,
     queryFn: async () => getSpendStatus(await getBackend(), accountId!, monthlyBudget),
+  });
+}
+
+/** Products worth showing in the period (shared cache on Cloudflare, see workspace/products.ts). */
+export function useProducts(range: DateRange) {
+  const { accountId, base } = useKeyBase();
+  return useQuery({
+    queryKey: ['products', ...base, range.from, range.to],
+    enabled: !!accountId,
+    queryFn: ({ signal }) => loadProducts(accountId!, range, { signal }),
+  });
+}
+
+/** Fetches the products from Microsoft again (the Opdatér button). */
+export async function refreshProducts(range: DateRange) {
+  const { accountId, mode, revision } = useConnection.getState();
+  if (!accountId) return;
+  const fresh = await loadProducts(accountId, range, { force: true });
+  queryClient.setQueryData(['products', mode, accountId, revision, range.from, range.to], fresh);
+}
+
+/**
+ * Day by day for a period and the whole period before (the dashboard's chart); the
+ * totals compare with the same days of the period before (`previous`).
+ */
+export function usePeriodTrend(range: DateRange, previous: DateRange, previousFull: DateRange) {
+  const { accountId, base } = useKeyBase();
+  return useQuery({
+    queryKey: ['period-trend', ...base, range.from, range.to, previous.to, previousFull.from, previousFull.to],
+    enabled: !!accountId,
+    queryFn: async () => {
+      const backend = await getBackend();
+      const [daily, before] = await Promise.all([
+        backend.runReport(accountId!, { kind: 'account', range, aggregation: 'Daily' }),
+        backend.runReport(accountId!, { kind: 'account', range: previousFull, aggregation: 'Daily' }),
+      ]);
+      const byDate = (rows: ReportRow[]) => [...rows].sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+      const sameDays = before.filter((d) => (d.date ?? '') >= previous.from && (d.date ?? '') <= previous.to);
+      return { daily: byDate(daily), previousDaily: byDate(before), totals: derive(sumMetrics(daily)), previous: derive(sumMetrics(sameDays)) };
+    },
   });
 }

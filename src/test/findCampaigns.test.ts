@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getTool, type ToolContext } from '@/ai/tools';
 import { matchByName, nameScore } from '@/ai/tools/find';
 import { CampaignCache, FRESH_MS } from '@/bing/campaignCache';
@@ -55,7 +55,12 @@ describe('report columns', () => {
 });
 
 describe('campaign cache', () => {
+  afterEach(() => vi.useRealTimers());
+
   it('reads a recent snapshot, and asks Microsoft when it is old or after a change', async () => {
+    // A Wednesday at 10: automatic fetching is allowed (lib/refreshPolicy.ts).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-21T10:00:00'));
     const list = [camp('1', 'A')];
     let snapshot: { fetchedAt: number | null; campaigns: Campaign[] } = { fetchedAt: Date.now() - 60_000, campaigns: list };
     const store = { read: vi.fn(async () => snapshot), write: vi.fn(async () => {}) };
@@ -78,6 +83,20 @@ describe('campaign cache', () => {
     cache.saved('9', list);
     expect(store.write).toHaveBeenCalledWith('9', expect.any(Number), list);
     expect(await cache.get('9')).toBe(list);
+  });
+
+  it('uses the stored list however old it is outside weekdays 8–16', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-24T10:00:00')); // Saturday
+    const list = [camp('1', 'A')];
+    const store = { read: vi.fn(async () => ({ fetchedAt: Date.now() - 3 * 86_400_000, campaigns: list })), write: vi.fn(async () => {}) };
+    const fetchFresh = vi.fn(async () => [camp('2', 'B')]);
+    const cache = new CampaignCache(store, fetchFresh);
+    expect(await cache.get('9')).toBe(list);
+    expect(fetchFresh).not.toHaveBeenCalled();
+    // Opdatér / a change still goes to Microsoft.
+    cache.changed();
+    expect((await cache.get('9'))[0]!.id).toBe('2');
   });
 });
 

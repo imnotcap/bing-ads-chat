@@ -2,7 +2,7 @@
  * The planning boards are shared with everyone signed in to the app (the
  * department's workspace on Cloudflare). This dialog shows the connection.
  */
-import { Users } from 'lucide-react';
+import { Users } from '@/components/icons';
 import { create } from 'zustand';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/overlays';

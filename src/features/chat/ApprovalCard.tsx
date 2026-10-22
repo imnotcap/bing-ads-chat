@@ -3,7 +3,7 @@
  * spending rules apply, and Godkend/Afvis while it waits for the user.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { Ban, Check, CheckCircle2, Clock, Loader2, Pin, Plus, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from 'lucide-react';
+import { Ban, Check, CheckCircle2, Clock, Loader2, Pin, Plus, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from '@/components/icons';
 import { useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { answerApproval } from '@/ai/approvals';
@@ -74,7 +74,7 @@ function PinMenu({ pin, value, onChange, kind }: { pin: NonNullable<ChangeLine['
         onChange ? 'hover:bg-line-2 data-[state=open]:bg-line-2' : 'cursor-default',
       )}
     >
-      <Pin className={cn('size-3.5', pinned && 'fill-current')} />
+      <Pin weight={pinned ? 'fill' : 'bold'} className="size-3.5" />
       {pinned ? value : ''}
     </button>
   );

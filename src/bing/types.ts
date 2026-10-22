@@ -313,6 +313,49 @@ export type MsService = 'campaign' | 'reporting' | 'customer' | 'adinsight' | 'b
  * Everything the assistant and the UI can do with an advertising account.
  * Implemented by LiveBackend (Microsoft Advertising REST API v13) and DemoBackend.
  */
+/* ---------------- products (Shopping / Performance Max) ---------------- */
+
+/** One campaign/ad group a product showed in, with what it did there. */
+export interface ProductPlacement {
+  campaignId: string;
+  campaignName: string;
+  adGroupId: string | null;
+  adGroupName: string | null;
+  metrics: Metrics;
+}
+
+/**
+ * A product offer's state. Microsoft has no API for the web UI's "eligible in X of Y
+ * campaigns", so the app counts the Shopping/Performance Max campaigns the product
+ * actually showed in; approval and issues come from Merchant Center where available.
+ */
+export interface ProductStatus {
+  /** 'ok' | 'warning' | 'disapproved' | 'outofstock' | 'notincatalog' | 'unknown' */
+  status: string;
+  /** Shopping/Performance Max campaigns the product showed in during the period … */
+  servingCampaigns: number | null;
+  /** … of the active ones that can show products. */
+  totalCampaigns: number | null;
+  issues: string[];
+}
+
+/** One product with its performance in a period and the period before. */
+export interface ProductPerformance {
+  /** The merchant's product id (offer id). */
+  id: string;
+  title: string;
+  brand: string | null;
+  category: string | null;
+  productType: string | null;
+  price: number | null;
+  imageUrl: string | null;
+  link: string | null;
+  metrics: Metrics;
+  previous: Metrics;
+  placements: ProductPlacement[];
+  status: ProductStatus | null;
+}
+
 export interface AdsBackend {
   readonly mode: 'live' | 'demo';
   listAccounts(): Promise<Account[]>;
@@ -341,6 +384,12 @@ export interface AdsBackend {
   updateAds(accountId: string, adGroupId: string, patches: AdPatch[]): Promise<MutationResult>;
 
   runReport(accountId: string, spec: ReportSpec, signal?: AbortSignal): Promise<ReportRow[]>;
+  /**
+   * Every product that had any activity in the period or the one before (Microsoft's
+   * product report, plus status from Merchant Center where available). Filtering to the
+   * products worth showing happens in bing/products.ts.
+   */
+  productPerformance?(accountId: string, range: DateRange, signal?: AbortSignal): Promise<ProductPerformance[]>;
   /** `location`: a country name in English (default Denmark). */
   keywordIdeas(accountId: string, input: { queries: string[]; url?: string; language?: string; location?: string; limit?: number }): Promise<KeywordIdea[]>;
   budgetOpportunities(accountId: string, campaignId?: string): Promise<BudgetOpportunity[]>;

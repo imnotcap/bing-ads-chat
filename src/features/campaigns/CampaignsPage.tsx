@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { CalendarDays, Pencil, RefreshCw, Search, Sparkles } from 'lucide-react';
+import { CalendarDays, Pencil, RefreshCw, Search, Sparkles } from '@/components/icons';
 import { useMemo, useState } from 'react';
 import { bidLabel } from '@/ai/tools/write';
 import { statusLabel } from '@/ai/tools/context';
@@ -19,6 +19,8 @@ import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
 import { startChat } from '../chat/ChatView';
 import { userUpdateCampaigns } from './actions';
+import { campaignMenuItems } from './campaignMenu';
+import { ContextMenu } from '@/components/ui/contextMenu';
 
 const TYPE_LABEL: Record<string, string> = { Search: 'Søgning', Shopping: 'Shopping', Audience: 'Audience', PerformanceMax: 'PMax' };
 
@@ -179,59 +181,60 @@ export function CampaignsPage() {
                     const m = c.metrics;
                     const roasGood = (m?.roas ?? 0) >= (totals.roas ?? 0);
                     return (
-                      <motion.tr
-                        key={c.id}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3, ease: EASE, delay: Math.min(i, 12) * 0.02 }}
-                        className="group transition-colors hover:bg-brand-50/30"
-                      >
-                        <td className="border-b border-line-2 px-3 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <span className="max-w-[230px] truncate font-medium text-ink" title={c.name}>
-                              {c.name}
+                      <ContextMenu key={c.id} label={c.name} items={campaignMenuItems(c, data ?? [])}>
+                        <motion.tr
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.3, ease: EASE, delay: Math.min(i, 12) * 0.02 }}
+                          className="group transition-colors hover:bg-brand-50/30"
+                        >
+                          <td className="border-b border-line-2 px-3 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <span className="max-w-[230px] truncate font-medium text-ink" title={c.name}>
+                                {c.name}
+                              </span>
+                              <Badge>{TYPE_LABEL[c.type] ?? c.type}</Badge>
+                            </div>
+                            {c.status !== 'Active' && c.status !== 'Paused' && <div className="text-[11.5px] text-muted">{statusLabel(c.status)}</div>}
+                          </td>
+                          <td className="border-b border-line-2 px-3 py-2.5">
+                            <Switch
+                              checked={c.status === 'Active'}
+                              aria-label={`${c.name} aktiv`}
+                              onCheckedChange={(on) =>
+                                void userUpdateCampaigns(data ?? [], [{ campaignId: c.id, status: on ? 'Active' : 'Paused' }], `${c.name} ${on ? 'aktiveret' : 'sat på pause'}`)
+                              }
+                            />
+                          </td>
+                          <td className="border-b border-line-2 px-3 py-2.5">
+                            <BudgetCell c={c} all={data ?? []} currency={currency} />
+                          </td>
+                          <td className="max-w-[170px] truncate border-b border-line-2 px-3 py-2.5 text-ink-2" title={bidLabel(c.bidStrategy)}>{bidLabel(c.bidStrategy)}</td>
+                          <td className="border-b border-line-2 px-3 py-2.5 text-right tabular text-ink">{fmtMoney(m?.spend ?? 0, currency)}</td>
+                          <td className="border-b border-line-2 px-3 py-2.5 text-right tabular">{fmtNumber(m?.clicks ?? 0)}</td>
+                          <td className="border-b border-line-2 px-3 py-2.5 text-right tabular">{fmtPercent(m?.ctr ?? null)}</td>
+                          <td className="border-b border-line-2 px-3 py-2.5 text-right tabular">{fmtNumber(m?.conversions ?? 0, 1)}</td>
+                          <td className="border-b border-line-2 px-3 py-2.5 text-right tabular">{fmtMoney(m?.cpa ?? null, currency)}</td>
+                          <td className="border-b border-line-2 px-3 py-2.5 text-right">
+                            <span className={cn('tabular font-medium', m?.roas ? (roasGood ? 'text-positive' : 'text-ink-2') : 'text-subtle')}>
+                              {m?.roas ? `${fmtNumber(m.roas, 2)}x` : '–'}
                             </span>
-                            <Badge>{TYPE_LABEL[c.type] ?? c.type}</Badge>
-                          </div>
-                          {c.status !== 'Active' && c.status !== 'Paused' && <div className="text-[11.5px] text-muted">{statusLabel(c.status)}</div>}
-                        </td>
-                        <td className="border-b border-line-2 px-3 py-2.5">
-                          <Switch
-                            checked={c.status === 'Active'}
-                            aria-label={`${c.name} aktiv`}
-                            onCheckedChange={(on) =>
-                              void userUpdateCampaigns(data ?? [], [{ campaignId: c.id, status: on ? 'Active' : 'Paused' }], `${c.name} ${on ? 'aktiveret' : 'sat på pause'}`)
-                            }
-                          />
-                        </td>
-                        <td className="border-b border-line-2 px-3 py-2.5">
-                          <BudgetCell c={c} all={data ?? []} currency={currency} />
-                        </td>
-                        <td className="max-w-[170px] truncate border-b border-line-2 px-3 py-2.5 text-ink-2" title={bidLabel(c.bidStrategy)}>{bidLabel(c.bidStrategy)}</td>
-                        <td className="border-b border-line-2 px-3 py-2.5 text-right tabular text-ink">{fmtMoney(m?.spend ?? 0, currency)}</td>
-                        <td className="border-b border-line-2 px-3 py-2.5 text-right tabular">{fmtNumber(m?.clicks ?? 0)}</td>
-                        <td className="border-b border-line-2 px-3 py-2.5 text-right tabular">{fmtPercent(m?.ctr ?? null)}</td>
-                        <td className="border-b border-line-2 px-3 py-2.5 text-right tabular">{fmtNumber(m?.conversions ?? 0, 1)}</td>
-                        <td className="border-b border-line-2 px-3 py-2.5 text-right tabular">{fmtMoney(m?.cpa ?? null, currency)}</td>
-                        <td className="border-b border-line-2 px-3 py-2.5 text-right">
-                          <span className={cn('tabular font-medium', m?.roas ? (roasGood ? 'text-positive' : 'text-ink-2') : 'text-subtle')}>
-                            {m?.roas ? `${fmtNumber(m.roas, 2)}x` : '–'}
-                          </span>
-                        </td>
-                        <td className="border-b border-line-2 px-3 py-2.5 text-right">
-                          <Tooltip content="Spørg assistenten om denne kampagne">
-                            <Button
-                              size="icon-xs"
-                              variant="ghost"
-                              aria-label={`Spørg om ${c.name}`}
-                              className="opacity-60 group-hover:opacity-100"
-                              onClick={() => ask(`Analysér kampagnen "${c.name}" (id ${c.id}) i den valgte periode: hvad går godt, hvad bør forbedres, og hvilke konkrete ændringer foreslår du?`)}
-                            >
-                              <Sparkles className="text-violet" />
-                            </Button>
-                          </Tooltip>
-                        </td>
-                      </motion.tr>
+                          </td>
+                          <td className="border-b border-line-2 px-3 py-2.5 text-right">
+                            <Tooltip content="Spørg assistenten om denne kampagne">
+                              <Button
+                                size="icon-xs"
+                                variant="ghost"
+                                aria-label={`Spørg om ${c.name}`}
+                                className="opacity-60 group-hover:opacity-100"
+                                onClick={() => ask(`Analysér kampagnen "${c.name}" (id ${c.id}) i den valgte periode: hvad går godt, hvad bør forbedres, og hvilke konkrete ændringer foreslår du?`)}
+                              >
+                                <Sparkles className="text-violet" />
+                              </Button>
+                            </Tooltip>
+                          </td>
+                        </motion.tr>
+                      </ContextMenu>
                     );
                   })}
                 </tbody>

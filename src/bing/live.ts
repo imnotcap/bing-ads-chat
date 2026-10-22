@@ -6,7 +6,10 @@ import { sleep } from '@/lib/utils';
 import { MsAdsClient, MsApiError, extractErrorMessages, type MsCredentials } from './client';
 import { parseCsv } from './csv';
 import { buildReportRequest, normalizeReportRows } from './reports';
+import { aggregateProducts, buildProductReportRequest, offerIdOf, productStatuses, type CatalogOffer } from './products';
+import { previousRange, type DateRange } from '@/lib/format';
 import type {
+  ProductPerformance,
   Account,
   Ad,
   AdGroup,
@@ -48,6 +51,14 @@ const CAMPAIGN_TYPES = ['Search', 'Shopping', 'Audience', 'PerformanceMax'];
 const CAMPAIGN_FIELDS = 'MaxConversionValueBiddingScheme,TargetImpressionShareBiddingScheme,BidStrategyId';
 const POLL_ATTEMPTS = 40;
 const POLL_DELAY_MS = 2_000;
+/** The product report covers thousands of products: give Microsoft up to three minutes. */
+const PRODUCT_POLL_ATTEMPTS = 90;
+/** 250 offers per page: room for 25,000 offers per store. */
+const MAX_CATALOG_PAGES = 100;
+const CONTENT_PRODUCTS = 'https://content.api.bingads.microsoft.com/shopping/v9.1/bmc';
+const CONTENT_STATUSES = 'https://content.api.ads.microsoft.com/v9.1/bmc/stores';
+
+type ProductIssue = { status: 'warning' | 'disapproved'; issues: string[] };
 
 /** Arrays may arrive as plain arrays or SOAP-style wrappers ({ string: [...] }). */
 function arr<T = unknown>(v: unknown): T[] {
@@ -443,15 +454,20 @@ export class LiveBackend implements AdsBackend {
   /* -------------------------------- insight -------------------------------- */
 
   async runReport(accountId: string, spec: ReportSpec, signal?: AbortSignal): Promise<ReportRow[]> {
+    return normalizeReportRows(spec.kind, await this.reportCsv(accountId, buildReportRequest(accountId, spec), signal));
+  }
+
+  /** Orders a report, waits for it and returns its CSV rows (keyed by Microsoft's column names). */
+  private async reportCsv(accountId: string, request: Record<string, unknown>, signal?: AbortSignal, attempts = POLL_ATTEMPTS): Promise<Record<string, string>[]> {
     const ctx = await this.ctx(accountId);
     const submit = await this.client.call<{ ReportRequestId?: string }>('reporting', 'GenerateReport/Submit', {
-      body: { ReportRequest: buildReportRequest(accountId, spec) },
+      body: { ReportRequest: request },
       signal,
       ...ctx,
     });
     if (!submit.ReportRequestId) throw new Error('Microsoft Advertising: rapporten kunne ikke bestilles.');
 
-    for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
       await sleep(attempt === 0 ? 1200 : POLL_DELAY_MS, signal);
       const poll = await this.client.call<{ ReportRequestStatus?: { Status?: string; ReportDownloadUrl?: string | null } }>(
         'reporting',
@@ -465,11 +481,88 @@ export class LiveBackend implements AdsBackend {
         // No URL means the report has no rows for the period.
         if (!url) return [];
         const zip = await this.client.download(url, signal);
-        const csv = new TextDecoder().decode(await extractFirstFile(zip));
-        return normalizeReportRows(spec.kind, parseCsv(csv));
+        return parseCsv(new TextDecoder().decode(await extractFirstFile(zip)));
       }
     }
-    throw new Error('Microsoft Advertising: rapporten blev ikke klar inden for 80 sekunder. Prøv en kortere periode.');
+    throw new Error(`Microsoft Advertising: rapporten blev ikke klar inden for ${Math.round((attempts * POLL_DELAY_MS) / 1000)} sekunder. Prøv en kortere periode.`);
+  }
+
+  /* -------------------------------- products -------------------------------- */
+
+  /**
+   * Every product with activity in the period or the one before (product report), with
+   * image, link and stock from the Merchant Center catalogue and approval issues where
+   * Microsoft gives them. The catalogue and statuses are extras: without them the
+   * products still come back, with status "unknown".
+   */
+  async productPerformance(accountId: string, range: DateRange, signal?: AbortSignal): Promise<ProductPerformance[]> {
+    const [current, previous, catalog, campaigns] = await Promise.all([
+      this.reportCsv(accountId, buildProductReportRequest(accountId, range, true), signal, PRODUCT_POLL_ATTEMPTS),
+      this.reportCsv(accountId, buildProductReportRequest(accountId, previousRange(range), false), signal, PRODUCT_POLL_ATTEMPTS),
+      this.merchantCatalog(accountId, signal).catch(() => null),
+      (this.listCampaignsCached ? this.listCampaignsCached(accountId) : this.listCampaigns(accountId)).catch(() => null),
+    ]);
+    const products = aggregateProducts(current, previous);
+    const active = campaigns ? campaigns.filter((c) => (c.type === 'Shopping' || c.type === 'PerformanceMax') && c.status === 'Active').length : null;
+    return productStatuses(products, catalog?.offers ?? null, catalog?.issues ?? null, active);
+  }
+
+  /**
+   * The Microsoft Merchant Center stores of the customer: every offer (image, link, price,
+   * stock), 250 per call, and the offers with warnings or disapprovals (the
+   * ProductStatuses API is in closed beta – where it isn't open the issues are left out).
+   * Docs: https://learn.microsoft.com/advertising/shopping-content/products-resource
+   */
+  private async merchantCatalog(accountId: string, signal?: AbortSignal): Promise<{ offers: Map<string, CatalogOffer>; issues: Map<string, ProductIssue> | null }> {
+    const ctx = await this.ctx(accountId);
+    const res = await this.client.call<{ BMCStores?: Json[] | null }>('campaign', 'BMCStores/QueryByCustomerId', { body: {}, signal, ...ctx });
+    const stores = (res.BMCStores ?? []).filter((s) => s.IsActive !== false && s.HasCatalog !== false).map((s) => String(s.Id));
+    if (!stores.length) throw new Error('Ingen Merchant Center-butik.');
+    const offers = new Map<string, CatalogOffer>();
+    let issues: Map<string, ProductIssue> | null = new Map();
+    for (const store of stores) {
+      let token = '';
+      for (let page = 0; page < MAX_CATALOG_PAGES; page++) {
+        const q = new URLSearchParams({ 'max-results': '250', ...(token ? { 'start-token': token } : {}) });
+        const list = await this.client.content<{ resources?: Json[]; nextPageToken?: string }>(`${CONTENT_PRODUCTS}/${store}/products?${q}`, { signal, ...ctx });
+        for (const o of list.resources ?? []) {
+          const offerId = str(o.offerId) || offerIdOf(str(o.id));
+          if (!offerId) continue;
+          const price = o.price as { value?: string | number } | undefined;
+          offers.set(offerId.toLowerCase(), {
+            title: str(o.title) || null,
+            imageUrl: str(o.imageLink) || null,
+            link: str(o.link) || null,
+            price: price?.value !== undefined && price.value !== '' ? Number(price.value) : null,
+            availability: str(o.availability) || null,
+          });
+        }
+        token = str(list.nextPageToken);
+        if (!token) break;
+      }
+      if (issues) issues = await this.offerIssues(store, issues, ctx, signal).catch(() => null);
+    }
+    return { offers, issues };
+  }
+
+  private async offerIssues(store: string, into: Map<string, ProductIssue>, ctx: { accountId: string; customerId: string }, signal?: AbortSignal) {
+    let token = '';
+    for (let page = 0; page < MAX_CATALOG_PAGES; page++) {
+      const q = new URLSearchParams({ 'max-results': '250', ...(token ? { 'continuation-token': token } : {}) });
+      const res = await this.client.content<{ resources?: Json[]; nextPageToken?: string }>(`${CONTENT_STATUSES}/${store}/productstatuses?${q}`, { signal, ...ctx });
+      for (const r of res.resources ?? []) {
+        const id = offerIdOf(str(r.productId));
+        if (!id) continue;
+        const list = Array.isArray(r.itemLevelIssues) ? (r.itemLevelIssues as Json[]) : [];
+        into.set(id, {
+          status: /disapproved/i.test(str(r.status)) ? 'disapproved' : 'warning',
+          issues: list.map((i) => str(i.description) || str(i.code)).filter(Boolean),
+        });
+      }
+      token = str(res.nextPageToken);
+      if (!token) break;
+    }
+    return into;
   }
 
   /**

@@ -10,10 +10,11 @@ const host = process.env.TAURI_DEV_HOST;
 const PROXY_ALLOW = [
   /^https:\/\/[a-z0-9.-]+\.api\.bingads\.microsoft\.com\//,
   /^https:\/\/[a-z0-9.-]+\.api\.sandbox\.bingads\.microsoft\.com\//,
+  /^https:\/\/content\.api\.ads\.microsoft\.com\//,
   /^https:\/\/login\.microsoftonline\.com\//,
   /^https:\/\/[a-z0-9.-]+\.blob\.core\.windows\.net\//,
 ];
-const FORWARD_HEADERS = ['authorization', 'developertoken', 'customerid', 'customeraccountid', 'content-type', 'accept'];
+const FORWARD_HEADERS = ['authorization', 'authenticationtoken', 'developertoken', 'customerid', 'customeraccountid', 'content-type', 'accept'];
 
 /**
  * Browser-only development (`pnpm dev`): Microsoft Advertising does not send CORS

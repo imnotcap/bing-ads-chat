@@ -3,7 +3,7 @@
  * navigation and the rules the team has taught it). Laid out like Forbindelser – one
  * card per branch, the editor opens in a dialog. Shared by everyone on Cloudflare.
  */
-import { GraduationCap, Loader2, RotateCcw, Settings2, ShieldCheck } from 'lucide-react';
+import { GraduationCap, Loader2, RotateCcw, Settings2, ShieldCheck } from '@/components/icons';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';

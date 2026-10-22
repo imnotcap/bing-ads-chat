@@ -12,8 +12,9 @@
   "compatibility_date": "2025-09-01",
   "workers_dev": true,
   "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "404-page", "run_worker_first": ["/api/*"] },
-  // Every night at 04:17 UTC: the data sources are tested again (keeps logins alive).
-  "triggers": { "crons": ["17 4 * * *"] },
+  // Weekdays at 07:17 UTC (08:17/09:17 in Denmark): the data sources are tested again (keeps
+  // logins alive). No automatic API calls outside weekdays 8–16 (src/lib/refreshPolicy.ts).
+  "triggers": { "crons": ["17 7 * * 1-5"] },
   "vars": {
     // People with an e-mail address on these domains get in without an admin's approval.
     "ALLOWED_DOMAINS": "inventarland.dk"

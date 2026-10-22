@@ -2,7 +2,7 @@
  * Indstillinger → AI-modeller (administrator): which models users may pick, the
  * Gemini API key and the Gemini models with their prices.
  */
-import { CheckCircle2, ExternalLink, KeyRound, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { CheckCircle2, ExternalLink, KeyRound, Loader2, RefreshCw, Sparkles } from '@/components/icons';
 import { useState } from 'react';
 import { listGeminiModels, type GeminiModelListing } from '@/ai/gemini';
 import { CLAUDE_MODELS, allModels, type ModelInfo } from '@/ai/models';

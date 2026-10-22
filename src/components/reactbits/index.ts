@@ -9,3 +9,4 @@ export { AnimatedList } from './AnimatedList';
 export { Magnet } from './Magnet';
 export { ElasticSlider } from './ElasticSlider';
 export { Stepper } from './Stepper';
+export { default as MicroSlats } from './MicroSlats';

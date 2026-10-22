@@ -8,6 +8,8 @@ export interface Alert {
   title: string;
   detail: string;
   prompt: string;
+  /** The campaign it is about. */
+  campaign?: string;
 }
 
 export function computeAlerts(campaigns: CampaignRow[], range: DateRange, currency: string): Alert[] {
@@ -24,6 +26,7 @@ export function computeAlerts(campaigns: CampaignRow[], range: DateRange, curren
     if (budget > 0 && (m.spend ?? 0) >= budget * 0.95 && (m.roas ?? 0) >= 3) {
       out.push({
         id: `budget-${c.id}`,
+        campaign: c.name,
         tone: 'opportunity',
         title: `${c.name} er begrænset af budget`,
         detail: `Bruger ${Math.round(((m.spend ?? 0) / budget) * 100)} % af budgettet med ROAS ${fmtNumber(m.roas, 1)}x`,
@@ -33,6 +36,7 @@ export function computeAlerts(campaigns: CampaignRow[], range: DateRange, curren
     if (avgCpa && (m.cpa ?? 0) > avgCpa * 2 && (m.spend ?? 0) > spend * 0.05) {
       out.push({
         id: `cpa-${c.id}`,
+        campaign: c.name,
         tone: 'warning',
         title: `Høj CPA i ${c.name}`,
         detail: `CPA ${fmtMoney(m.cpa, currency)} – ${fmtNumber((m.cpa ?? 0) / avgCpa, 1)}x kontoens gennemsnit`,
@@ -42,6 +46,7 @@ export function computeAlerts(campaigns: CampaignRow[], range: DateRange, curren
     if ((m.spend ?? 0) > Math.max(100, spend * 0.03) && !(m.conversions ?? 0)) {
       out.push({
         id: `noconv-${c.id}`,
+        campaign: c.name,
         tone: 'warning',
         title: `${c.name} har ingen konverteringer`,
         detail: `${fmtMoney(m.spend, currency)} brugt uden konverteringer`,
@@ -53,6 +58,7 @@ export function computeAlerts(campaigns: CampaignRow[], range: DateRange, curren
   for (const c of paused) {
     out.push({
       id: `paused-${c.id}`,
+      campaign: c.name,
       tone: 'info',
       title: `${c.name} er pauset`,
       detail: `Den havde ROAS ${fmtNumber(c.metrics?.roas, 1)}x i perioden`,

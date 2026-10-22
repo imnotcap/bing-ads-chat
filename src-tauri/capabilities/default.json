@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the main window. HTTP is limited to Microsoft Advertising, Microsoft sign-in and report downloads; Claude is reached with the webview's own fetch (allowed by the CSP). The window is frameless; the custom title bar may minimize, maximize, close and drag it.",
+  "description": "Permissions for the main window. HTTP is limited to Microsoft Advertising (and its Merchant Center), Microsoft sign-in and report downloads; Claude is reached with the webview's own fetch (allowed by the CSP). The window is frameless; the custom title bar may minimize, maximize, close and drag it.",
   "windows": [
     "main"
   ],
@@ -36,6 +36,9 @@
         },
         {
           "url": "https://*.api.sandbox.bingads.microsoft.com/*"
+        },
+        {
+          "url": "https://content.api.ads.microsoft.com/*"
         },
         {
           "url": "https://login.microsoftonline.com/*"

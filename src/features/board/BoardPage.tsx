@@ -36,7 +36,7 @@ import {
   UserRound,
   Users,
   X,
-} from 'lucide-react';
+} from '@/components/icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { EASE, pageTransition } from '@/components/motion';
 import { toast } from '@/components/notifications/toast';

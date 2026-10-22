@@ -1,5 +1,5 @@
 /** Logos for the connector cards: the platform's own mark where we have it, else a tile in its colour. */
-import { BarChart3, Boxes, Search } from 'lucide-react';
+import { BarChart3, Boxes, Search } from '@/components/icons';
 import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
 import { cn } from '@/lib/utils';
 

@@ -25,7 +25,7 @@ import {
   Trash2,
   Users,
   X,
-} from 'lucide-react';
+} from '@/components/icons';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useEffect, useState } from 'react';
 import { EASE } from '@/components/motion';
@@ -382,7 +382,7 @@ export function CardDialog({ cardId, onClose }: { cardId: string | null; onClose
                         onClick={() => st().updateCard(card.id, { done: !card.done })}
                         className="mt-1.5 shrink-0"
                       >
-                        <CircleCheck className={cn('size-5 transition-colors', card.done ? 'fill-positive text-white' : 'text-subtle hover:text-positive')} />
+                        <CircleCheck weight={card.done ? 'fill' : 'bold'} className={cn('size-5 transition-colors', card.done ? 'text-positive' : 'text-subtle hover:text-positive')} />
                       </button>
                       <DialogPrimitive.Title asChild>
                         <textarea

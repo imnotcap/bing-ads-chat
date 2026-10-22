@@ -4,7 +4,7 @@
  * People an admin hasn't let in yet see a waiting screen.
  */
 import { motion } from 'motion/react';
-import { CalendarDays, Clock, Loader2, LogOut, RefreshCw, UserRound, Users } from 'lucide-react';
+import { CalendarDays, Clock, Loader2, LogOut, RefreshCw, UserRound, Users } from '@/components/icons';
 import { useEffect, useState } from 'react';
 import { BlurText } from '@/components/reactbits';
 import { EASE } from '@/components/motion';
