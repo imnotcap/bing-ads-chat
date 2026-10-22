@@ -17,8 +17,9 @@ import { ProductsPage } from '@/features/products/ProductsPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { BoardPage } from '@/features/board/BoardPage';
 import { ChatView } from '@/features/chat/ChatView';
-import { InsightsPanel } from '@/features/insights/InsightsPanel';
+import { RAIL_WIDTH, SessionRail } from '@/features/chat/SessionRail';
 import { Onboarding } from '@/features/onboarding/Onboarding';
+import { AsciiArc } from '@/components/layout/AsciiArc';
 import { AccountGate } from '@/features/account/LoginScreen';
 import { SettingsDialog } from '@/features/settings/SettingsDialog';
 import { UpdateDialog } from '@/components/layout/UpdatePrompt';
@@ -151,12 +152,14 @@ function Shell() {
               <span className="ml-auto shrink-0 font-semibold underline">Åbn forbindelser</span>
             </button>
           )}
-          <div className="flex min-h-0 flex-1">
+          {/* Centred on the page itself – in the chat, not under the session rail. */}
+          <AsciiArc className="transition-[right] duration-300" style={{ right: view === 'chat' && insights ? RAIL_WIDTH : 0 }} />
+          <div className="relative z-[1] flex min-h-0 flex-1">
             <AnimatePresence mode="wait" initial={false}>
               {view === 'chat' && (
                 <div key="chat" className="flex min-w-0 flex-1">
                   <ChatView />
-                  <InsightsPanel open={insights} />
+                  <SessionRail open={insights} />
                 </div>
               )}
               {view === 'dashboard' && <DashboardPage key="dashboard" />}

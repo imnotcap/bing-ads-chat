@@ -81,14 +81,6 @@ export function ChatView() {
         if (hasKey) composer.current?.addFiles([...e.dataTransfer.files]);
       }}
     >
-      {/* Soft static light from the top-right corner. */}
-      {!empty && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-60"
-          style={{ background: 'radial-gradient(600px 380px at 100% 0%, rgb(139 123 255 / 0.14), transparent 70%)' }}
-        />
-      )}
 
       <div ref={ref} onScroll={onScroll} className="relative z-0 flex-1 overflow-y-auto overflow-x-hidden">
         {empty ? (
@@ -98,7 +90,7 @@ export function ChatView() {
             {items.map((it, i) => (
               // Older messages are skipped by layout and paint while off screen, so a long
               // conversation stays as fast as a short one while an answer streams in.
-              <div key={it.id} className={cn(i < items.length - 2 && 'offscreen-skip')}>
+              <div key={it.id} id={`msg-${it.id}`} className={cn(i < items.length - 2 && 'offscreen-skip')}>
                 {it.kind === 'user' ? <UserMessage item={it} /> : <AssistantMessage item={it} currency={currency} isLast={i === items.length - 1} />}
               </div>
             ))}

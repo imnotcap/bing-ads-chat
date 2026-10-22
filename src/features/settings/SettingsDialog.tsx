@@ -51,7 +51,7 @@ const TABS: TabDef[] = [
   { id: 'training', label: 'Træning', icon: GraduationCap, group: 'Assistent', keywords: 'træn playbook guidelines regler rolle arbejdsflow grænser navigation lærte regler gren grene agent instruktioner' },
   { id: 'ai', label: 'AI-assistent', icon: Bot, group: 'Assistent', keywords: 'model opus sonnet haiku fable effort tænkning forbrug pris tokens cache' },
   { id: 'models', label: 'AI-modeller', icon: Cpu, group: 'Assistent', keywords: 'gemini google claude modeller admin administrator tillad pris flash haiku api-nøgle' },
-  { id: 'appearance', label: 'Udseende', icon: Palette, group: 'App', keywords: 'animationer gnister indsigt sidebar tema' },
+  { id: 'appearance', label: 'Udseende', icon: Palette, group: 'App', keywords: 'animationer gnister session sidebar tema' },
   { id: 'data', label: 'Data', icon: Database, group: 'App', keywords: 'eksport nulstil slet samtaler demo' },
   { id: 'about', label: 'Om appen', icon: Info, group: 'App', keywords: 'version opdatering opdateringer download cloudflare installer' },
 ];
@@ -269,7 +269,7 @@ function AppearanceTab() {
           onCheckedChange={(closeToTray) => set({ closeToTray })}
         />
         <SwitchRow label="Klik-gnister" description="Små gnister ved hvert klik." checked={a.clickSpark} onCheckedChange={(clickSpark) => set({ clickSpark })} />
-        <SwitchRow label="Vis indsigtsvindue ved chatten" description="Nøgletal, budget og opmærksomhedspunkter i højre side. Kan også foldes sammen direkte i chatten." checked={a.insightsPanel} onCheckedChange={(insightsPanel) => set({ insightsPanel })} />
+        <SwitchRow label="Vis session ved chatten" description="Konto, kontekst, forbindelser, output, ændringer og opgaver i højre side. Kan også skjules direkte i chatten (Ctrl+I)." checked={a.insightsPanel} onCheckedChange={(insightsPanel) => set({ insightsPanel })} />
         <SwitchRow label="Skjul sidebar" checked={a.sidebarCollapsed} onCheckedChange={(sidebarCollapsed) => set({ sidebarCollapsed })} />
       </div>
     </Card>
