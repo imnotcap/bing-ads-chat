@@ -73,7 +73,7 @@ function Card({ id, title, meta, children }: { id: string; title: string; meta?:
   const setAppearance = useSettings((s) => s.setAppearance);
   const toggle = () => setAppearance({ insightSections: { ...useSettings.getState().appearance.insightSections, [id]: !open } });
   return (
-    <section className="min-w-0 shrink-0 rounded-xl border border-line">
+    <section className="min-w-0 shrink-0 rounded-xl border border-line bg-white">
       <button type="button" onClick={toggle} aria-expanded={open} className="group flex w-full items-center gap-1.5 px-3.5 py-2.5 text-left">
         <span className="text-[13px] font-semibold text-ink">{title}</span>
         <ChevronDown className={cn('size-3.5 text-subtle transition-transform duration-200 group-hover:text-ink', !open && '-rotate-90')} />
