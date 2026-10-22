@@ -40,9 +40,15 @@ export function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
         <div className="absolute inset-x-0 top-[34px] flex justify-center">
           {/* The React Bits Orb, as on reactbits.dev – hover it, it follows the pointer. */}
           {/* The orb paints its own light background – fade it out so no square shows over the pattern. */}
-          <div style={{ width: 210, height: 210, maskImage: 'radial-gradient(closest-side, #000 84%, transparent 100%)', WebkitMaskImage: 'radial-gradient(closest-side, #000 84%, transparent 100%)' }}>
+          {/* Faded in, so the orb's first grey frames while WebGL warms up are never seen. */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.94 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.9, delay: 0.5, ease: [0.22, 1, 0.36, 1] }}
+            style={{ width: 210, height: 210, maskImage: 'radial-gradient(closest-side, #000 84%, transparent 100%)', WebkitMaskImage: 'radial-gradient(closest-side, #000 84%, transparent 100%)' }}
+          >
             <Orb backgroundColor="#fbfbfc" hoverIntensity={1.2} rotateOnHover followCursor />
-          </div>
+          </motion.div>
         </div>
       </div>
 

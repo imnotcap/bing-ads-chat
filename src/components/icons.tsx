@@ -1,6 +1,6 @@
 /**
  * The app's icons: Phosphor (https://phosphoricons.com) in its solid "fill" weight –
- * line-only glyphs (arrows, carets, ×, ✓, +) in "bold", since they have no fill. The
+ * line-only glyphs (arrows, rounded chevrons, ×, ✓, +) in "bold", since they have no fill. The
  * names are the ones the app used before (from lucide), so components import icons
  * from here by the same names. Any icon takes `weight` to override, e.g. an empty circle.
  */
@@ -52,11 +52,11 @@ export const Check = bold(P.Check);
 export const CheckCheck = bold(P.Checks);
 export const CheckCircle2 = icon(P.CheckCircle);
 export const CheckSquare = icon(P.CheckSquare);
-export const ChevronDown = icon(P.CaretDown);
-export const ChevronLeft = icon(P.CaretLeft);
-export const ChevronRight = icon(P.CaretRight);
-export const ChevronUp = icon(P.CaretUp);
-export const ChevronsUp = icon(P.CaretDoubleUp);
+export const ChevronDown = bold(P.CaretDown);
+export const ChevronLeft = bold(P.CaretLeft);
+export const ChevronRight = bold(P.CaretRight);
+export const ChevronUp = bold(P.CaretUp);
+export const ChevronsUp = bold(P.CaretDoubleUp);
 /** An empty circle (a task not done yet) – outlined on purpose. */
 export const Circle = bold(P.Circle);
 export const CircleCheck = icon(P.CheckCircle);

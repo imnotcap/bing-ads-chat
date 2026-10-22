@@ -4,7 +4,6 @@
  * the account at the bottom. The names show on hover.
  */
 import { Activity, LayoutDashboard, MessageSquare, Settings, SquareKanban, type LucideIcon } from '@/components/icons';
-import { motion } from 'motion/react';
 import { Tooltip } from '@/components/ui/overlays';
 import { cn } from '@/lib/utils';
 import { useChat } from '@/stores/chat';
@@ -32,13 +31,12 @@ function RailButton({ label, icon: Icon, active, onClick, dot, badge }: { label:
         onClick={onClick}
         aria-label={label}
         aria-current={active ? 'page' : undefined}
-        className={cn('relative grid size-10 place-items-center rounded-xl transition-colors', active ? 'text-brand' : 'text-muted hover:bg-line-2 hover:text-ink')}
+        className={cn('relative grid size-9 place-items-center rounded-lg transition-colors duration-200', active ? 'text-brand' : 'text-subtle hover:text-ink')}
       >
-        {active && <motion.span layoutId="rail-active" className="absolute inset-0 rounded-xl bg-brand-50" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
-        <Icon className="relative size-[19px]" strokeWidth={1.8} />
-        {dot && <span className="absolute right-2 top-2 size-1.5 animate-pulse rounded-full bg-brand" />}
+        <Icon className="size-[17px]" />
+        {dot && <span className="absolute right-1.5 top-1.5 size-1.5 animate-pulse rounded-full bg-brand" />}
         {!!badge && (
-          <span className="absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full border-2 border-surface bg-brand px-1 text-[9.5px] font-bold leading-3 text-white tabular">
+          <span className="absolute right-0 top-0 grid size-[15px] place-items-center rounded-full bg-brand text-[8.5px] font-bold leading-none text-white tabular ring-2 ring-[#fafafb]">
             {badge > 9 ? '9+' : badge}
           </span>
         )}
