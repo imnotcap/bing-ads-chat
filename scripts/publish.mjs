@@ -79,7 +79,10 @@ if (deploy) {
   const clientId = (process.env.MS_CLIENT_ID ?? '').trim();
   if (!clientId) throw new Error('MS_CLIENT_ID mangler – tilføj den som GitHub-secret (se docs/RELEASE.md). Intet er udgivet.');
   if (!/^[0-9a-f-]{36}(,[0-9a-f-]{36})*$/i.test(clientId)) throw new Error('MS_CLIENT_ID ligner ikke et Application (client) ID. Intet er udgivet.');
-  execSync(`npx --yes wrangler@4 deploy --config cloudflare/wrangler.jsonc --var MS_CLIENT_ID:${clientId}`, {
+  // The app's own domain (e.g. app.xavieros.dk), when its zone is active on the account (resolve-site.mjs).
+  const domain = (process.env.BING_ADS_CHAT_APP_DOMAIN ?? '').trim();
+  const domainFlag = /^[a-z0-9.-]+$/i.test(domain) ? ` --domain ${domain}` : '';
+  execSync(`npx --yes wrangler@4 deploy --config cloudflare/wrangler.jsonc --var MS_CLIENT_ID:${clientId}${domainFlag}`, {
     cwd: root,
     stdio: 'inherit',
     env: { ...process.env, CI: '1' },
