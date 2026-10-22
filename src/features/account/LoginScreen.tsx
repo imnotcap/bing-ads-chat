@@ -19,6 +19,7 @@ import { errorMessage } from '@/lib/utils';
 import { useAccount } from '@/stores/account';
 import { createCompany, devSignIn, restoreSession, signIn, signOut } from '@/workspace/account';
 import { PLANS, type PlanId } from '@/workspace/plans';
+import { AsciiArc } from '@/components/layout/AsciiArc';
 import { loadConfig } from '@/workspace/api';
 
 const ACCESS = [
@@ -39,11 +40,7 @@ function Frame({ children }: { children: React.ReactNode }) {
         {isTauri && <WindowControls />}
       </header>
       <div className="relative min-h-0 flex-1 overflow-y-auto">
-        <div
-          aria-hidden
-          className="pointer-events-none fixed inset-0"
-          style={{ background: 'radial-gradient(700px 420px at 100% 0%, rgb(139 123 255 / 0.18), transparent 70%), radial-gradient(600px 380px at 0% 100%, rgb(109 92 246 / 0.07), transparent 70%)' }}
-        />
+        <AsciiArc className="fixed top-10" />
         <div className="flex min-h-full items-center justify-center p-6">
         <motion.div
           initial={{ opacity: 0, y: 18, scale: 0.98 }}

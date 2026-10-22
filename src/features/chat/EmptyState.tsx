@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { KeyRound } from '@/components/icons';
-import { BlurText, GradientASCII, Orb } from '@/components/reactbits';
+import { BlurText } from '@/components/reactbits';
+import { XavierShards } from '@/components/layout/Logo';
 import { Button } from '@/components/ui/button';
 import { fadeUp, stagger } from '@/components/motion';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
@@ -10,9 +11,6 @@ import { SUGGESTIONS } from './suggestions';
 /** Three conversation starters – the rest are available as slash commands. */
 const STARTERS = [SUGGESTIONS[0]!, SUGGESTIONS[1]!, SUGGESTIONS[2]!];
 
-/** Theme version of the GradientASCII palette – soft lavender that melts into the white page. */
-const ASCII_COLORS = ['#a99dff', '#fbfbfc', '#efecff', '#c9c0ff'];
-
 export function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
   const account = useCurrentAccount();
   const mode = useConnection((s) => s.mode);
@@ -21,38 +19,14 @@ export function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
 
   return (
     <div className="flex min-h-full flex-col">
-      {/* Hero: ASCII horizon with the orb as its sun. */}
-      <div className="relative h-[300px] w-full shrink-0">
-        <GradientASCII
-          className="absolute inset-0 [mask-image:radial-gradient(ellipse_62%_78%_at_50%_42%,black_25%,transparent_78%)]"
-          colors={ASCII_COLORS}
-          shape="horizon"
-          characters=" =+xX0S8#@"
-          cellSize={18}
-          density={0.55}
-          glyphOpacity={0.35}
-          gradientOpacity={0.55}
-          grain={0.03}
-          flicker={0.15}
-          lightMode
-          inkColor="#b4a9ff"
-        />
-        <div className="absolute inset-x-0 top-[34px] flex justify-center">
-          {/* The React Bits Orb, as on reactbits.dev – hover it, it follows the pointer. */}
-          {/* The orb paints its own light background – fade it out so no square shows over the pattern. */}
-          {/* Faded in, so the orb's first grey frames while WebGL warms up are never seen. */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.94 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.9, delay: 0.5, ease: [0.22, 1, 0.36, 1] }}
-            style={{ width: 210, height: 210, maskImage: 'radial-gradient(closest-side, #000 84%, transparent 100%)', WebkitMaskImage: 'radial-gradient(closest-side, #000 84%, transparent 100%)' }}
-          >
-            <Orb backgroundColor="#fbfbfc" hoverIntensity={1.2} rotateOnHover followCursor />
-          </motion.div>
-        </div>
+      {/* The XavierOS mark on its own – the ASCII arc behind every page frames it. */}
+      <div className="flex h-[230px] w-full shrink-0 items-end justify-center pb-12">
+        <motion.div initial={{ opacity: 0, scale: 0.9, y: 6 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}>
+          <XavierShards className="w-[92px] text-[#1c191b]" />
+        </motion.div>
       </div>
 
-      <div className="mx-auto -mt-12 flex w-full max-w-[760px] flex-1 flex-col items-center px-6 pb-8">
+      <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col items-center px-6 pb-8">
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.15 } }} className="relative text-[15px] text-muted">
           Velkommen til XavierOS{account ? ` · ${account.name}` : ''}
           {mode === 'demo' ? ' (demo)' : ''}

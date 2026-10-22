@@ -32,7 +32,7 @@ import { otherBranchesContext } from './branchLimits';
 import { TERMINAL_TOOLS, getTool, toolDefinitions, type PlannedChange, type ToolContext } from './tools';
 import { connectorContext, enabledTools, isConnectorOn } from './connectors';
 import { GeminiError, geminiTokenUsage, streamGemini, toGeminiContents } from './gemini';
-import { modelInfo } from './models';
+import { contextTokens, modelInfo } from './models';
 import type { WriteTool } from './tools/context';
 import { totalActiveDailyBudget } from './tools/write';
 
@@ -250,7 +250,7 @@ function allowedTools(connectors: Parameters<typeof enabledTools>[0]) {
 /* --------------------------------- the loop --------------------------------- */
 
 /** Input size (tokens) at which older parts of a conversation are summarized. */
-const COMPACT_AT = 120_000;
+export const COMPACT_AT = 120_000;
 const COMPACT_INSTRUCTIONS = `Summarize the conversation so far so the work can continue without the earlier messages. Keep, exactly:
 - what the user asked for, their goals and preferences, and any decisions they made
 - every change that was proposed, approved, rejected or carried out (campaign/ad group/keyword names and IDs, old and new values)
@@ -372,7 +372,7 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
 
     const cost = useUsage.getState().record(message.model || ai.model, message.usage);
     reportUsage(cost);
-    updateAssistant(convId, itemId, (it) => ({ ...it, costUsd: (it.costUsd ?? 0) + cost }));
+    updateAssistant(convId, itemId, (it) => ({ ...it, costUsd: (it.costUsd ?? 0) + cost, contextTokens: contextTokens(message.usage) }));
 
     for (const b of message.content) {
       if (b.type === 'compaction' && b.content) notice(convId, itemId, 'info', 'Samtalen er blevet lang, så Claude har opsummeret det tidligere – alt vigtigt, der er nævnt, huskes stadig.');
@@ -486,9 +486,10 @@ async function runGeminiLoop(convId: string, itemId: string, apiKey: string, sig
       deltas.flush();
     }
 
-    const cost = useUsage.getState().record(ai.model, geminiTokenUsage(usage));
+    const tokens = geminiTokenUsage(usage);
+    const cost = useUsage.getState().record(ai.model, tokens);
     reportUsage(cost);
-    updateAssistant(convId, itemId, (it) => ({ ...it, costUsd: (it.costUsd ?? 0) + cost }));
+    updateAssistant(convId, itemId, (it) => ({ ...it, costUsd: (it.costUsd ?? 0) + cost, contextTokens: contextTokens(tokens) }));
 
     if (finishReason && ['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'RECITATION'].includes(finishReason)) {
       notice(convId, itemId, 'warning', 'Gemini afviste at svare på denne forespørgsel. Prøv at omformulere den.');

@@ -1,6 +1,6 @@
 /**
  * Top bar of the frameless window (Claude-desktop style): app menu, sidebar toggle,
- * back/forward, the current title with a dropdown, insights toggle and the window
+ * back/forward, the current title with a dropdown, session rail toggle and the window
  * controls. Empty areas are drag regions for moving the window.
  */
 import { getVersion } from '@tauri-apps/api/app';
@@ -229,7 +229,7 @@ function AppMenu() {
           <PanelLeft /> <span className="flex-1">{sidebarCollapsed ? 'Vis sidebar' : 'Skjul sidebar'}</span> <span className="text-[11px] text-subtle">Ctrl B</span>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={toggleInsights}>
-          <PanelRight /> <span className="flex-1">{insights ? 'Skjul indsigt' : 'Vis indsigt'}</span> <span className="text-[11px] text-subtle">Ctrl I</span>
+          <PanelRight /> <span className="flex-1">{insights ? 'Skjul session' : 'Vis session'}</span> <span className="text-[11px] text-subtle">Ctrl I</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => go('campaigns')}>
@@ -320,7 +320,7 @@ function MenuIcon({ label, disabled, icon, children, width = 'w-[260px]' }: { la
   );
 }
 
-/** Right side of the top bar in the chat: insights, export, files, share and more. */
+/** Right side of the top bar in the chat: session rail, export, files, share and more. */
 function ConversationActions() {
   const insights = useSettings((s) => s.appearance.insightsPanel);
   const setRenaming = useUi((s) => s.setRenaming);
@@ -335,10 +335,10 @@ function ConversationActions() {
 
   return (
     <div className="flex items-center gap-0.5">
-      <Tooltip content={`${insights ? 'Skjul' : 'Vis'} indsigt (Ctrl+I)`} side="bottom">
+      <Tooltip content={`${insights ? 'Skjul' : 'Vis'} session (Ctrl+I)`} side="bottom">
         <button
           type="button"
-          aria-label={insights ? 'Skjul indsigt' : 'Vis indsigt'}
+          aria-label={insights ? 'Skjul session' : 'Vis session'}
           aria-pressed={insights}
           onClick={toggleInsights}
           className={cn(menuButton, insights && 'bg-line-2 text-ink')}

@@ -75,6 +75,8 @@ export interface AssistantItem {
   status: 'streaming' | 'done' | 'error' | 'stopped';
   error?: string;
   costUsd?: number;
+  /** Tokens the model held after the last request in this reply (the session rail's "Kontekst"). */
+  contextTokens?: number;
   /** The follow-up offered after changes in this reply (see FollowUpCard). */
   followUp?: FollowUpState;
   /** Made by "/test" in the app – never sent to the AI. Shows a follow-up without real changes. */

@@ -117,6 +117,12 @@ export interface TokenUsage {
   iterations?: TokenUsage[] | null;
 }
 
+/** How much of the conversation the model holds after a request (the last step's input + answer). */
+export function contextTokens(u: TokenUsage): number {
+  const last = u.iterations?.length ? u.iterations[u.iterations.length - 1]! : u;
+  return (last.input_tokens ?? 0) + (last.cache_read_input_tokens ?? 0) + (last.cache_creation_input_tokens ?? 0) + (last.output_tokens ?? 0);
+}
+
 export function costUsd(model: string, u: TokenUsage): number {
   if (u.iterations?.length) return u.iterations.reduce((sum, it) => sum + costUsd(model, it), 0);
   const m = modelInfo(model);

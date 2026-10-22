@@ -1,7 +1,8 @@
 import { motion } from 'motion/react';
 import { AlertTriangle, ArrowRight, Check, Copy, FileText, Info, OctagonX, PencilLine, Sparkles } from '@/components/icons';
 import { memo, useState } from 'react';
-import { MiniOrb, ShinyText } from '@/components/reactbits';
+import { ShinyText } from '@/components/reactbits';
+import { XavierShards } from '@/components/layout/Logo';
 import { ContextMenu, copyText } from '@/components/ui/contextMenu';
 import { VisualBlock } from '@/components/blocks/VisualBlock';
 import { EASE } from '@/components/motion';
@@ -180,8 +181,15 @@ export const AssistantMessage = memo(function AssistantMessage({ item, currency,
   return (
     <ContextMenu items={[!live && !!text && { label: 'Kopiér svar', icon: <Copy />, onSelect: () => copyText(text) }]}>
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, ease: EASE }} className="group flex gap-3.5">
-        <div className="pt-0.5">
-          <MiniOrb size={26} active={live} animated={live} />
+        <div className="grid size-[26px] shrink-0 place-items-center pt-0.5">
+          {/* The assistant's picture: the XavierOS mark, no tile – it breathes while it answers. */}
+          <motion.span
+            className="block text-[#1c191b]"
+            animate={live ? { opacity: [1, 0.35, 1] } : { opacity: 1 }}
+            transition={live ? { duration: 1.6, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.2 }}
+          >
+            <XavierShards className="w-[21px]" />
+          </motion.span>
         </div>
         <div className="grid min-w-0 flex-1 gap-3">
           {groups.map((g, i) =>
