@@ -1,6 +1,4 @@
 {
   "$comment": "Public release settings (no secrets). The Cloudflare account and its workers.dev address are found from the CLOUDFLARE_API_TOKEN secret at build time (scripts/resolve-site.mjs) – nothing account-specific lives in the repo. See docs/RELEASE.md.",
-  "workerName": "bing-ads-chat",
-  "$appDomain": "The app's own address on the domain (xavieros.dk must be added to the same Cloudflare account). Until it answers, the workers.dev address keeps being used – see docs/RELEASE.md.",
-  "appDomain": "app.xavieros.dk"
+  "workerName": "bing-ads-chat"
 }

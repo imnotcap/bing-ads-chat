@@ -44,8 +44,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src ipc: http://ipc.localhost 'self' data: blob: https://api.anthropic.com https://generativelanguage.googleapis.com https://graph.microsoft.com https://*.workers.dev wss://*.workers.dev https://*.xavieros.dk wss://*.xavieros.dk; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-      "devCsp": "default-src 'self' http://localhost:1430; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' http://localhost:1430; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http://localhost:1430; font-src 'self' data: http://localhost:1430; connect-src ipc: http://ipc.localhost ws://localhost:1430 http://localhost:1430 data: blob: https://api.anthropic.com https://generativelanguage.googleapis.com https://graph.microsoft.com https://*.workers.dev wss://*.workers.dev https://*.xavieros.dk wss://*.xavieros.dk http://localhost:8787 ws://localhost:8787; object-src 'none'",
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src ipc: http://ipc.localhost 'self' data: blob: https://api.anthropic.com https://generativelanguage.googleapis.com https://graph.microsoft.com https://*.workers.dev wss://*.workers.dev; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      "devCsp": "default-src 'self' http://localhost:1430; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' http://localhost:1430; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http://localhost:1430; font-src 'self' data: http://localhost:1430; connect-src ipc: http://ipc.localhost ws://localhost:1430 http://localhost:1430 data: blob: https://api.anthropic.com https://generativelanguage.googleapis.com https://graph.microsoft.com https://*.workers.dev wss://*.workers.dev http://localhost:8787 ws://localhost:8787; object-src 'none'",
       "dangerousDisableAssetCspModification": [
         "style-src"
       ],

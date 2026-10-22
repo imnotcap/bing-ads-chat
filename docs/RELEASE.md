@@ -5,9 +5,8 @@ fra Cloudflare, så ingen skal hente en ny exe-fil efter den første installatio
 
 | Del | Adresse |
 | --- | --- |
-| Download-side og appens server | https://app.xavieros.dk, når domænet er sat op (se **Eget domæne** nedenfor) – indtil da https://bing-ads-chat.casperjohansen.workers.dev, som også bliver ved med at virke |
-| Opdateringsfeed (signeret) | https://app.xavieros.dk/updates/latest.json (med workers.dev-adressen som reserve) |
-| Hjemmeside | https://xavieros.dk og www.xavieros.dk – holdes fri til hjemmesiden |
+| Download-side | https://bing-ads-chat.casperjohansen.workers.dev (findes automatisk ud fra API-tokenet – står også i Actions-loggen under **Find the Cloudflare address**) |
+| Opdateringsfeed (signeret) | https://bing-ads-chat.casperjohansen.workers.dev/updates/latest.json |
 | Kildekode + byggeri | https://github.com/imnotcap/bing-ads-chat (GitHub Actions bygger Windows) |
 
 * Cloudflare: **din egen konto** (Workers Free – ikke Inventarlands) · Worker `bing-ads-chat`: statiske filer + `/api/teams`
@@ -63,38 +62,6 @@ adgang til noget alene: man skal stadig logge ind med en Microsoft-bruger.
 
 Kør derefter workflowet igen (Actions → Build Windows app → **Run workflow**) eller push en ændring.
 Uden secrets bygger GitHub stadig exe-filerne (artefakt + "Seneste build"), men uden automatiske opdateringer.
-
-## Eget domæne: app.xavieros.dk
-
-Appens server (download-side, opdateringer og `/api`) får adressen **app.xavieros.dk**. Selve
-**xavieros.dk** og **www.xavieros.dk** holdes fri til hjemmesiden. Det sker i tre trin, og intet går
-i stykker undervejs: appen bliver på workers.dev-adressen, indtil app.xavieros.dk faktisk svarer
-(`scripts/resolve-site.mjs`).
-
-**1. Tilføj domænet til Cloudflare** (samme konto som Workeren):
-dash.cloudflare.com → **Add a domain** → `xavieros.dk` → planen **Free** → Cloudflare viser to
-navneservere (fx `xxx.ns.cloudflare.com`).
-
-**2. Skift navneservere hos din domæneudbyder** (der hvor xavieros.dk er købt – for .dk-domæner
-typisk hos din registrator eller under *Navneservere* på punktum.dk/selvbetjening): erstat de
-nuværende navneservere med de to fra Cloudflare. Det tager typisk fra 10 minutter til et par timer;
-Cloudflare sender en mail, når domænet er **Active**.
-
-**3. Giv API-tokenet adgang til domænet**: dash.cloudflare.com → My Profile → API Tokens → ret
-tokenet bag `CLOUDFLARE_API_TOKEN` → tilføj under *Permissions*: **Zone → Zone → Read**,
-**Zone → DNS → Edit** og **Zone → Workers Routes → Edit**, og under *Zone Resources* `xavieros.dk`
-(eller *All zones*) → Save. Tokenet ændrer ikke værdi, så GitHub-secret'en skal ikke opdateres.
-
-Derefter sker resten ved udgivelserne:
-
-| Udgivelse | Hvad sker der |
-| --- | --- |
-| Første efter trin 1–3 | Workeren får `app.xavieros.dk` (Cloudflare laver selv DNS-posten og certifikatet). Appen i denne version bruger stadig workers.dev |
-| Den næste | app.xavieros.dk svarer, så appen bygges mod den – med workers.dev som reserve for opdateringer |
-
-Allerede installerede apps fortsætter med at virke og opdaterer sig via workers.dev-adressen, som
-ikke lukkes (`workers_dev: true`). Login med Microsoft påvirkes ikke (det bruger `http://localhost`).
-Actions-loggen under **Find the Cloudflare address** fortæller, hvilket trin domænet er nået til.
 
 ## Første gang
 
