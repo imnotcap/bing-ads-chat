@@ -27,6 +27,7 @@ import { useDesktopShell } from '@/hooks/useDesktopShell';
 import { useBootstrap } from '@/hooks/useBootstrap';
 import { useAccountSync } from '@/hooks/useAccountSync';
 import { useBoardSync } from '@/board/sync';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useBudgetWatch } from '@/hooks/useBudgetWatch';
 import { navigate, useNavigationHistory } from '@/hooks/useNavigationHistory';
 import { queryClient } from '@/lib/queryClient';
@@ -80,6 +81,7 @@ function Shell() {
   const go = useUi((s) => s.go);
   const sidebarCollapsed = useSettings((s) => s.appearance.sidebarCollapsed);
   useBudgetWatch();
+  useAutoRefresh();
   useShortcuts();
   useEffect(ensureFrameless, []);
   // Conversations are deleted 14 days after their last message (checked every hour).

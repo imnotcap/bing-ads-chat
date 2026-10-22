@@ -4,7 +4,7 @@
  * categories are listed at the bottom so they can be shown again.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { Activity, ChevronDown, Eye, EyeOff, LayoutDashboard, Package, Plus, Search, Sparkles, SquareKanban, UserRound,
+import { Activity, ChevronDown, Eye, EyeOff, LayoutDashboard, LayoutGrid, Package, Plus, Search, Sparkles, SquareKanban, UserRound,
   UsersRound, type LucideIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
@@ -32,6 +32,10 @@ interface NavItem {
   onSelect?: () => void;
   soon?: boolean;
   badge?: number;
+  /** A channel (Microsoft Ads, Google Ads …) folds out to its own pages. */
+  children?: NavItem[];
+  expanded?: boolean;
+  onToggle?: () => void;
 }
 
 interface Category {
@@ -43,7 +47,50 @@ interface Category {
   empty?: string;
 }
 
-function ItemRow({ item }: { item: NavItem }) {
+function BranchRow({ item }: { item: NavItem }) {
+  const childActive = item.children!.some((c) => c.active);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={item.onToggle}
+        aria-expanded={item.expanded}
+        className={cn(
+          'group relative flex h-9 w-full items-center gap-2.5 rounded-[10px] px-3 text-left text-[13.5px] font-medium transition-colors hover:bg-line-2 hover:text-ink',
+          childActive ? 'text-ink' : 'text-muted',
+        )}
+      >
+        <span className="relative grid size-[17px] shrink-0 place-items-center">
+          {item.brand ? <BrandIcon brand={item.brand} className="size-[16px]" /> : item.icon ? <item.icon className="size-[17px]" strokeWidth={1.8} /> : null}
+        </span>
+        <span className="relative min-w-0 flex-1 truncate">{item.label}</span>
+        {item.soon && <span className="relative rounded-full bg-line-2 px-1.5 py-px text-[10.5px] font-medium text-subtle">Snart</span>}
+        <ChevronDown className={cn('size-3.5 shrink-0 text-subtle transition-transform duration-200', !item.expanded && '-rotate-90')} />
+      </button>
+      <AnimatePresence initial={false}>
+        {item.expanded && (
+          <motion.div
+            key="children"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: EASE }}
+            className="overflow-hidden"
+          >
+            <div className="relative ml-[21px] grid gap-0.5 border-l border-line py-0.5 pl-2">
+              {item.children!.map((c) => (
+                <ItemRow key={c.id} item={c} nested />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function ItemRow({ item, nested = false }: { item: NavItem; nested?: boolean }) {
+  if (item.children) return <BranchRow item={item} />;
   const content = (
     <button
       type="button"
@@ -51,7 +98,8 @@ function ItemRow({ item }: { item: NavItem }) {
       onClick={item.onSelect}
       aria-current={item.active ? 'page' : undefined}
       className={cn(
-        'group relative flex h-9 w-full items-center gap-2.5 rounded-[10px] px-3 text-left text-[13.5px] font-medium transition-colors',
+        'group relative flex w-full items-center gap-2.5 rounded-[10px] px-3 text-left font-medium transition-colors',
+        nested ? 'h-8 text-[13px]' : 'h-9 text-[13.5px]',
         item.active ? 'text-ink' : 'text-muted hover:bg-line-2 hover:text-ink',
         item.soon && 'cursor-default opacity-60 hover:bg-transparent hover:text-muted',
       )}
@@ -73,11 +121,11 @@ function ItemRow({ item }: { item: NavItem }) {
         ) : null}
       </span>
       <span className="relative min-w-0 flex-1 truncate">{item.label}</span>
-      {item.soon && <span className="relative rounded-full bg-line-2 px-1.5 py-px text-[10.5px] font-medium text-subtle">Snart</span>}
+      {item.soon && !nested && <span className="relative rounded-full bg-line-2 px-1.5 py-px text-[10.5px] font-medium text-subtle">Snart</span>}
       {!!item.badge && <span className="relative min-w-5 rounded-full bg-brand px-1.5 text-center text-[11px] font-semibold leading-5 text-white tabular">{item.badge}</span>}
     </button>
   );
-  return item.soon ? <Tooltip content="Kommer snart – forbindelsen er på vej" side="right">{content}</Tooltip> : content;
+  return item.soon && !nested ? <Tooltip content="Kommer snart – forbindelsen er på vej" side="right">{content}</Tooltip> : content;
 }
 
 function CategoryBlock({ cat, collapsed, onToggle, onHide }: { cat: Category; collapsed: boolean; onToggle: () => void; onHide: () => void }) {
@@ -139,6 +187,13 @@ function CategoryBlock({ cat, collapsed, onToggle, onHide }: { cat: Category; co
   );
 }
 
+/** Menu search: a channel stays (opened) when it or one of its pages matches. */
+function matchItem(item: NavItem, q: string): NavItem[] {
+  if (item.label.toLowerCase().includes(q)) return [item.children ? { ...item, expanded: true } : item];
+  const children = item.children?.filter((c) => c.label.toLowerCase().includes(q));
+  return children?.length ? [{ ...item, children, expanded: true }] : [];
+}
+
 export function DashboardSidebar() {
   const view = useUi((s) => s.view);
   const boardId = useUi((s) => s.boardId);
@@ -154,6 +209,22 @@ export function DashboardSidebar() {
 
   const categories = useMemo<Category[]>(() => {
     const nav = (id: string, label: string, icon: LucideIcon, target: View): NavItem => ({ id, label, icon, active: view === target, onSelect: () => go(target) });
+    const soon = (id: string, label: string, icon: LucideIcon): NavItem => ({ id, label, icon, active: false, soon: true });
+    // Each channel folds out to its own pages; open unless folded (its page being open keeps it open).
+    const branch = (id: string, label: string, brand: Brand, children: NavItem[], isSoon = false): NavItem => {
+      const key = `branch:${id}`;
+      const open = collapsed[key] === undefined ? !isSoon : !collapsed[key];
+      return {
+        id,
+        label,
+        brand,
+        active: false,
+        soon: isSoon,
+        children,
+        expanded: open || children.some((c) => c.active),
+        onToggle: () => setAppearance({ navCollapsed: { ...collapsed, [key]: open } }),
+      };
+    };
     return [
       {
         id: 'overview',
@@ -164,11 +235,10 @@ export function DashboardSidebar() {
         id: 'paid',
         label: 'Betalt markedsføring',
         items: [
-          { id: 'msads', label: 'Microsoft Ads', brand: 'microsoft_ads', active: view === 'campaigns', onSelect: () => go('campaigns') },
-          nav('products', 'Produkter', Package, 'products'),
-          { id: 'gads', label: 'Google Ads', brand: 'google_ads', active: false, soon: true },
-          { id: 'meta', label: 'Meta Ads', brand: 'meta', active: false, soon: true },
-          { id: 'linkedin', label: 'LinkedIn Ads', brand: 'linkedin', active: false, soon: true },
+          branch('msads', 'Microsoft Ads', 'microsoft_ads', [nav('campaigns', 'Kampagner', LayoutGrid, 'campaigns'), nav('products', 'Produkter', Package, 'products')]),
+          branch('gads', 'Google Ads', 'google_ads', [soon('gads-campaigns', 'Kampagner', LayoutGrid), soon('gads-products', 'Produkter', Package)], true),
+          branch('meta', 'Meta Ads', 'meta', [soon('meta-campaigns', 'Kampagner', LayoutGrid), soon('meta-catalog', 'Katalog', Package)], true),
+          branch('linkedin', 'LinkedIn Ads', 'linkedin', [soon('linkedin-campaigns', 'Kampagner', LayoutGrid)], true),
         ],
       },
       {
@@ -188,12 +258,12 @@ export function DashboardSidebar() {
         })),
       },
     ];
-  }, [view, boardId, boards, cards, meId, go, openBoard]);
+  }, [view, boardId, boards, cards, meId, go, openBoard, collapsed, setAppearance]);
 
   const q = query.trim().toLowerCase();
   const visible = categories
     .filter((c) => !hidden.includes(c.id))
-    .map((c) => (q ? { ...c, items: c.items.filter((i) => i.label.toLowerCase().includes(q)) } : c))
+    .map((c) => (q ? { ...c, items: c.items.flatMap((i) => matchItem(i, q)) } : c))
     .filter((c) => !q || c.items.length);
   const hiddenCats = categories.filter((c) => hidden.includes(c.id));
 

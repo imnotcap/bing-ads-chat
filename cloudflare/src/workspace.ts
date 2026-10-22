@@ -131,7 +131,7 @@ export class Workspace extends DurableObject<Env> {
     const url = new URL(req.url);
     const path = url.pathname.replace(/^\/api/, '');
     try {
-      // From the Worker's nightly schedule only (requests from outside always start with /api).
+      // From the Worker's weekday schedule only (requests from outside always start with /api).
       if (url.pathname === '/internal/check-connections') return json(await this.checkConnections());
       // From the Worker after the register of companies (directory.ts) has approved the person.
       if (url.pathname === '/internal/sign-in') {
@@ -650,7 +650,7 @@ export class Workspace extends DurableObject<Env> {
     return fail('Ikke fundet.', 404);
   }
 
-  /** Every night: tests every saved connection again (keeps refresh tokens alive, shows broken ones). */
+  /** Weekday mornings: tests every saved connection again (keeps refresh tokens alive, shows broken ones). */
   private async checkConnections() {
     const results: Record<string, string> = {};
     // Microsoft Advertising: a refresh keeps the token alive (it lapses after 90 unused days).

@@ -8,6 +8,7 @@ import { getBackend } from '@/bing/backend';
 import { relevantProducts } from '@/bing/products';
 import type { AdsBackend, ProductPerformance } from '@/bing/types';
 import type { DateRange } from '@/lib/format';
+import { autoRefreshAllowed } from '@/lib/refreshPolicy';
 import { useConnection } from '@/stores/connection';
 import { api } from './api';
 
@@ -44,7 +45,8 @@ export async function loadProducts(
 
   if (live && !force) {
     const snap = await api<Snapshot>(`/workspace/ads/products?account=${encodeURIComponent(accountId)}&period=${period}`).catch(() => null);
-    if (snap?.fetchedAt && Date.now() - snap.fetchedAt < PRODUCTS_FRESH_MS) {
+    // Outside weekdays 8–16 the stored copy is used however old it is (lib/refreshPolicy.ts).
+    if (snap?.fetchedAt && (Date.now() - snap.fetchedAt < PRODUCTS_FRESH_MS || !autoRefreshAllowed())) {
       return { products: snap.products, scanned: snap.scanned, fetchedAt: snap.fetchedAt, cached: true };
     }
   }

@@ -124,7 +124,7 @@ export default {
     }
   },
 
-  /** Every night: test every company's data sources again (wrangler.jsonc → triggers). */
+  /** Weekday mornings: test every company's data sources again (wrangler.jsonc → triggers). */
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
     const { ids } = (await (await directory(env).fetch('https://directory/companies')).json()) as { ids: string[] };
     for (const id of ids) ctx.waitUntil(workspace(env, id).fetch('https://workspace/internal/check-connections', { method: 'POST' }).then((r) => r.text()));

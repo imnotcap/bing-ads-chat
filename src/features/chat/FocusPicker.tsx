@@ -28,7 +28,6 @@ function useCampaigns(enabled: boolean) {
   return useQuery({
     queryKey: ['focus-campaigns', mode, accountId, revision],
     enabled: enabled && !!accountId,
-    staleTime: 5 * 60_000,
     queryFn: async () => {
       const backend = await getBackend();
       return backend.listCampaignsCached ? backend.listCampaignsCached(accountId!) : backend.listCampaigns(accountId!);
@@ -41,7 +40,6 @@ function useAdGroups(campaignId: string | null) {
   return useQuery({
     queryKey: ['focus-adgroups', mode, accountId, revision, campaignId],
     enabled: !!campaignId && !!accountId,
-    staleTime: 5 * 60_000,
     queryFn: async () => (await getBackend()).listAdGroups(accountId!, campaignId!),
   });
 }

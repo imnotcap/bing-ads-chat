@@ -75,7 +75,6 @@ export function useProducts(range: DateRange) {
   return useQuery({
     queryKey: ['products', ...base, range.from, range.to],
     enabled: !!accountId,
-    staleTime: 10 * 60_000,
     queryFn: ({ signal }) => loadProducts(accountId!, range, { signal }),
   });
 }

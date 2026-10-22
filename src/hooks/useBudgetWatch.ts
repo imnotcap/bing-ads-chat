@@ -1,5 +1,6 @@
 /**
- * Budgetvagt: while the app is open, checks month-to-date spend every 30 minutes.
+ * Budgetvagt: while the app is open, checks month-to-date spend every 30 minutes on
+ * weekdays 8–16 (lib/refreshPolicy.ts – no automatic API calls outside those hours).
  * Warns once per month at the warning threshold and – when enabled – pauses all
  * active campaigns once the monthly budget is used.
  */
@@ -8,13 +9,13 @@ import { toast } from '@/components/notifications/toast';
 import { getBackend } from '@/bing/backend';
 import { getSpendStatus, invalidateSpendCache } from '@/bing/spend';
 import { fmtMoney, monthKey } from '@/lib/format';
+import { AUTO_REFRESH_MS, autoRefreshAllowed } from '@/lib/refreshPolicy';
 import { queryClient } from '@/lib/queryClient';
 import { errorMessage } from '@/lib/utils';
 import { useActivity } from '@/stores/activity';
 import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 
-const INTERVAL = 30 * 60_000;
 const FLAG = 'bac.budgetvagt';
 
 function flagged(key: string): boolean {
@@ -80,9 +81,9 @@ export function useBudgetWatch() {
   const monthlyBudget = useSettings((s) => s.spend.monthlyBudget);
   useEffect(() => {
     if (!accountId || monthlyBudget === null) return;
-    const run = () => void checkBudget().catch(() => undefined);
+    const run = () => autoRefreshAllowed() && void checkBudget().catch(() => undefined);
     const first = setTimeout(run, 8_000);
-    const t = setInterval(run, INTERVAL);
+    const t = setInterval(run, AUTO_REFRESH_MS);
     return () => {
       clearTimeout(first);
       clearInterval(t);
