@@ -2,7 +2,7 @@
  * The row under the chat field (Claude style): the focus (campaign / ad group) and connectors on
  * the left; model, effort and the monthly AI-usage ring on the right.
  */
-import { ChartColumn, Check, ChevronDown, Loader2, Plug, Plus, Settings } from 'lucide-react';
+import { ChartColumn, Check, ChevronDown, Loader2, Plug, Plus, Settings } from '@/components/icons';
 import { AnimatePresence, motion } from 'motion/react';
 import { Popover } from 'radix-ui';
 import { memo, useEffect, useState } from 'react';

@@ -4,20 +4,17 @@
  * categories are listed at the bottom so they can be shown again.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { Activity, ChevronDown, Eye, EyeOff, LayoutDashboard, LayoutGrid, Package, Plus, Search, Sparkles, SquareKanban, UserRound,
-  UsersRound, type LucideIcon } from 'lucide-react';
+import { ChevronDown, Eye, EyeOff, LayoutDashboard, LayoutGrid, Package, Plus, Search, SquareKanban, UserRound,
+  UsersRound, type LucideIcon } from '@/components/icons';
 import { useMemo, useState } from 'react';
 import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
 import { EASE } from '@/components/motion';
-import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { cn } from '@/lib/utils';
 import { LABEL_COLORS, boardAccess, myOpenCards, useBoard, visibleBoards, type BoardAccess } from '@/stores/board';
 import { useNewBoardDialog } from '@/features/board/BoardAccess';
 import { useSettings } from '@/stores/settings';
 import { useUi, type View } from '@/stores/ui';
-import { AccountMenu, ModeNav } from './Sidebar';
-import { startNewConversation } from './TopBar';
 
 interface NavItem {
   id: string;
@@ -194,7 +191,8 @@ function matchItem(item: NavItem, q: string): NavItem[] {
   return children?.length ? [{ ...item, children, expanded: true }] : [];
 }
 
-export function DashboardSidebar() {
+/** The sidebar of the Dashboard section (overview and channels) or the Planlægning section (boards). */
+export function DashboardSidebar({ section }: { section: 'dashboard' | 'planning' }) {
   const view = useUi((s) => s.view);
   const boardId = useUi((s) => s.boardId);
   const go = useUi((s) => s.go);
@@ -225,11 +223,34 @@ export function DashboardSidebar() {
         onToggle: () => setAppearance({ navCollapsed: { ...collapsed, [key]: open } }),
       };
     };
+    if (section === 'planning') {
+      // The board page shows the shared board when none is chosen yet.
+      const visibleList = visibleBoards(boards, meId);
+      const current = boardId ?? (visibleList.find((b) => !b.ownerId) ?? visibleList[0])?.id;
+      return [
+        {
+          id: 'boards',
+          label: 'Tavler',
+          addLabel: 'Ny tavle',
+          onAdd: () => useNewBoardDialog.getState().setOpen(true),
+          empty: 'Ingen tavler endnu – klik + for at lave en.',
+          items: visibleList.map((b) => ({
+            id: b.id,
+            label: b.title,
+            swatch: LABEL_COLORS[b.accent].solid,
+            access: boardAccess(b),
+            active: view === 'board' && current === b.id,
+            onSelect: () => openBoard(b.id),
+            badge: myOpenCards({ cards, meId }, b.id),
+          })),
+        },
+      ];
+    }
     return [
       {
         id: 'overview',
-        label: 'Overblik',
-        items: [nav('dashboard', 'Dashboard', LayoutDashboard, 'dashboard'), nav('activity', 'Aktivitet', Activity, 'activity')],
+        label: 'Generelt',
+        items: [nav('dashboard', 'Overblik', LayoutDashboard, 'dashboard')],
       },
       {
         id: 'paid',
@@ -241,24 +262,8 @@ export function DashboardSidebar() {
           branch('linkedin', 'LinkedIn Ads', 'linkedin', [soon('linkedin-campaigns', 'Kampagner', LayoutGrid)], true),
         ],
       },
-      {
-        id: 'planning',
-        label: 'Planlægning',
-        addLabel: 'Ny tavle',
-        onAdd: () => useNewBoardDialog.getState().setOpen(true),
-        empty: 'Ingen tavler endnu – klik + for at lave en.',
-        items: visibleBoards(boards, meId).map((b) => ({
-          id: b.id,
-          label: b.title,
-          swatch: LABEL_COLORS[b.accent].solid,
-          access: boardAccess(b),
-          active: view === 'board' && boardId === b.id,
-          onSelect: () => openBoard(b.id),
-          badge: myOpenCards({ cards, meId }, b.id),
-        })),
-      },
     ];
-  }, [view, boardId, boards, cards, meId, go, openBoard, collapsed, setAppearance]);
+  }, [section, view, boardId, boards, cards, meId, go, openBoard, collapsed, setAppearance]);
 
   const q = query.trim().toLowerCase();
   const visible = categories
@@ -272,13 +277,10 @@ export function DashboardSidebar() {
   const show = (id: string) => setAppearance({ navHidden: hidden.filter((h) => h !== id) });
 
   return (
-    <div className="flex h-full w-[260px] flex-col">
+    <div className="flex h-full w-[248px] flex-col">
       <div className="px-3 pt-3">
-        <ModeNav />
-        <Button variant="secondary" className="mt-2 h-9 w-full justify-start" onClick={startNewConversation}>
-          <Sparkles className="text-brand" /> Spørg assistenten
-        </Button>
-        <div className="relative mt-3 px-1">
+        <h2 className="px-2 pb-2 pt-1 text-[17px] font-semibold tracking-[-0.02em] text-ink">{section === 'planning' ? 'Planlægning' : 'Dashboard'}</h2>
+        <div className="relative px-1">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
           <input
             value={query}
@@ -331,10 +333,6 @@ export function DashboardSidebar() {
           </DropdownMenu>
         </div>
       )}
-
-      <div className="border-t border-line px-2 py-2">
-        <AccountMenu />
-      </div>
     </div>
   );
 }

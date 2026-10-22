@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Brain, ChevronRight } from 'lucide-react';
+import { Brain, ChevronRight } from '@/components/icons';
 import { useState } from 'react';
 import { ShinyText } from '@/components/reactbits';
 import type { ThinkingPart } from '@/stores/chat';

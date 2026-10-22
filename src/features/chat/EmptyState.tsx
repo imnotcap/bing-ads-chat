@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { KeyRound } from 'lucide-react';
+import { KeyRound } from '@/components/icons';
 import { BlurText, GradientASCII, Orb } from '@/components/reactbits';
 import { Button } from '@/components/ui/button';
 import { fadeUp, stagger } from '@/components/motion';

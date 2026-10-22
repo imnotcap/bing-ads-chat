@@ -86,3 +86,25 @@ export async function refreshProducts(range: DateRange) {
   const fresh = await loadProducts(accountId, range, { force: true });
   queryClient.setQueryData(['products', mode, accountId, revision, range.from, range.to], fresh);
 }
+
+/**
+ * Day by day for a period and the whole period before (the dashboard's chart); the
+ * totals compare with the same days of the period before (`previous`).
+ */
+export function usePeriodTrend(range: DateRange, previous: DateRange, previousFull: DateRange) {
+  const { accountId, base } = useKeyBase();
+  return useQuery({
+    queryKey: ['period-trend', ...base, range.from, range.to, previous.to, previousFull.from, previousFull.to],
+    enabled: !!accountId,
+    queryFn: async () => {
+      const backend = await getBackend();
+      const [daily, before] = await Promise.all([
+        backend.runReport(accountId!, { kind: 'account', range, aggregation: 'Daily' }),
+        backend.runReport(accountId!, { kind: 'account', range: previousFull, aggregation: 'Daily' }),
+      ]);
+      const byDate = (rows: ReportRow[]) => [...rows].sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+      const sameDays = before.filter((d) => (d.date ?? '') >= previous.from && (d.date ?? '') <= previous.to);
+      return { daily: byDate(daily), previousDaily: byDate(before), totals: derive(sumMetrics(daily)), previous: derive(sumMetrics(sameDays)) };
+    },
+  });
+}

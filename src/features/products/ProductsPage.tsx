@@ -5,12 +5,14 @@
  * columns (Kolonner) work on the list already loaded – no new report per click.
  */
 import { motion } from 'motion/react';
-import { ArrowDown, ArrowUp, CalendarDays, Columns3, Package, RefreshCw, Search, Sparkles, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarDays, Columns3, Copy, ExternalLink, Hash, Package, PanelTop, RefreshCw, Search, Sparkles, X } from '@/components/icons';
 import { useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/blocks/KpiGrid';
 import { pageTransition } from '@/components/motion';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/overlays';
+import { ContextMenu, copyText } from '@/components/ui/contextMenu';
+import { openExternal } from '@/lib/platform';
 import { change, derive, sumMetrics } from '@/bing/metrics';
 import { refreshProducts, useProducts, useSelectedRange } from '@/hooks/useAdsData';
 import { DATE_PRESET_LABELS, fmtNumber, type DatePreset } from '@/lib/format';
@@ -297,13 +299,29 @@ export function ProductsPage() {
                 </thead>
                 <tbody>
                   {rows.slice(0, shown).map((r) => (
-                    <tr key={r.id} onClick={() => setOpen(r)} className="group cursor-pointer transition-colors hover:bg-brand-50/30">
-                      {visible.map((c) => (
-                        <td key={c.id} className={cn('border-b border-line-2 px-3 py-2 first:pl-4', c.numeric && 'text-right tabular', c.width)}>
-                          {c.cell(r, currency)}
-                        </td>
-                      ))}
-                    </tr>
+                    <ContextMenu
+                      key={r.id}
+                      label={r.title}
+                      items={[
+                        { label: 'Vis produktet', icon: <PanelTop />, onSelect: () => setOpen(r) },
+                        {
+                          label: 'Spørg assistenten om produktet',
+                          icon: <Sparkles />,
+                          onSelect: () => ask(`Analysér produktet "${r.title}" (produkt-id ${r.id}) i Shopping/Performance Max i den valgte periode: hvordan klarer det sig, og hvad bør jeg gøre?`),
+                        },
+                        !!r.link && { label: 'Åbn produktsiden', icon: <ExternalLink />, onSelect: () => void openExternal(r.link!) },
+                        { label: 'Kopiér produkt-id', icon: <Hash />, onSelect: () => copyText(r.id), separated: true },
+                        { label: 'Kopiér titel', icon: <Copy />, onSelect: () => copyText(r.title) },
+                      ]}
+                    >
+                      <tr onClick={() => setOpen(r)} className="group cursor-pointer transition-colors hover:bg-brand-50/30">
+                        {visible.map((c) => (
+                          <td key={c.id} className={cn('border-b border-line-2 px-3 py-2 first:pl-4', c.numeric && 'text-right tabular', c.width)}>
+                            {c.cell(r, currency)}
+                          </td>
+                        ))}
+                      </tr>
+                    </ContextMenu>
                   ))}
                 </tbody>
               </table>

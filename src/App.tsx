@@ -1,10 +1,12 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
-import { AlertTriangle, WifiOff } from 'lucide-react';
+import { AlertTriangle, WifiOff } from '@/components/icons';
 import { useEffect } from 'react';
 import { Toaster } from 'sonner';
 import { ClickSpark } from '@/components/reactbits';
 import { Sidebar } from '@/components/layout/Sidebar';
+import { IconRail, sectionOf } from '@/components/layout/IconRail';
+import { useNoDefaultContextMenu } from '@/components/ui/contextMenu';
 import { DashboardSidebar } from '@/components/layout/DashboardSidebar';
 import { TopBar, startNewConversation, toggleInsights, toggleSidebar } from '@/components/layout/TopBar';
 import { EASE } from '@/components/motion';
@@ -35,7 +37,7 @@ import { ensureFrameless } from '@/lib/window';
 import { useAccount } from '@/stores/account';
 import { deleteOldConversations } from '@/stores/chat';
 import { useSettings } from '@/stores/settings';
-import { isDashboardView, useUi } from '@/stores/ui';
+import { useUi } from '@/stores/ui';
 
 function useShortcuts() {
   useEffect(() => {
@@ -72,7 +74,8 @@ function useShortcuts() {
 
 function Shell() {
   const view = useUi((s) => s.view);
-  const dashMode = isDashboardView(view);
+  // The icon rail picks the section; each section (but Aktivitet) has its own sidebar.
+  const section = sectionOf(view);
   const insights = useSettings((s) => s.appearance.insightsPanel);
   const onboarded = useSettings((s) => s.onboarded);
   const signedIn = useAccount((s) => s.status === 'ready');
@@ -82,6 +85,7 @@ function Shell() {
   const sidebarCollapsed = useSettings((s) => s.appearance.sidebarCollapsed);
   useBudgetWatch();
   useAutoRefresh();
+  useNoDefaultContextMenu();
   useShortcuts();
   useEffect(ensureFrameless, []);
   // Conversations are deleted 14 days after their last message (checked every hour).
@@ -100,12 +104,13 @@ function Shell() {
     <div className="flex h-full flex-col bg-surface">
       <TopBar />
       <div className="flex min-h-0 flex-1">
+        <IconRail />
         <AnimatePresence initial={false}>
-          {!sidebarCollapsed && (
+          {!sidebarCollapsed && section !== 'activity' && (
             <motion.aside
               key="sidebar"
               initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 260, opacity: 1 }}
+              animate={{ width: 248, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.28, ease: EASE }}
               className="relative z-20 h-full shrink-0 overflow-hidden border-r border-line bg-surface"
@@ -113,14 +118,14 @@ function Shell() {
             >
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
-                  key={dashMode ? 'dash' : 'chat'}
+                  key={section}
                   className="h-full"
-                  initial={{ opacity: 0, x: dashMode ? 12 : -12 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: dashMode ? -12 : 12 }}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.2, ease: EASE }}
                 >
-                  {dashMode ? <DashboardSidebar /> : <Sidebar />}
+                  {section === 'chat' ? <Sidebar /> : <DashboardSidebar section={section === 'planning' ? 'planning' : 'dashboard'} />}
                 </motion.div>
               </AnimatePresence>
             </motion.aside>

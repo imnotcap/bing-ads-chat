@@ -4,7 +4,7 @@
  * connector's tools are left out of the request entirely, and the assistant is told
  * so it can say what to switch on.
  */
-import { BarChart3, Globe, PenLine, Search, ShoppingBag, Terminal, type LucideIcon } from 'lucide-react';
+import { BarChart3, Globe, PenLine, Search, ShoppingBag, Terminal, type LucideIcon } from '@/components/icons';
 import type { Brand } from '@/components/brand/BrandIcon';
 import type { AnyTool } from './tools/context';
 import { ALL_TOOLS } from './tools';

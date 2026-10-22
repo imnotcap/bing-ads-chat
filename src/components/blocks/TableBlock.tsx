@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp } from 'lucide-react';
+import { ArrowDown, ArrowUp } from '@/components/icons';
 import { useMemo, useState } from 'react';
 import type { VisualColumn } from '@/ai/visuals';
 import { cn } from '@/lib/utils';

@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ClipboardPaste, CornerDownLeft, FileText, FolderOpen, ImageIcon, ListPlus, Loader2, Mic, Paperclip, Plus, Square, X } from 'lucide-react';
+import { ClipboardPaste, CornerDownLeft, FileText, FolderOpen, ImageIcon, ListPlus, Loader2, Mic, Paperclip, Plus, Square, X } from '@/components/icons';
 import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
@@ -346,7 +346,7 @@ export const Composer = memo(forwardRef<
           {running ? (
             <Tooltip content="Stop">
               <motion.button type="button" onClick={onStop} whileTap={{ scale: 0.92 }} className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-ink text-white" aria-label="Stop">
-                <Square className="size-3 fill-current" />
+                <Square weight="fill" className="size-3" />
               </motion.button>
             </Tooltip>
           ) : (

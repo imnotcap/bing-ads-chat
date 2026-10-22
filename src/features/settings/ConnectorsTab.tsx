@@ -3,7 +3,7 @@
  * card per source (logo, name, one line), connected ones first. Clicking a card
  * opens its setup in a dialog, so the page never becomes one long form.
  */
-import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Loader2, LogIn, Plus, Search, Settings2, Unplug, Users } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Loader2, LogIn, Plus, Search, Settings2, Unplug, Users } from '@/components/icons';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';

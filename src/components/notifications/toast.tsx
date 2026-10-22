@@ -7,7 +7,7 @@
  *
  * Same call style as sonner: toast('…'), toast.success('…', { description, action }).
  */
-import { AlertTriangle, ArrowDownToLine, Check, Info, RefreshCw, X, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowDownToLine, Check, Info, RefreshCw, X, XCircle } from '@/components/icons';
 import { motion } from 'motion/react';
 import type { ReactNode } from 'react';
 import { toast as sonner } from 'sonner';

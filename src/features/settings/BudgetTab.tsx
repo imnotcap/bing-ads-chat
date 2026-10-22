@@ -3,7 +3,7 @@
  * proposed – per branch, shared by the team (src/ai/branchLimits.ts). Microsoft
  * Advertising also gets its protected campaigns (from the account) and the emergency stop.
  */
-import { OctagonPause } from 'lucide-react';
+import { OctagonPause } from '@/components/icons';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { getBackend } from '@/bing/backend';

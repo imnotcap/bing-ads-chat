@@ -1,6 +1,6 @@
 /** Compact, expandable timeline of the read/display tools the assistant used. */
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertCircle, Check, ChevronRight, Loader2, Square } from 'lucide-react';
+import { AlertCircle, Check, ChevronRight, Loader2, Square } from '@/components/icons';
 import { useState } from 'react';
 import { ShinyText } from '@/components/reactbits';
 import { TableBlock } from '@/components/blocks/TableBlock';

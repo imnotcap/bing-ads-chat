@@ -1,5 +1,5 @@
 /** Forms shared by the settings page and onboarding. */
-import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Eye, EyeOff, KeyRound, Loader2, LogIn, PlugZap, ShieldCheck, Unplug, Users } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Eye, EyeOff, KeyRound, Loader2, LogIn, PlugZap, ShieldCheck, Unplug, Users } from '@/components/icons';
 import { useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';

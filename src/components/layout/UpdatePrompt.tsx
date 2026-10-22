@@ -2,7 +2,7 @@
  * "Ny version er klar": the update is downloaded and installed inside the app
  * (signed, from Cloudflare) – nobody has to fetch a new installer.
  */
-import { AlertCircle, Download, ExternalLink, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertCircle, Download, ExternalLink, Loader2, RefreshCw, Sparkles } from '@/components/icons';
 import { motion } from 'motion/react';
 import { openDownloadPage } from '@/lib/updater';
 import { isBusy, useUpdate } from '@/stores/update';

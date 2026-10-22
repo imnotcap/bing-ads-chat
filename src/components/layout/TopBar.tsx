@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ChevronDown,
+  ChevronRight,
   Copy,
   LayoutGrid,
   Activity,
@@ -32,7 +33,7 @@ import {
   Trash2,
   Info,
   X,
-} from 'lucide-react';
+} from '@/components/icons';
 import { useEffect, useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { navigate } from '@/hooks/useNavigationHistory';
@@ -54,11 +55,11 @@ import { Badge } from '../ui/controls';
 import { Button } from '../ui/button';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '../ui/overlays';
 import { LogoMark } from './Logo';
-import { ModeNav } from './Sidebar';
 import { UpdateButton } from './UpdatePrompt';
 import { NotificationBell } from '../notifications/NotificationBell';
 
-const PAGE_TITLES = { dashboard: 'Dashboard', campaigns: 'Microsoft Ads · Kampagner', products: 'Microsoft Ads · Produkter', activity: 'Aktivitet', board: 'Planlægning' } as const;
+/** Where you are, shown as a breadcrumb in the top bar. */
+const PAGE_TITLES = { dashboard: ['Dashboard', 'Overblik'], campaigns: ['Dashboard', 'Microsoft Ads', 'Kampagner'], products: ['Dashboard', 'Microsoft Ads', 'Produkter'], activity: ['Aktivitet'], board: ['Planlægning'] } as const;
 
 function IconButton({ label, onClick, disabled, children, shortcut }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode; shortcut?: string }) {
   return (
@@ -424,6 +425,19 @@ function ConversationActions() {
   );
 }
 
+function Breadcrumb({ parts }: { parts: string[] }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1 px-2 text-[13px]">
+      {parts.map((p, i) => (
+        <span key={`${p}-${i}`} className="flex min-w-0 items-center gap-1">
+          {i > 0 && <ChevronRight className="size-3 shrink-0 text-subtle" />}
+          <span className={cn('truncate', i === parts.length - 1 ? 'font-medium text-ink' : 'text-muted')}>{p}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function TopBar() {
   const view = useUi((s) => s.view);
   const canBack = useUi((s) => s.historyIndex > 0);
@@ -453,7 +467,7 @@ export function TopBar() {
       </IconButton>
 
       <div className="ml-3 flex min-w-0 items-center gap-2">
-        {view === 'chat' ? <ConversationTitle /> : <span className="px-2 text-[13px] font-medium text-ink">{view === 'board' && boardTitle ? `Planlægning · ${boardTitle}` : PAGE_TITLES[view]}</span>}
+        {view === 'chat' ? <ConversationTitle /> : <Breadcrumb parts={view === 'board' && boardTitle ? ['Planlægning', boardTitle] : [...PAGE_TITLES[view]]} />}
         {mode === 'demo' && (
           <Tooltip content="Du ser demo-data – klik for at bruge afdelingens Microsoft Advertising-konto" side="bottom">
             <button type="button" onClick={() => useUi.getState().setSignInOpen(true)} className="rounded-full transition-opacity hover:opacity-80">
@@ -463,9 +477,6 @@ export function TopBar() {
         )}
       </div>
 
-      <div data-tauri-drag-region className="h-full min-w-6 flex-1" />
-      {/* Chat ↔ Dashboard lives in the sidebar; with the sidebar hidden it is here. */}
-      {sidebarCollapsed && <ModeNav compact />}
       <div data-tauri-drag-region className="h-full min-w-6 flex-1" />
 
       <UpdateButton />

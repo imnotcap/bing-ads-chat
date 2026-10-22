@@ -3,7 +3,7 @@
  * when a board is made ("Ny tavle") and changed in the board's menu by its owner.
  * The Cloudflare Worker only sends people the boards they may see.
  */
-import { Check, Lock, Users, UsersRound, type LucideIcon } from 'lucide-react';
+import { Check, Lock, Users, UsersRound, type LucideIcon } from '@/components/icons';
 import { useState } from 'react';
 import { create } from 'zustand';
 import { Button } from '@/components/ui/button';

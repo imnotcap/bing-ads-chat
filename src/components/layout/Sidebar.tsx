@@ -1,11 +1,9 @@
-import { motion } from 'motion/react';
 import {
   FlaskConical,
-  LayoutDashboard,
-  MessageSquare,
   MoreHorizontal,
   Pencil,
   LogOut,
+  MessageSquareText,
   Search,
   Settings,
   Sparkles,
@@ -13,60 +11,23 @@ import {
   Trash2,
   Users,
   Wallet,
-} from 'lucide-react';
+} from '@/components/icons';
 import { memo, useMemo, useState } from 'react';
 import { AnimatedList } from '@/components/reactbits';
+import { ContextMenu } from '@/components/ui/contextMenu';
 import { Button } from '@/components/ui/button';
 import { Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from '@/components/ui/overlays';
 import { fmtUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { KEEP_DAYS, useChat, useConversationSummaries, type ConversationSummary } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
-import { isDashboardView, useUi } from '@/stores/ui';
+import { useUi } from '@/stores/ui';
 import { monthTotal, useUsage } from '@/stores/usage';
 import { signOut } from '@/workspace/account';
 import { goDemo } from '@/workspace/shared';
 import { useAccount } from '@/stores/account';
 import { MicrosoftLogo } from '@/features/settings/SignInDialog';
 import { toast } from '@/components/notifications/toast';
-
-// The chat sidebar links into the dashboard workspace, which has its own sidebar.
-/**
- * Chat ↔ Dashboard, always at the top of the sidebar (both the chat's and the
- * dashboard's) – and as two icons in the top bar when the sidebar is hidden.
- */
-export function ModeNav({ compact = false }: { compact?: boolean }) {
-  const view = useUi((s) => s.view);
-  const go = useUi((s) => s.go);
-  const lastDashView = useUi((s) => s.lastDashView);
-  const pending = useChat((s) => Object.values(s.running).some(Boolean));
-  const dash = isDashboardView(view);
-  const options = [
-    { id: 'chat', label: 'Chat', icon: MessageSquare, active: !dash, onClick: () => go('chat'), dot: pending },
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, active: dash, onClick: () => go(dash ? 'dashboard' : lastDashView), dot: false },
-  ];
-  return (
-    <div className={cn('grid grid-cols-2 rounded-[11px] bg-line-2 p-0.5', compact ? 'h-8 w-[76px]' : 'h-9')} role="tablist" aria-label="Chat eller dashboard">
-      {options.map((o) => (
-        <button
-          key={o.id}
-          type="button"
-          role="tab"
-          aria-selected={o.active}
-          aria-label={o.label}
-          title={compact ? o.label : undefined}
-          onClick={o.onClick}
-          className={cn('relative flex items-center justify-center gap-1.5 rounded-[9px] text-[13px] font-medium transition-colors', o.active ? 'text-ink' : 'text-muted hover:text-ink')}
-        >
-          {o.active && <motion.span layoutId={compact ? 'mode-nav-compact' : 'mode-nav'} className="absolute inset-0 rounded-[9px] bg-white shadow-sm" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
-          <o.icon className="relative size-[15px] shrink-0" strokeWidth={1.9} />
-          {!compact && <span className="relative">{o.label}</span>}
-          {o.dot && <span className="absolute right-1.5 top-1.5 size-1.5 animate-pulse rounded-full bg-brand" />}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 const ConversationRow = memo(function ConversationRow({ c }: { c: ConversationSummary }) {
   const activeId = useChat((s) => s.activeId);
@@ -80,90 +41,104 @@ const ConversationRow = memo(function ConversationRow({ c }: { c: ConversationSu
   const [confirm, setConfirm] = useState(false);
   const active = c.id === activeId;
 
+  const open = () => {
+    select(c.id);
+    go('chat');
+  };
   return (
-    <div
-      className={cn(
-        'group relative flex items-center rounded-[10px] transition-colors',
-        active ? 'bg-line-2' : 'hover:bg-line-2/60',
-      )}
+    <ContextMenu
+      label={c.title}
+      items={
+        editing
+          ? []
+          : [
+              { label: 'Åbn samtale', icon: <MessageSquareText />, onSelect: open },
+              { label: 'Omdøb', icon: <Pencil />, onSelect: () => setEditing(true) },
+              { label: 'Slet samtale', icon: <Trash2 />, onSelect: () => setConfirm(true), danger: true, separated: true },
+            ]
+      }
     >
-      {editing ? (
-        <input
-          autoFocus
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onBlur={() => {
-            rename(c.id, title.trim() || c.title);
-            setEditing(false);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-            if (e.key === 'Escape') {
-              setTitle(c.title);
+      <div
+        className={cn(
+          'group relative flex items-center rounded-[10px] transition-colors',
+          active ? 'bg-line-2' : 'hover:bg-line-2/60',
+        )}
+      >
+        {editing ? (
+          <input
+            autoFocus
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={() => {
+              rename(c.id, title.trim() || c.title);
               setEditing(false);
-            }
-          }}
-          className="mx-1 my-1 h-8 w-full rounded-lg border border-brand/40 bg-white px-2 text-[13px] outline-none"
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              if (e.key === 'Escape') {
+                setTitle(c.title);
+                setEditing(false);
+              }
+            }}
+            className="mx-1 my-1 h-8 w-full rounded-lg border border-brand/40 bg-white px-2 text-[13px] outline-none"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={open}
+            className="flex min-w-0 flex-1 flex-col items-start px-3 py-1.5 text-left"
+          >
+            <span className={cn('w-full truncate text-[13px]', active ? 'font-medium text-ink' : 'text-ink-2')}>
+              {running && <span className="mr-1.5 inline-block size-1.5 -translate-y-px animate-pulse rounded-full bg-brand" />}
+              {c.title}
+            </span>
+          </button>
+        )}
+        {!editing && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Flere handlinger"
+                className="mr-1.5 grid size-7 shrink-0 place-items-center rounded-lg text-muted opacity-0 transition-opacity hover:bg-line-2 hover:text-ink group-hover:opacity-100 data-[state=open]:opacity-100"
+              >
+                <MoreHorizontal className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[180px]">
+              <DropdownMenuItem onSelect={() => setEditing(true)}>
+                <Pencil /> Omdøb
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setConfirm(true)} className="text-negative data-[highlighted]:bg-negative-bg data-[highlighted]:text-negative [&_svg]:!text-negative">
+                <Trash2 /> Slet samtale
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        <Dialog
+          open={confirm}
+          onOpenChange={setConfirm}
+          title="Slet samtalen?"
+          description={`"${c.title}" slettes permanent. Ændringer på kontoen påvirkes ikke.`}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setConfirm(false)}>
+                Annullér
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  remove(c.id);
+                  setConfirm(false);
+                }}
+              >
+                Slet
+              </Button>
+            </>
+          }
         />
-      ) : (
-        <button
-          type="button"
-          onClick={() => {
-            select(c.id);
-            go('chat');
-          }}
-          className="flex min-w-0 flex-1 flex-col items-start px-3 py-1.5 text-left"
-        >
-          <span className={cn('w-full truncate text-[13px]', active ? 'font-medium text-ink' : 'text-ink-2')}>
-            {running && <span className="mr-1.5 inline-block size-1.5 -translate-y-px animate-pulse rounded-full bg-brand" />}
-            {c.title}
-          </span>
-        </button>
-      )}
-      {!editing && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label="Flere handlinger"
-              className="mr-1.5 grid size-7 shrink-0 place-items-center rounded-lg text-muted opacity-0 transition-opacity hover:bg-line-2 hover:text-ink group-hover:opacity-100 data-[state=open]:opacity-100"
-            >
-              <MoreHorizontal className="size-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-[180px]">
-            <DropdownMenuItem onSelect={() => setEditing(true)}>
-              <Pencil /> Omdøb
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setConfirm(true)} className="text-negative data-[highlighted]:bg-negative-bg data-[highlighted]:text-negative [&_svg]:!text-negative">
-              <Trash2 /> Slet samtale
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-      <Dialog
-        open={confirm}
-        onOpenChange={setConfirm}
-        title="Slet samtalen?"
-        description={`"${c.title}" slettes permanent. Ændringer på kontoen påvirkes ikke.`}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setConfirm(false)}>
-              Annullér
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                remove(c.id);
-                setConfirm(false);
-              }}
-            >
-              Slet
-            </Button>
-          </>
-        }
-      />
-    </div>
+      </div>
+    </ContextMenu>
   );
 });
 
@@ -173,8 +148,8 @@ function initials(name: string | undefined) {
   return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?';
 }
 
-/** Account & settings menu in the bottom-left corner, styled like Claude's. */
-export function AccountMenu() {
+/** Account & settings menu: the avatar at the bottom of the icon rail. */
+export function AccountMenu({ variant = 'bar' }: { variant?: 'bar' | 'rail' }) {
   const { accounts, accountId, mode } = useConnection();
   const go = useUi((s) => s.go);
   const account = accounts.find((a) => a.id === accountId);
@@ -189,23 +164,30 @@ export function AccountMenu() {
     </span>
   );
 
+  const rail = variant === 'rail';
   return (
-    <div className="flex items-center gap-1">
+    <div className={cn('flex items-center gap-1', rail && 'justify-center')}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label="Konto og indstillinger"
-            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left transition-colors hover:bg-line-2 data-[state=open]:bg-line-2"
-          >
-            {avatar}
-            <span className="min-w-0 flex-1 truncate text-[13.5px]">
-              <span className="font-medium text-ink">{account?.name ?? 'Ingen konto'}</span>
-              <span className="text-muted"> · {plan}</span>
-            </span>
-          </button>
+          {rail ? (
+            <button type="button" aria-label="Konto og indstillinger" title={`${account?.name ?? 'Ingen konto'} · ${plan}`} className="grid size-10 place-items-center rounded-xl transition-colors hover:bg-line-2 data-[state=open]:bg-line-2">
+              {avatar}
+            </button>
+          ) : (
+            <button
+              type="button"
+              aria-label="Konto og indstillinger"
+              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left transition-colors hover:bg-line-2 data-[state=open]:bg-line-2"
+            >
+              {avatar}
+              <span className="min-w-0 flex-1 truncate text-[13.5px]">
+                <span className="font-medium text-ink">{account?.name ?? 'Ingen konto'}</span>
+                <span className="text-muted"> · {plan}</span>
+              </span>
+            </button>
+          )}
         </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="start" sideOffset={6} className="w-[264px]">
+        <DropdownMenuContent side={rail ? 'right' : 'top'} align={rail ? 'end' : 'start'} sideOffset={6} className="w-[264px]">
           {user && (
             <>
               <div className="flex items-center gap-2.5 px-2.5 pb-2 pt-1.5">
@@ -255,7 +237,8 @@ export function AccountMenu() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <Tooltip content="Indstillinger">
+      {!rail && (
+        <Tooltip content="Indstillinger">
           <button
             type="button"
             onClick={() => go('settings')}
@@ -265,6 +248,7 @@ export function AccountMenu() {
             <Settings className="size-4" />
           </button>
         </Tooltip>
+      )}
     </div>
   );
 }
@@ -312,9 +296,9 @@ export function Sidebar() {
   };
 
   return (
-    <div className="flex h-full w-[260px] flex-col">
+    <div className="flex h-full w-[248px] flex-col">
       <div className="grid gap-2 px-3 pt-3">
-        <ModeNav />
+        <h2 className="px-2 pt-1 text-[17px] font-semibold tracking-[-0.02em] text-ink">Chat</h2>
         <Button variant="secondary" className="h-9 w-full justify-start" onClick={startNew}>
           <SquarePen /> Ny samtale
           <span className="ml-auto text-[11px] font-normal text-subtle">Ctrl N</span>
@@ -344,10 +328,6 @@ export function Sidebar() {
             <GroupedConversations list={filtered} />
           )}
         </div>
-      </div>
-
-      <div className="border-t border-line px-2 py-2">
-        <AccountMenu />
       </div>
     </div>
   );

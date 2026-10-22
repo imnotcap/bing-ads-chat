@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { ArrowLeft, ArrowRight, BarChart3, FlaskConical, MessageSquareText, Plug, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BarChart3, FlaskConical, MessageSquareText, Plug, ShieldCheck } from '@/components/icons';
 import { useState } from 'react';
 import { BlurText, GradientText, MiniOrb, Stepper } from '@/components/reactbits';
 import { EASE } from '@/components/motion';

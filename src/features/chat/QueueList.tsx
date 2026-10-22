@@ -1,5 +1,5 @@
 /** The messages waiting while the assistant answers (features/chat/queue.ts). */
-import { Clock3, Paperclip, X, Zap } from 'lucide-react';
+import { Clock3, Paperclip, X, Zap } from '@/components/icons';
 import { AnimatePresence, motion } from 'motion/react';
 import { EASE } from '@/components/motion';
 import { Tooltip } from '@/components/ui/overlays';

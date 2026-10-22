@@ -2,7 +2,7 @@
  * One product: its status and issues in Merchant Center, the period against the one
  * before, and every campaign / ad group it showed in.
  */
-import { ExternalLink, Sparkles } from 'lucide-react';
+import { ExternalLink, Sparkles } from '@/components/icons';
 import { ChangeBadge } from '@/components/blocks/ChangeBadge';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/overlays';

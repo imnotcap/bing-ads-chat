@@ -3,7 +3,7 @@
  * and each section (Nøgletal, Månedsbudget, …) can be folded on its own.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertTriangle, ArrowRight, CalendarDays, ChevronDown, Info, LayoutGrid, Package, PanelRightClose, RefreshCw, Sparkles, TrendingUp, Wallet, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CalendarDays, ChevronDown, Info, LayoutGrid, Package, PanelRightClose, RefreshCw, Sparkles, TrendingUp, Wallet, type LucideIcon } from '@/components/icons';
 import { useMemo, type ReactNode } from 'react';
 import { ChartBlock } from '@/components/blocks/ChartBlock';
 import { ChangeBadge } from '@/components/blocks/ChangeBadge';

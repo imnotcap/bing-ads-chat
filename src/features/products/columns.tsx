@@ -2,7 +2,7 @@
  * The columns of the Produkter table. Which ones are shown, and in which order, is
  * chosen in the Kolonner menu (saved per PC in appearance.productColumns).
  */
-import { AlertTriangle, CheckCircle2, CircleSlash, ImageOff, PackageX } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleSlash, ImageOff, PackageX } from '@/components/icons';
 import type { ReactNode } from 'react';
 import { ChangeBadge } from '@/components/blocks/ChangeBadge';
 import { change, derive } from '@/bing/metrics';

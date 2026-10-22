@@ -1,4 +1,4 @@
-import { BarChart3, Coins, FileText, FlaskConical, Lightbulb, PenLine, Scale, Search, ShieldCheck, Wallet, type LucideIcon } from 'lucide-react';
+import { BarChart3, Coins, FileText, FlaskConical, Lightbulb, PenLine, Scale, Search, ShieldCheck, Wallet, type LucideIcon } from '@/components/icons';
 import { TEST_COMMAND, startFollowUpTest } from './followUpTest';
 
 export interface Suggestion {

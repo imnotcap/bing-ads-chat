@@ -3,7 +3,7 @@
  * conversation is about. The assistant then gets the ids in its context and works there.
  */
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Check, ChevronDown, Crosshair, Layers, Loader2, Search, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, Crosshair, Layers, Loader2, Search, X } from '@/components/icons';
 import { AnimatePresence, motion } from 'motion/react';
 import { Popover } from 'radix-ui';
 import { useMemo, useState } from 'react';

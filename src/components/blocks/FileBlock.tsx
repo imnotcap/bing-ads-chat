@@ -3,7 +3,7 @@
  * to save it to "Overførsler › XavierOS", show it in Explorer or copy it.
  */
 import { motion } from 'motion/react';
-import { Check, ChevronDown, Copy, Download, FileSpreadsheet, FileText, FolderOpen, CalendarPlus, Loader2 } from 'lucide-react';
+import { Check, ChevronDown, Copy, Download, FileSpreadsheet, FileText, FolderOpen, CalendarPlus, Loader2 } from '@/components/icons';
 import { useState } from 'react';
 import { EASE } from '@/components/motion';
 import { toast } from '@/components/notifications/toast';

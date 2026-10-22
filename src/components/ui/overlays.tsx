@@ -3,7 +3,7 @@
  * animated with motion.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { Check, ChevronDown, X } from 'lucide-react';
+import { Check, ChevronDown, X } from '@/components/icons';
 import { Dialog as DialogPrimitive, DropdownMenu as Menu, Tooltip as TooltipPrimitive } from 'radix-ui';
 import * as React from 'react';
 import { cn } from '@/lib/utils';

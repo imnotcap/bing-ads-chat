@@ -2,7 +2,7 @@
  * Indstillinger → Brugere: who has an account in the app. Admins let new people in,
  * make others admin and remove people; everyone can see the list.
  */
-import { Check, Loader2, LogOut, MoreHorizontal, Shield, ShieldOff, UserMinus } from 'lucide-react';
+import { Check, Loader2, LogOut, MoreHorizontal, Shield, ShieldOff, UserMinus } from '@/components/icons';
 import { useEffect, useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';

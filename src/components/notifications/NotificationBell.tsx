@@ -1,5 +1,5 @@
 /** Bell in the top bar: the history of notifications (updates, sync, errors …). */
-import { Bell, CheckCheck, Trash2 } from 'lucide-react';
+import { Bell, CheckCheck, Trash2 } from '@/components/icons';
 import { AnimatePresence, motion } from 'motion/react';
 import { Popover } from 'radix-ui';
 import { useState } from 'react';

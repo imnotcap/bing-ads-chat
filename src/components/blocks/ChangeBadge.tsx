@@ -1,4 +1,4 @@
-import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, Minus } from '@/components/icons';
 import { fmtPercent } from '@/lib/format';
 import { cn } from '@/lib/utils';
 

@@ -5,7 +5,7 @@
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Lock, Plus, RotateCcw, Search, X } from 'lucide-react';
+import { GripVertical, Lock, Plus, RotateCcw, Search, X } from '@/components/icons';
 import { AnimatePresence, motion } from 'motion/react';
 import { Popover } from 'radix-ui';
 import { useState, type ReactElement } from 'react';
