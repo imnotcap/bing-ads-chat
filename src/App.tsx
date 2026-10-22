@@ -17,7 +17,7 @@ import { ProductsPage } from '@/features/products/ProductsPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { BoardPage } from '@/features/board/BoardPage';
 import { ChatView } from '@/features/chat/ChatView';
-import { SessionRail } from '@/features/chat/SessionRail';
+import { RAIL_WIDTH, SessionRail } from '@/features/chat/SessionRail';
 import { Onboarding } from '@/features/onboarding/Onboarding';
 import { AsciiArc } from '@/components/layout/AsciiArc';
 import { AccountGate } from '@/features/account/LoginScreen';
@@ -152,7 +152,8 @@ function Shell() {
               <span className="ml-auto shrink-0 font-semibold underline">Åbn forbindelser</span>
             </button>
           )}
-          <AsciiArc />
+          {/* Centred on the page itself – in the chat, not under the session rail. */}
+          <AsciiArc className="transition-[right] duration-300" style={{ right: view === 'chat' && insights ? RAIL_WIDTH : 0 }} />
           <div className="relative z-[1] flex min-h-0 flex-1">
             <AnimatePresence mode="wait" initial={false}>
               {view === 'chat' && (

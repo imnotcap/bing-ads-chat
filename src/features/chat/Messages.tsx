@@ -175,20 +175,23 @@ export const AssistantMessage = memo(function AssistantMessage({ item, currency,
       .map((p) => (p as { text: string }).text)
       .join('\n\n'),
   );
+  const first = groups[0];
+  const opensWithCard = first?.kind === 'steps' || (first?.kind === 'part' && (first.part.type === 'tool' || first.part.type === 'visual' || first.part.type === 'notice'));
   const lastPart = item.parts[item.parts.length - 1];
   const waitingForFirst = live && (!lastPart || (lastPart.type === 'tool' && lastPart.status !== 'running' && lastPart.status !== 'streaming' && lastPart.status !== 'awaiting_approval'));
 
   return (
     <ContextMenu items={[!live && !!text && { label: 'Kopiér svar', icon: <Copy />, onSelect: () => copyText(text) }]}>
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, ease: EASE }} className="group flex gap-3.5">
-        <div className="grid size-[26px] shrink-0 place-items-center pt-0.5">
+        {/* Level with the first line – or with the middle of a card's header (40 px) when the reply opens with one. */}
+        <div className={cn('grid w-[26px] shrink-0 place-items-center', opensWithCard ? 'h-10' : 'h-[26px]')}>
           {/* The assistant's picture: the XavierOS mark, no tile – it breathes while it answers. */}
           <motion.span
-            className="block text-[#1c191b]"
+            className="block leading-none text-[#1c191b]"
             animate={live ? { opacity: [1, 0.35, 1] } : { opacity: 1 }}
             transition={live ? { duration: 1.6, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.2 }}
           >
-            <XavierShards className="w-[21px]" />
+            <XavierShards className="block w-[21px]" />
           </motion.span>
         </div>
         <div className="grid min-w-0 flex-1 gap-3">

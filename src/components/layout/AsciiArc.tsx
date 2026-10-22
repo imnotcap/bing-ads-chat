@@ -1,9 +1,11 @@
 /**
- * The quiet background behind every page: React Bits' GradientASCII in grey squares,
- * shaped as an arc from the left side over the top to the right side, so the middle
- * (where the content is) stays clean. One canvas for the whole app – it stays when
- * the page changes.
+ * The quiet background behind every page: React Bits' GradientASCII in light grey
+ * squares, shaped as an arc from the left side over the top to the right side, so the
+ * middle (where the content is) stays clean. The left half is drawn and mirrored to the
+ * right, so the arc is exactly symmetric around the middle. It stays when the page
+ * changes.
  */
+import type { CSSProperties } from 'react';
 import { GradientASCII } from '@/components/reactbits';
 import { cn } from '@/lib/utils';
 
@@ -16,13 +18,9 @@ const MASK = [
   'linear-gradient(180deg, black 0%, black 40%, transparent 80%)',
 ].join(', ');
 
-export function AsciiArc({ className }: { className?: string }) {
+function Half({ mirrored }: { mirrored?: boolean }) {
   return (
-    <div
-      aria-hidden
-      className={cn('pointer-events-none absolute inset-0 z-0', className)}
-      style={{ maskImage: MASK, WebkitMaskImage: MASK, maskComposite: 'intersect', WebkitMaskComposite: 'source-in' }}
-    >
+    <div className={cn('absolute inset-y-0 w-1/2', mirrored ? 'right-0 -scale-x-100' : 'left-0')}>
       <GradientASCII
         className="absolute inset-0"
         colors={GREYS}
@@ -30,17 +28,30 @@ export function AsciiArc({ className }: { className?: string }) {
         characters=" ·▪■"
         cellSize={14}
         density={0.55}
-        glyphOpacity={0.2}
+        glyphOpacity={0.15}
         gradientOpacity={0}
         grain={0}
         flicker={0.12}
         speed={0.6}
         lightMode
-        inkColor="#b4b8bf"
+        inkColor="#c3c7cd"
         intro={false}
         mouseInteraction={false}
         clickEffect="none"
       />
+    </div>
+  );
+}
+
+export function AsciiArc({ className, style }: { className?: string; style?: CSSProperties }) {
+  return (
+    <div
+      aria-hidden
+      className={cn('pointer-events-none absolute inset-0 z-0', className)}
+      style={{ maskImage: MASK, WebkitMaskImage: MASK, maskComposite: 'intersect', WebkitMaskComposite: 'source-in', ...style }}
+    >
+      <Half />
+      <Half mirrored />
     </div>
   );
 }

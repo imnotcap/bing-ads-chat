@@ -24,7 +24,8 @@ import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
 import { useFocus } from './focus';
 
-const WIDTH = 300;
+export const RAIL_WIDTH = 300;
+const WIDTH = RAIL_WIDTH;
 
 type OutputKind = 'chart' | 'table' | 'kpis' | 'file' | 'attachment';
 interface Output {
