@@ -15,7 +15,7 @@ import { toContentBlocks, toMeta, type Attachment } from '@/lib/attachments';
 import { DATE_PRESET_LABELS, presetRange } from '@/lib/format';
 import { sharedKey } from '@/workspace/shared';
 import { queryClient } from '@/lib/queryClient';
-import { errorMessage, uid } from '@/lib/utils';
+import { abortable, errorMessage, uid } from '@/lib/utils';
 import { useActivity } from '@/stores/activity';
 import { useChat, type ApiMessage, type AssistantItem, type Conversation, type Part, type ToolPart } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
@@ -74,20 +74,56 @@ function appendApi(convId: string, msg: ApiMessage) {
   useChat.getState().patch(convId, (c) => ({ api: [...c.api, msg] }));
 }
 
+/** Adds a note to the user turn the model is about to answer (nothing after it has been sent yet). */
+function appendToLastUser(convId: string, text: string) {
+  useChat.getState().patch(convId, (c) => {
+    const last = c.api[c.api.length - 1];
+    if (last?.role !== 'user') return { api: [...c.api, { role: 'user', content: [{ type: 'text', text }] }] };
+    const before = typeof last.content === 'string' ? [{ type: 'text' as const, text: last.content }] : last.content;
+    return { api: [...c.api.slice(0, -1), { role: 'user', content: [...before, { type: 'text', text }] }] };
+  });
+}
+
+/** What a tool is called while its input is still being written (its label needs the input). */
+const TITLES: Record<string, string> = {
+  find_campaigns_and_ad_groups: 'Finder kampagner og annoncegrupper',
+  research_keywords: 'Undersøger søgeord',
+  run_report: 'Kører rapport',
+  find_api_operation: 'Slår op i Microsofts API',
+  update_campaigns: 'Ændrer kampagner',
+  create_campaign: 'Opretter kampagne',
+  delete_campaigns: 'Sletter kampagner',
+  create_ad_group: 'Opretter annoncegruppe',
+  update_ad_groups: 'Ændrer annoncegrupper',
+  add_keywords: 'Tilføjer søgeord',
+  update_keywords: 'Ændrer søgeord',
+  delete_keywords: 'Sletter søgeord',
+  add_negative_keywords: 'Tilføjer negative søgeord',
+  propose_negative_keywords: 'Foreslår negative søgeord',
+  update_ads: 'Ændrer annoncer',
+  microsoft_ads_api: 'Microsoft Ads API',
+  train_playbook: 'Træner assistenten',
+  create_file: 'Laver en fil',
+};
+
 function toolLabel(name: string, input: unknown): string {
   const tool = getTool(name);
-  if (!tool) return name;
+  if (!tool) return TITLES[name] ?? name;
   try {
-    return tool.label(input as never);
+    const label = tool.label(input as never);
+    return /undefined/.test(label) ? (TITLES[name] ?? label) : label;
   } catch {
-    return tool.label.length ? name : tool.label({} as never);
+    return TITLES[name] ?? name;
   }
 }
 
-function serialize(result: unknown): string {
+/** Tools whose whole result is the point (every search term of a campaign) get more room. */
+const RESULT_CHARS: Record<string, number> = { get_search_terms: 240_000 };
+
+function serialize(result: unknown, max = MAX_RESULT_CHARS): string {
   const text = typeof result === 'string' ? result : JSON.stringify(result);
-  if (text.length <= MAX_RESULT_CHARS) return text;
-  return `${text.slice(0, MAX_RESULT_CHARS)}\n…[truncated – narrow the request with filters or a lower limit]`;
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n…[truncated – narrow the request with filters or a lower limit]`;
 }
 
 /**
@@ -162,67 +198,69 @@ export async function sendMessage(convId: string, text: string, attachments: Att
 
   const fail = (message: string) => updateAssistant(convId, itemId, (it) => ({ ...it, status: 'error', error: message }));
 
-  const provider = modelInfo(model).provider;
-  const apiKey = await sharedKey(provider === 'google' ? 'google' : 'anthropic').catch(() => null);
-  if (!apiKey) {
-    return fail(
-      provider === 'google'
-        ? 'Der er ingen fælles Gemini API-nøgle (eller serveren kunne ikke nås). Tilføj den under Indstillinger → AI-modeller.'
-        : 'Der er ingen fælles Claude API-nøgle (eller serveren kunne ikke nås). Tilføj den under Indstillinger → Forbindelser.',
-    );
-  }
-  // The user's subscription: the month's included AI use plus bought credits.
-  await refreshBilling();
-  const blocked = usageBlocked();
-  if (blocked) return fail(blocked);
-
-  repairHistory(convId);
-  // The team's shared budget and limits per branch (Microsoft's become the spending rules).
-  const limits = await allLimits().catch(() => ({}));
-  const period = presetRange(settings.datePreset);
-  const context = buildContextBlock({
-    account,
-    mode: connection.mode,
-    periodLabel: DATE_PRESET_LABELS[settings.datePreset],
-    periodRange: period,
-    rules: useSettings.getState().spend,
-    connectors: connectorContext(settings.ai.connectors, provider),
-    otherBranches: otherBranchesContext(limits),
-    focus: conv(convId).focus,
-  });
-  const content: Anthropic.Beta.BetaContentBlockParam[] = [];
-  if (context !== conv(convId).lastContext) content.push({ type: 'text', text: context });
-  if (opts.interrupted) {
-    content.push({
-      type: 'text',
-      text: '<note>The user stopped your previous answer to send this message. Keep their previous question in mind: answer this message, and finish or connect to the earlier question where it is still relevant.</note>',
-    });
-  }
-  content.push(...toContentBlocks(attachments));
-  content.push({ type: 'text', text: trimmed });
-  chat.patch(convId, (c) => {
-    // A stopped answer can leave the previous question without a reply – one user turn then.
-    const last = c.api[c.api.length - 1];
-    if (last?.role === 'user') {
-      const before = typeof last.content === 'string' ? [{ type: 'text' as const, text: last.content }] : last.content;
-      return { api: [...c.api.slice(0, -1), { role: 'user', content: [...before, ...content] }], lastContext: context };
-    }
-    return { api: [...c.api, { role: 'user', content }], lastContext: context };
-  });
-
+  // Stoppable from the very first moment – also while the key, billing and limits load.
   const controller = new AbortController();
+  const { signal } = controller;
   controllers.set(convId, controller);
   chat.setRunning(convId, true);
   try {
-    if (provider === 'google') await runGeminiLoop(convId, itemId, apiKey, controller.signal);
-    else await runLoop(convId, itemId, apiKey, controller.signal);
+    const provider = modelInfo(model).provider;
+    const apiKey = await abortable(sharedKey(provider === 'google' ? 'google' : 'anthropic').catch(() => null), signal);
+    if (!apiKey) {
+      return fail(
+        provider === 'google'
+          ? 'Der er ingen fælles Gemini API-nøgle (eller serveren kunne ikke nås). Tilføj den under Indstillinger → AI-modeller.'
+          : 'Der er ingen fælles Claude API-nøgle (eller serveren kunne ikke nås). Tilføj den under Indstillinger → Forbindelser.',
+      );
+    }
+    // The user's subscription: the month's included AI use plus bought credits.
+    await abortable(refreshBilling(), signal);
+    const blocked = usageBlocked();
+    if (blocked) return fail(blocked);
+
+    repairHistory(convId);
+    // The team's shared budget and limits per branch (Microsoft's become the spending rules).
+    const limits = await abortable(allLimits().catch(() => ({})), signal);
+    const period = presetRange(settings.datePreset);
+    const context = buildContextBlock({
+      account,
+      mode: connection.mode,
+      periodLabel: DATE_PRESET_LABELS[settings.datePreset],
+      periodRange: period,
+      rules: useSettings.getState().spend,
+      connectors: connectorContext(settings.ai.connectors, provider),
+      otherBranches: otherBranchesContext(limits),
+      focus: conv(convId).focus,
+    });
+    const content: Anthropic.Beta.BetaContentBlockParam[] = [];
+    if (context !== conv(convId).lastContext) content.push({ type: 'text', text: context });
+    if (opts.interrupted) {
+      content.push({
+        type: 'text',
+        text: '<note>The user stopped your previous answer to send this message. Keep their previous question in mind: answer this message, and finish or connect to the earlier question where it is still relevant.</note>',
+      });
+    }
+    content.push(...toContentBlocks(attachments));
+    content.push({ type: 'text', text: trimmed });
+    chat.patch(convId, (c) => {
+      // A stopped answer can leave the previous question without a reply – one user turn then.
+      const last = c.api[c.api.length - 1];
+      if (last?.role === 'user') {
+        const before = typeof last.content === 'string' ? [{ type: 'text' as const, text: last.content }] : last.content;
+        return { api: [...c.api.slice(0, -1), { role: 'user', content: [...before, ...content] }], lastContext: context };
+      }
+      return { api: [...c.api, { role: 'user', content }], lastContext: context };
+    });
+
+    if (provider === 'google') await runGeminiLoop(convId, itemId, apiKey, signal);
+    else await runLoop(convId, itemId, apiKey, signal);
     updateAssistant(convId, itemId, (it) => ({ ...it, status: it.status === 'streaming' ? 'done' : it.status }));
     // Like Claude: tell the user when an answer is ready while they're elsewhere.
     const answer = conv(convId).items.find((i) => i.id === itemId);
     const firstText = answer?.kind === 'assistant' ? answer.parts.find((p) => p.type === 'text')?.text : undefined;
     void nativeNotify('Svaret er klar', (firstText ?? '').replace(/[*#>_`|]/g, '').trim().slice(0, 140) || conv(convId).title);
   } catch (err) {
-    if (controller.signal.aborted) {
+    if (signal.aborted) {
       updateAssistant(convId, itemId, (it) => ({
         ...it,
         status: 'stopped',
@@ -250,7 +288,8 @@ function allowedTools(connectors: Parameters<typeof enabledTools>[0]) {
 /* --------------------------------- the loop --------------------------------- */
 
 /** Input size (tokens) at which older parts of a conversation are summarized. */
-export const COMPACT_AT = 120_000;
+// High enough that a full search term list (tens of thousands of tokens) is still there when the assistant judges it.
+export const COMPACT_AT = 250_000;
 const COMPACT_INSTRUCTIONS = `Summarize the conversation so far so the work can continue without the earlier messages. Keep, exactly:
 - what the user asked for, their goals and preferences, and any decisions they made
 - every change that was proposed, approved, rejected or carried out (campaign/ad group/keyword names and IDs, old and new values)
@@ -271,11 +310,13 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
     // Reading a page (landing pages, prices, delivery terms, competitors) to check that ad copy is true.
     tools.push({ type: dynamic ? 'web_fetch_20260209' : 'web_fetch_20250910', name: 'web_fetch', max_uses: 5 } as unknown as Anthropic.Beta.BetaToolUnion);
   }
-  const system: Anthropic.Beta.BetaTextBlockParam[] = [{ type: 'text', text: buildSystemPrompt(settings.business, await playbookFor('microsoft_ads')) }];
+  const system: Anthropic.Beta.BetaTextBlockParam[] = [{ type: 'text', text: buildSystemPrompt(settings.business, await abortable(playbookFor('microsoft_ads'), signal)) }];
   const memo = new Map<string, Promise<unknown>>();
   let jsonRetries = 0;
+  let splitRetry = false;
 
   for (let round = 1; ; round++) {
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     if (round > ai.maxToolRounds) {
       notice(convId, itemId, 'warning', `Stoppede efter ${ai.maxToolRounds} værktøjsrunder. Skriv "fortsæt", hvis assistenten skal arbejde videre.`);
       return;
@@ -288,7 +329,8 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
     const stream = client.beta.messages.stream(
       {
         model: ai.model,
-        max_tokens: 32_000,
+        // Room for long thinking plus a big tool call (e.g. 300 negative keywords); it is a ceiling, not a cost.
+        max_tokens: 128_000,
         system,
         tools,
         messages: conv(convId).api,
@@ -388,8 +430,20 @@ async function runLoop(convId: string, itemId: string, apiKey: string, signal: A
     }
     if (message.stop_reason === 'max_tokens' && toolUses.length) {
       // A truncated tool input must never run; the turn is not added to the history.
+      const cut = new Set(toolUses.map((u) => u.id));
+      if (!splitRetry) {
+        // Once: ask for the same work again, split into smaller calls – instead of giving up.
+        splitRetry = true;
+        updateAssistant(convId, itemId, (it) => ({ ...it, parts: it.parts.filter((p) => !(p.type === 'tool' && cut.has(p.id))) }));
+        notice(convId, itemId, 'info', 'Svaret blev for langt til ét værktøjskald – assistenten deler det op.');
+        appendToLastUser(
+          convId,
+          '<note>Your previous reply hit the output limit before its tool call was complete, so nothing ran. Do the same work again, but split long inputs into several calls of at most 100 items each (e.g. several propose_negative_keywords calls for the same campaign in this one reply), and keep your reasoning short.</note>',
+        );
+        continue;
+      }
       notice(convId, itemId, 'error', 'Svaret blev for langt og blev afbrudt, før værktøjet kunne køre. Prøv at dele opgaven op.');
-      updateAssistant(convId, itemId, (it) => ({ ...it, parts: it.parts.map((p) => (p.type === 'tool' && p.status === 'streaming' ? { ...p, status: 'error', error: 'Afbrudt' } : p)) }));
+      updateAssistant(convId, itemId, (it) => ({ ...it, parts: it.parts.map((p) => (p.type === 'tool' && cut.has(p.id) ? { ...p, status: 'error', error: 'Afbrudt' } : p)) }));
       return;
     }
 
@@ -416,10 +470,11 @@ async function runGeminiLoop(convId: string, itemId: string, apiKey: string, sig
   const settings = useSettings.getState();
   const { ai } = settings;
   const tools = allowedTools(ai.connectors);
-  const system = buildSystemPrompt(settings.business, await playbookFor('microsoft_ads'));
+  const system = buildSystemPrompt(settings.business, await abortable(playbookFor('microsoft_ads'), signal));
   const memo = new Map<string, Promise<unknown>>();
 
   for (let round = 1; ; round++) {
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     if (round > ai.maxToolRounds) {
       notice(convId, itemId, 'warning', `Stoppede efter ${ai.maxToolRounds} værktøjsrunder. Skriv "fortsæt", hvis assistenten skal arbejde videre.`);
       return;
@@ -566,12 +621,12 @@ async function executeTools(
   signal: AbortSignal,
 ): Promise<ToolResult[]> {
   const results = new Map<string, ToolResult>();
-  const ok = (id: string, result: unknown): ToolResult => ({ type: 'tool_result', tool_use_id: id, content: serialize(result) });
+  const ok = (id: string, result: unknown, tool?: string): ToolResult => ({ type: 'tool_result', tool_use_id: id, content: serialize(result, RESULT_CHARS[tool ?? ''] ?? MAX_RESULT_CHARS) });
   const err = (id: string, message: string): ToolResult => ({ type: 'tool_result', tool_use_id: id, is_error: true, content: message });
 
   let ctx: ToolContext | null = null;
   try {
-    ctx = await buildToolContext(convId, memo, signal);
+    ctx = await abortable(buildToolContext(convId, memo, signal), signal);
   } catch (e) {
     for (const u of uses) {
       updateTool(convId, itemId, u.id, { status: 'error', error: errorMessage(e), input: u.input, endedAt: Date.now() });
@@ -607,8 +662,8 @@ async function executeTools(
         if (tool.kind === 'write') return;
         updateTool(convId, itemId, p.use.id, { status: 'running' });
         try {
-          const out = await tool.run(p.input, ctx!);
-          results.set(p.use.id, ok(p.use.id, out.result));
+          const out = await abortable(tool.run(p.input, ctx!), signal);
+          results.set(p.use.id, ok(p.use.id, out.result, tool.name));
           updateTool(convId, itemId, p.use.id, { status: 'done', summary: out.summary, preview: out.preview, endedAt: Date.now() });
           if (out.visual) addPart(convId, itemId, { type: 'visual', id: uid('v_'), visual: out.visual });
         } catch (e) {
@@ -627,14 +682,14 @@ async function executeTools(
     if (tool.kind !== 'write') continue;
     updateTool(convId, itemId, p.use.id, { status: 'running' });
     try {
-      const change = await tool.plan(p.input, ctx);
+      const change = await abortable(tool.plan(p.input, ctx), signal);
       // Keywords, ad texts and names are proofread in Danish before the user sees them.
       if (change.plan) change.plan = await proofreadPlan(change.plan, signal);
       if (!change.plan) {
         planned.push({ id: p.use.id, name: tool.name, tool, input: p.input, plan: change, verdict: 'allow' });
         continue;
       }
-      const decision = evaluateGuardrails(change.plan, ctx.rules, await spendContext(ctx));
+      const decision = evaluateGuardrails(change.plan, ctx.rules, await abortable(spendContext(ctx), signal));
       updateTool(convId, itemId, p.use.id, {
         plan: change.plan,
         decision,
@@ -716,7 +771,7 @@ async function executeTools(
           updateTool(convId, itemId, item.id, { status: 'error', error: `Ugyldig rettelse: ${detail}`, endedAt: Date.now() });
           continue;
         }
-        change = await item.tool.plan(check.data, ctx);
+        change = await abortable(item.tool.plan(check.data, ctx), signal);
         plan = change.plan;
         userEdits = (answer.edits ?? []).map((e) => ({ field: e.path.join('.'), value: e.value }));
         deselected = excluded.map((i) => String(item.plan.plan?.changes[i]?.after ?? i));

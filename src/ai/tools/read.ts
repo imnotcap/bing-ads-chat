@@ -10,6 +10,7 @@ import { useActivity } from '@/stores/activity';
 import { loadProducts } from '@/workspace/products';
 import type { VisualColumn } from '../visuals';
 import { matchByName } from './find';
+import { rememberSearchTerms } from './searchTerms';
 import { accountBlocker, adGroupBlocker, bidLabel, bidsIgnoredReason, campaignBlocker, CONVERSION_BASED, currentAccount, editorialNote, last30, MIN_CONVERSIONS_30D } from './checks';
 import {
   PERIOD_DESCRIPTION,
@@ -441,6 +442,7 @@ Rows contain dimensions plus impressions, clicks, spend, conversions, revenue, c
       const period = resolvePeriod(input.period, ctx);
       const aggregation = input.aggregation ?? 'Summary';
       let rows = await getReport(ctx, { kind: input.kind, range: period, aggregation, campaignIds: input.campaignIds, columns: input.columns });
+      if (input.kind === 'searchterm' && aggregation === 'Summary') rememberSearchTerms(ctx.accountId, rows);
       const totals = derive(sumMetrics(rows));
       if (input.minClicks) rows = rows.filter((r) => (r.clicks ?? 0) >= input.minClicks!);
       if (input.minSpend) rows = rows.filter((r) => (r.spend ?? 0) >= input.minSpend!);
@@ -467,6 +469,75 @@ Rows contain dimensions plus impressions, clicks, spend, conversions, revenue, c
           rows: rows.slice(0, 100),
           total: rows.length,
         },
+      };
+    },
+  }),
+
+  defineRead({
+    name: 'get_search_terms',
+    kind: 'read',
+    description: `Every search term of ONE campaign (optionally one ad group) for a period, in one go – for finding negative keywords. Unlike run_report there is no row limit: all terms come back, compact ([term, ad group ref, impressions, clicks, spend, conversions] per row, most spend first), together with each ad group's name, its active keywords and the negatives it already has. Read it once, judge every term against what its ad group sells, and put ALL the negatives you find in one propose_negative_keywords call. Never fetch the terms again in portions or with another sort.`,
+    schema: z.object({
+      campaignId: z.string(),
+      adGroupId: z.string().optional().describe('Only this ad group (its terms, keywords and negatives).'),
+      period: z.string().optional().describe(`${PERIOD_DESCRIPTION} For negatives use last90 unless the user said otherwise.`),
+    }),
+    label: () => 'Henter alle søgetermer',
+    async run(input, ctx) {
+      const period = resolvePeriod(input.period ?? 'last90', ctx);
+      const campaign = await getCampaign(ctx, input.campaignId);
+      const rows = await getReport(ctx, { kind: 'searchterm', range: period, aggregation: 'Summary', campaignIds: [campaign.id] });
+      rememberSearchTerms(ctx.accountId, rows);
+      const groups = (await getAdGroups(ctx, campaign.id)).filter((g) => !input.adGroupId || g.id === input.adGroupId);
+      if (input.adGroupId && !groups.length) throw new Error(`Annoncegruppen ${input.adGroupId} findes ikke i kampagnen ${campaign.name}.`);
+      const refs = new Map(groups.map((g, i) => [g.id, `g${i + 1}`]));
+
+      // One row per ad group and term (Microsoft splits them by the keyword that matched).
+      const merged = new Map<string, { term: string; group: string; impressions: number; clicks: number; spend: number; conversions: number }>();
+      for (const r of rows) {
+        if (!r.searchTerm || !refs.has(r.adGroupId ?? '')) continue;
+        const key = `${r.adGroupId}|${r.searchTerm.toLowerCase()}`;
+        const m = merged.get(key) ?? { term: r.searchTerm, group: refs.get(r.adGroupId!)!, impressions: 0, clicks: 0, spend: 0, conversions: 0 };
+        m.impressions += r.impressions ?? 0;
+        m.clicks += r.clicks ?? 0;
+        m.spend += r.spend ?? 0;
+        m.conversions += r.conversions ?? 0;
+        merged.set(key, m);
+      }
+      const terms = [...merged.values()].sort((a, b) => b.spend - a.spend || b.clicks - a.clicks || b.impressions - a.impressions);
+      // Plenty for any ad group; beyond it only terms nobody clicked are left out.
+      const MAX_TERMS = 3000;
+      const shown = terms.length > MAX_TERMS ? terms.filter((t, i) => i < MAX_TERMS || t.clicks > 0) : terms;
+
+      const adGroups = await Promise.all(
+        groups.map(async (g) => {
+          const [keywords, negatives] = await Promise.all([
+            getKeywords(ctx, g.id).catch(() => []),
+            ctx.backend.listNegativeKeywords(ctx.accountId, 'AdGroup', g.id, campaign.id).catch(() => []),
+          ]);
+          return {
+            ref: refs.get(g.id),
+            id: g.id,
+            name: g.name,
+            keywords: keywords.filter((k) => k.status === 'Active').map((k) => `${k.text} (${k.matchType})`),
+            negatives: negatives.map((n) => `${n.text} (${n.matchType})`),
+          };
+        }),
+      );
+      const campaignNegatives = await ctx.backend.listNegativeKeywords(ctx.accountId, 'Campaign', campaign.id, campaign.id).catch(() => []);
+      const wasted = terms.filter((t) => t.spend > 0 && !t.conversions);
+      return {
+        result: {
+          campaign: { id: campaign.id, name: campaign.name, negatives: campaignNegatives.map((n) => `${n.text} (${n.matchType})`) },
+          period,
+          currency: ctx.currency,
+          adGroups,
+          columns: ['term', 'adGroup', 'impressions', 'clicks', 'spend', 'conversions'],
+          terms: shown.map((t) => [t.term, t.group, t.impressions, t.clicks, round(t.spend, 2), round(t.conversions, 2)]),
+          totals: { terms: terms.length, withClicks: terms.filter((t) => t.clicks > 0).length, spendWithoutConversions: round(wasted.reduce((sum, t) => sum + t.spend, 0), 2) },
+          ...(shown.length < terms.length ? { note: `${terms.length - shown.length} terms with impressions but no clicks are left out (no spend).` } : {}),
+        },
+        summary: `${terms.length.toLocaleString('da-DK')} søgetermer · ${groups.length === 1 ? groups[0]!.name : `${groups.length} annoncegrupper`} · ${period.label}`,
       };
     },
   }),
