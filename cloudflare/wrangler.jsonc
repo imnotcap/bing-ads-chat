@@ -1,6 +1,9 @@
 {
   // XavierOS on Cloudflare Workers Free:
-  //   /                         download page (finds the latest version in /version.json)
+  //   /                         download page (finds the latest version in /version.json);
+  //                             on app.xavieros.dk the web app instead (/download is the page there)
+  //   /app/                     the web app (pnpm build:web, copied in by scripts/publish.mjs)
+  //   /__proxy                  the web app's way to Microsoft Advertising (no CORS there)
   //   /XavierOS-Setup.exe       latest Windows installer (also /Bing-Ads-Chat-Setup.exe, the old name)
   //   /updates/latest.json      signed update feed the app checks (tauri-plugin-updater)
   //   /api/…                    shared workspace: accounts, shared connections, planning boards
@@ -13,7 +16,7 @@
   "main": "src/worker.ts",
   "compatibility_date": "2025-09-01",
   "workers_dev": true,
-  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "404-page", "run_worker_first": ["/api/*"] },
+  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "404-page", "run_worker_first": ["/api/*", "/", "/download", "/__proxy"] },
   // Weekdays at 07:17 UTC (08:17/09:17 in Denmark): the data sources are tested again (keeps
   // logins alive). No automatic API calls outside weekdays 8–16 (src/lib/refreshPolicy.ts).
   "triggers": { "crons": ["17 7 * * 1-5"] },

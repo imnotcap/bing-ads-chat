@@ -3,19 +3,9 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
+import { FORWARD_HEADERS, PROXY_ALLOW } from './src/lib/msProxy';
 
 const host = process.env.TAURI_DEV_HOST;
-
-/** Hosts the dev proxy may reach. Mirrors the HTTP scope in src-tauri/capabilities/default.json. */
-const PROXY_ALLOW = [
-  /^https:\/\/[a-z0-9.-]+\.api\.bingads\.microsoft\.com\//,
-  /^https:\/\/[a-z0-9.-]+\.api\.sandbox\.bingads\.microsoft\.com\//,
-  /^https:\/\/content\.api\.ads\.microsoft\.com\//,
-  /^https:\/\/login\.microsoftonline\.com\//,
-  /^https:\/\/[a-z0-9.-]+\.blob\.core\.windows\.net\//,
-];
-const FORWARD_HEADERS = ['authorization', 'authenticationtoken', 'developertoken', 'customerid', 'customeraccountid', 'content-type', 'accept'];
-
 /**
  * Browser-only development (`pnpm dev`): Microsoft Advertising does not send CORS
  * headers, so requests go through this tiny allow-listed proxy. Inside the desktop
@@ -59,32 +49,36 @@ function microsoftDevProxy(): Plugin {
 }
 
 // https://v2.tauri.app/start/frontend/vite/
-export default defineConfig({
-  plugins: [react(), tailwindcss(), microsoftDevProxy()],
-  resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
-  },
-  clearScreen: false,
-  server: {
-    port: 1430,
-    strictPort: true,
-    host: host || false,
-    hmr: host ? { protocol: 'ws', host, port: 1431 } : undefined,
-    watch: { ignored: ['**/src-tauri/**'] },
-  },
-  envPrefix: ['VITE_', 'TAURI_ENV_'],
-  build: {
-    // WebView2 is evergreen Chromium on Windows.
-    target: 'chrome120',
-    minify: !process.env.TAURI_ENV_DEBUG,
-    sourcemap: !!process.env.TAURI_ENV_DEBUG,
-    chunkSizeWarningLimit: 2500,
-    // The app, and the opening animation shown in its own transparent window.
-    rollupOptions: { input: { main: 'index.html', splash: 'splash.html' } },
-  },
-  test: {
-    environment: 'jsdom',
-    setupFiles: ['./src/test/setup.ts'],
-    css: false,
-  },
+// `--mode web` (pnpm build:web): the browser version the Worker serves on app.xavieros.dk.
+export default defineConfig(({ mode }) => {
+  const web = mode === 'web';
+  return {
+    plugins: [react(), tailwindcss(), microsoftDevProxy()],
+    resolve: {
+      alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    },
+    clearScreen: false,
+    server: {
+      port: 1430,
+      strictPort: true,
+      host: host || false,
+      hmr: host ? { protocol: 'ws', host, port: 1431 } : undefined,
+      watch: { ignored: ['**/src-tauri/**'] },
+    },
+    envPrefix: ['VITE_', 'TAURI_ENV_'],
+    build: {
+      // WebView2 is evergreen Chromium on Windows; the web app also runs in Safari and Firefox.
+      target: web ? ['chrome120', 'safari16', 'firefox120'] : 'chrome120',
+      minify: !process.env.TAURI_ENV_DEBUG,
+      sourcemap: !!process.env.TAURI_ENV_DEBUG,
+      chunkSizeWarningLimit: 2500,
+      // The app, and the opening animation shown in its own transparent window (desktop only).
+      rollupOptions: { input: web ? { main: 'index.html' } : ({ main: 'index.html', splash: 'splash.html' } as Record<string, string>) },
+    },
+    test: {
+      environment: 'jsdom',
+      setupFiles: ['./src/test/setup.ts'],
+      css: false,
+    },
+  };
 });

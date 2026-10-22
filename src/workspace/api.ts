@@ -3,11 +3,12 @@
  * Every call carries this PC's session from the Microsoft login.
  */
 import { BUILTIN_MS } from '@/bing/credentials';
-import { deleteSecret, getSecret, setSecret } from '@/lib/platform';
+import { deleteSecret, getSecret, isWebApp, setSecret } from '@/lib/platform';
 import { useAccount } from '@/stores/account';
 import type { PublicConfig } from './types';
 
-export const SITE_URL = ((import.meta.env.VITE_SITE_URL as string | undefined) || 'https://bing-ads-chat.casperjohansen.workers.dev').replace(/\/$/, '');
+/** The Worker. The web app is served by it, so it talks to the address it was opened on. */
+export const SITE_URL = (isWebApp ? location.origin : (import.meta.env.VITE_SITE_URL as string | undefined) || 'https://bing-ads-chat.casperjohansen.workers.dev').replace(/\/$/, '');
 
 export class ApiError extends Error {
   constructor(

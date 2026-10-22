@@ -1,8 +1,9 @@
 /**
  * Native bridge. Inside the Tauri desktop app requests to Microsoft go through the
  * HTTP plugin (scoped in capabilities/default.json) and secrets live in Windows
- * Credential Manager. In a plain browser (`pnpm dev`) Microsoft requests use the
- * Vite dev proxy and secrets fall back to localStorage – development only.
+ * Credential Manager. In the browser – the web app on app.xavieros.dk, or `pnpm dev` –
+ * Microsoft requests go through `/__proxy` (the Worker, or the Vite dev server) and
+ * secrets are kept in the site's own localStorage.
  */
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -10,6 +11,9 @@ import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+/** The browser version the Worker serves (app.xavieros.dk) – `pnpm build:web`. */
+export const isWebApp = !isTauri && import.meta.env.MODE === 'web';
 
 /**
  * app_session: this PC's sign-in to the shared workspace on Cloudflare.
@@ -53,12 +57,25 @@ export async function openExternal(url: string): Promise<void> {
   window.open(url, '_blank', 'noopener');
 }
 
+export interface OAuthListener {
+  /** Where Microsoft sends the sign-in answer. */
+  redirectUri: string;
+  /** Shows Microsoft's sign-in page. */
+  open: (url: string) => Promise<void>;
+  /** The answer's query string (code + state, or error). */
+  callback: Promise<URLSearchParams>;
+}
+
+/** Thrown when a newer sign-in replaced one still waiting in the browser. */
+export class OAuthCancelled extends Error {}
+
 /**
- * Starts the loopback listener for the Microsoft sign-in redirect.
- * Resolves with the port and a promise for the callback query string.
+ * Gets ready for a Microsoft sign-in. Desktop: a loopback listener on localhost and the
+ * system browser. Browser: a pop-up window that comes back to this page
+ * (finishOAuthPopup) – registered in Entra under "Mobile and desktop applications".
  */
-export async function startOAuthListener(): Promise<{ port: number; callback: Promise<URLSearchParams> }> {
-  if (!isTauri) throw new Error('Microsoft-login kræver desktop-appen. I browseren kan du indsætte et refresh token under "Avanceret".');
+export async function startOAuthListener(): Promise<OAuthListener> {
+  if (!isTauri) return startPopupListener();
   let resolveFn: (v: URLSearchParams) => void = () => {};
   const callback = new Promise<URLSearchParams>((resolve) => {
     resolveFn = resolve;
@@ -68,7 +85,61 @@ export async function startOAuthListener(): Promise<{ port: number; callback: Pr
     resolveFn(new URLSearchParams(e.payload));
   });
   const port = await invoke<number>('oauth_listen');
-  return { port, callback };
+  return { redirectUri: `http://localhost:${port}`, open: openExternal, callback };
+}
+
+const OAUTH_CHANNEL = 'xavieros-oauth';
+let cancelPending: (() => void) | null = null;
+
+function startPopupListener(): OAuthListener {
+  cancelPending?.();
+  // Opened at once, while the click still counts as the user's; sent to Microsoft by open().
+  const popup = window.open('', 'xavieros-login', 'popup,width=520,height=700');
+  if (!popup) throw new Error('Browseren blokerede login-vinduet. Tillad pop-up-vinduer for denne side, og prøv igen.');
+  // Microsoft's pages cut the link between the two windows (COOP), so the answer comes
+  // back over a channel between pages of this site rather than window.opener.
+  const channel = new BroadcastChannel(OAUTH_CHANNEL);
+  const callback = new Promise<URLSearchParams>((resolve, reject) => {
+    const done = () => {
+      clearTimeout(timer);
+      channel.close();
+      cancelPending = null;
+    };
+    const timer = setTimeout(() => {
+      done();
+      resolve(new URLSearchParams({ error: 'timeout' }));
+    }, 5 * 60_000);
+    channel.onmessage = (e: MessageEvent) => {
+      done();
+      resolve(new URLSearchParams(String(e.data)));
+    };
+    cancelPending = () => {
+      done();
+      reject(new OAuthCancelled('Login startet igen.'));
+    };
+  });
+  return {
+    redirectUri: `${location.origin}${location.pathname}`,
+    open: async (url) => {
+      popup.location.href = url;
+    },
+    callback,
+  };
+}
+
+/**
+ * In the login pop-up, back from Microsoft: hands the answer to the app's window and
+ * closes. True when this page is that pop-up (the app should not start in it).
+ */
+export function finishOAuthPopup(): boolean {
+  if (isTauri) return false;
+  const params = new URLSearchParams(location.search);
+  if (!params.has('state') || !(params.has('code') || params.has('error'))) return false;
+  const channel = new BroadcastChannel(OAUTH_CHANNEL);
+  channel.postMessage(params.toString());
+  channel.close();
+  window.close();
+  return true;
 }
 
 /**

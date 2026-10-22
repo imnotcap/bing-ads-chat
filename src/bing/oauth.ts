@@ -5,7 +5,7 @@
  * Docs: https://learn.microsoft.com/advertising/guides/authentication-oauth
  */
 import { invoke } from '@tauri-apps/api/core';
-import { isTauri, msFetch, openExternal, startOAuthListener } from '@/lib/platform';
+import { isTauri, msFetch, startOAuthListener } from '@/lib/platform';
 import { ADS_SCOPE } from '@/workspace/types';
 
 /** Microsoft Graph: your own Outlook calendar, and mail sent from you to yourself. */
@@ -106,13 +106,12 @@ export function refreshAccessToken(cfg: OAuthConfig, refreshToken: string, scope
   return tokenRequest(cfg, { grant_type: 'refresh_token', refresh_token: refreshToken }, scope);
 }
 
-/** Opens the Microsoft sign-in page in the browser and waits for the redirect. */
+/** Opens the Microsoft sign-in page (system browser, or a pop-up in the web app) and waits for the redirect. */
 export async function signInInteractive(cfg: OAuthConfig, scope = MS_SCOPE): Promise<TokenResponse> {
-  const { port, callback } = await startOAuthListener();
-  const redirectUri = `http://localhost:${port}`;
+  const { redirectUri, open, callback } = await startOAuthListener();
   const { verifier, challenge } = await createPkce();
   const state = base64Url(crypto.getRandomValues(new Uint8Array(16)));
-  await openExternal(buildAuthorizeUrl(cfg, redirectUri, challenge, state, scope));
+  await open(buildAuthorizeUrl(cfg, redirectUri, challenge, state, scope));
 
   const params = await callback;
   const error = params.get('error');

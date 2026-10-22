@@ -15,4 +15,6 @@ coverage
 cloudflare/public/updates/
 cloudflare/public/*.exe
 cloudflare/public/version.json
+cloudflare/public/app/
 .wrangler/
+dist-web

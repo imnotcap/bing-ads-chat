@@ -8,6 +8,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { IconRail, sectionOf } from '@/components/layout/IconRail';
 import { useNoDefaultContextMenu } from '@/components/ui/contextMenu';
 import { DashboardSidebar } from '@/components/layout/DashboardSidebar';
+import { DownloadPromo } from '@/components/layout/DownloadPromo';
 import { TopBar, startNewConversation, toggleInsights, toggleSidebar } from '@/components/layout/TopBar';
 import { EASE } from '@/components/motion';
 import { TooltipProvider } from '@/components/ui/overlays';
@@ -117,18 +118,24 @@ function Shell() {
               className="relative z-20 h-full shrink-0 overflow-hidden border-r border-line bg-surface"
               aria-label="Sidebar"
             >
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.div
-                  key={section}
-                  className="h-full"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2, ease: EASE }}
-                >
-                  {section === 'chat' ? <Sidebar /> : <DashboardSidebar section={section === 'planning' ? 'planning' : 'dashboard'} />}
-                </motion.div>
-              </AnimatePresence>
+              <div className="flex h-full w-[248px] flex-col">
+                <div className="min-h-0 flex-1">
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.div
+                      key={section}
+                      className="h-full"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.2, ease: EASE }}
+                    >
+                      {section === 'chat' ? <Sidebar /> : <DashboardSidebar section={section === 'planning' ? 'planning' : 'dashboard'} />}
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+                {/* Web app only: the Windows app. */}
+                <DownloadPromo />
+              </div>
             </motion.aside>
           )}
         </AnimatePresence>

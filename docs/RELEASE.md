@@ -93,8 +93,33 @@ Derefter sker resten ved udgivelserne:
 | Den næste | app.xavieros.dk svarer, så appen bygges mod den – med workers.dev som reserve for opdateringer |
 
 Allerede installerede apps fortsætter med at virke og opdaterer sig via workers.dev-adressen, som
-ikke lukkes (`workers_dev: true`). Login med Microsoft påvirkes ikke (det bruger `http://localhost`).
+ikke lukkes (`workers_dev: true`). Login med Microsoft i desktop-appen påvirkes ikke (det bruger `http://localhost`);
+web-appen kræver de to omdirigerings-URI'er under **Web-appen** nedenfor.
 Actions-loggen under **Find the Cloudflare address** fortæller, hvilket trin domænet er nået til.
+
+## Web-appen (app.xavieros.dk)
+
+Den samme app kører også i browseren. Den bygges ved hver udgivelse (`pnpm build:web`) og lægges på
+Workeren sammen med Windows-versionen:
+
+| Adresse | Hvad |
+| --- | --- |
+| https://app.xavieros.dk | Web-appen (når domænet er sat op, se ovenfor) |
+| https://app.xavieros.dk/download | Download-siden |
+| …workers.dev/app/ | Web-appen – virker allerede nu, før domænet er klar |
+| …workers.dev/ | Download-siden, som før |
+
+* I sidebaren (og i ikon-skinnen) er en farverig knap til at hente Windows-appen – kun i browseren.
+* Kald til Microsoft Advertising går gennem Workerens `/__proxy` (Microsoft sender ingen CORS-headers),
+  kun til de samme Microsoft-adresser som desktop-appen må nå, og kun fra sidens egne sider.
+* Login sker i et pop-up-vindue, der vender tilbage til web-appen. **Engangsopsætning i Entra:**
+  https://entra.microsoft.com → app-registreringen bag `MS_CLIENT_ID` → **Godkendelse** → under
+  *Mobil- og skrivebordsprogrammer* (den platform, `http://localhost` allerede står under – **ikke**
+  "Enkeltsideprogram") tilføjes de brugerdefinerede omdirigerings-URI'er
+  `https://app.xavieros.dk/` og `https://bing-ads-chat.casperjohansen.workers.dev/app/` → Gem.
+  Uden dem svarer Microsoft *AADSTS50011* (omdirigerings-URI matcher ikke) i pop-up-vinduet.
+* Web-appen gemmer sit login i browserens localStorage for siden. Udvikler-tokenet til Microsoft
+  Advertising bygges ikke ind i web-appen (siden er offentlig).
 
 ## Første gang
 

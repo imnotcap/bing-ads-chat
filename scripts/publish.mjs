@@ -11,12 +11,13 @@
  *   cloudflare/public/XavierOS-Setup.exe             download page installer
  *   cloudflare/public/Bing-Ads-Chat-Setup.exe        same file under the old name (old links)
  *   cloudflare/public/version.json                   shown on the download page
+ *   cloudflare/public/app/                           the web app (bundleDir/app, from pnpm build:web)
  * and deploys the Worker with wrangler (needs CLOUDFLARE_API_TOKEN, and BING_ADS_CHAT_SITE_URL +
  * CLOUDFLARE_ACCOUNT_ID from scripts/resolve-site.mjs).
  * Release notes come from RELEASE_NOTES (CI: the commit message).
  */
 import { execSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -72,6 +73,12 @@ copyFileSync(join(bundleDir, setup), join(pub, 'XavierOS-Setup-klassisk.exe'));
 const sizeMb = (statSync(join(bundleDir, themed ?? setup)).size / 1048576).toFixed(1).replace('.', ',');
 writeFileSync(join(pub, 'version.json'), `${JSON.stringify({ version, date: pubDate, notes, sizeMb }, null, 2)}\n`);
 
+// The web app (app.xavieros.dk, and /app/ on every address) – same version as the desktop app.
+const webApp = join(bundleDir, 'app');
+rmSync(join(pub, 'app'), { recursive: true, force: true });
+if (existsSync(join(webApp, 'index.html'))) cpSync(webApp, join(pub, 'app'), { recursive: true });
+else console.log('::warning::Web-appen mangler i udgivelsen (pnpm build:web) – kun desktop-appen udgives.');
+
 if (deploy) {
   if (!process.env.CLOUDFLARE_API_TOKEN) throw new Error('CLOUDFLARE_API_TOKEN mangler – tilføj den som GitHub-secret (se docs/RELEASE.md).');
   // The workspace accepts Microsoft logins made with the app's own registration.
@@ -93,4 +100,5 @@ console.log(`
 ✔ XavierOS ${version} er udgivet.
   Download-side:   ${site}
   Opdateringsfeed: ${site}/updates/latest.json
+  Web-app:         ${site}/app/
 `);

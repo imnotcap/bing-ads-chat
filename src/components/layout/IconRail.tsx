@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { useChat } from '@/stores/chat';
 import { myOpenCards, useBoard } from '@/stores/board';
 import { useUi, type View } from '@/stores/ui';
+import { DownloadRailButton } from './DownloadPromo';
 import { AccountMenu } from './Sidebar';
 
 export type Section = 'chat' | 'dashboard' | 'planning' | 'activity';
@@ -65,6 +66,7 @@ export function IconRail() {
       <RailButton label="Planlægning" icon={SquareKanban} active={section === 'planning'} onClick={() => go('board')} badge={myCards} />
       <RailButton label="Aktivitet" icon={Activity} active={section === 'activity'} onClick={() => go('activity')} />
       <div className="flex-1" />
+      <DownloadRailButton />
       <RailButton label="Indstillinger" icon={Settings} active={false} onClick={() => go('settings')} />
       <AccountMenu variant="rail" />
     </nav>

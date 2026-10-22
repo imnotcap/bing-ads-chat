@@ -1,6 +1,9 @@
 /**
  * XavierOS on Cloudflare Workers:
  * - Static files from ./public: the download page, the installer and the update feed.
+ * - The web app (./public/app, `pnpm build:web`): at / on the app's own domain
+ *   (app.xavieros.dk), at /app/ everywhere. /download is the download page on every host.
+ * - /__proxy: the web app's way to Microsoft Advertising, which sends no CORS headers.
  * - /api/…: each company's own workspace (workspace.ts) – people, the shared Microsoft
  *   Advertising and AI connections, boards and the AI-usage pool – and the register of
  *   companies (directory.ts), which routes a Microsoft sign-in to the right company.
@@ -8,6 +11,7 @@
  *   without it belong to Inventarland's workspace ("main").
  */
 import { DurableObject } from 'cloudflare:workers';
+import { FORWARD_HEADERS, PROXY_ALLOW } from '../../src/lib/msProxy';
 import { EXTRA_USAGE_PACK, PLANS } from '../../src/workspace/plans';
 import type { NeedsCompany, PublicConfig, SessionResponse } from '../../src/workspace/types';
 import { AuthError, verifyMicrosoftIdToken, type MicrosoftIdentity } from './auth';
@@ -110,9 +114,47 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   return new Response(res.body, { status: res.status, headers });
 }
 
+/**
+ * Passes a request from the web app on to an allow-listed Microsoft host – without the
+ * browser's Origin, cookies or other headers – and hands back the answer. Only for pages
+ * of this site (Sec-Fetch-Site), so it isn't an open relay for other websites.
+ */
+async function msProxy(req: Request, url: URL): Promise<Response> {
+  const site = req.headers.get('Sec-Fetch-Site');
+  if (site && site !== 'same-origin') return new Response('Forbidden', { status: 403 });
+  const target = url.searchParams.get('url') ?? '';
+  if (!PROXY_ALLOW.some((re) => re.test(target))) return new Response('Host not allowed', { status: 403 });
+  const headers = new Headers();
+  for (const name of FORWARD_HEADERS) {
+    const v = req.headers.get(name);
+    if (v !== null) headers.set(name, v);
+  }
+  const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.arrayBuffer();
+  try {
+    const upstream = await fetch(target, { method: req.method, headers, body });
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: { 'Content-Type': upstream.headers.get('Content-Type') ?? 'application/octet-stream', 'Cache-Control': 'no-store' },
+    });
+  } catch (e) {
+    return new Response(String(e), { status: 502 });
+  }
+}
+
+/** The app's own domain (app.xavieros.dk) – not workers.dev, where / stays the download page. */
+const isAppHost = (host: string) => host.startsWith('app.');
+
+function asset(req: Request, env: Env, url: URL, path: string): Promise<Response> {
+  return env.ASSETS.fetch(new Request(new URL(path, url.origin), req));
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+    if (url.pathname === '/__proxy') return msProxy(req, url);
+    if (url.pathname === '/download') return asset(req, env, url, '/');
+    // The web app at the root of its own domain (the login pop-up comes back here too).
+    if (url.pathname === '/' && isAppHost(url.hostname)) return asset(req, env, url, '/app/');
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     try {

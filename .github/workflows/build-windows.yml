@@ -103,6 +103,14 @@ jobs:
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # The web app (app.xavieros.dk): the same app for the browser, published with this version.
+      # No developer token in it – the page is public; the desktop app's settings fill it in.
+      - name: Build web app
+        if: steps.build.outputs.signed == 'true'
+        env:
+          VITE_MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+        run: pnpm build:web
+
       # The themed installer (installer/): its own window around the NSIS installer.
       - name: Build themed installer
         shell: bash
@@ -120,8 +128,9 @@ jobs:
           cp src-tauri/target/release/bundle/nsis/*-setup.exe out/XavierOS-Setup-klassisk.exe
           cp src-tauri/target/release/bundle/msi/*.msi out/XavierOS.msi
           cp src-tauri/target/release/XavierOS.exe out/XavierOS-portable.exe
-          # Installer + updater signature for the Cloudflare release.
+          # Installer + updater signature for the Cloudflare release, and the web app.
           cp src-tauri/target/release/bundle/nsis/*-setup.exe* release/
+          if [ -d dist-web ]; then cp -r dist-web release/app; fi
           ls -la out release
 
       - uses: actions/upload-artifact@v7
