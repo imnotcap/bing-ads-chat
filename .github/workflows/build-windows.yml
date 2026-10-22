@@ -192,3 +192,11 @@ jobs:
           MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
           RELEASE_NOTES: ${{ github.event.head_commit.message }}
         run: node scripts/publish.mjs release
+
+      # The website (website/, xavieros.dk) – after the app, so a problem here never holds an update back.
+      - uses: pnpm/action-setup@v6
+
+      - name: Publish the website
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/publish-website.mjs

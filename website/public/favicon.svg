@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- XavierOS: four white shards forming an X on a near-black tile. -->
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="#1C191B"/>
+  <g transform="translate(232 278) scale(1.5909)" fill="#FFFFFF">
+    <polygon points="4,37 121,5 197,65 164,150"/>
+    <polygon points="234,31 351,0 279,179 198,121"/>
+    <polygon points="73,115 154,173 118,263 1,294"/>
+    <polygon points="155,229 188,144 348,257 231,289"/>
+  </g>
+</svg>

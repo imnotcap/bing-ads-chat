@@ -1,0 +1,123 @@
+@import 'tailwindcss';
+
+/*
+ * XavierOS: the app's own look – white and light grey surfaces, near-black ink and the
+ * black X mark, violet (#6d5cf6) only as an accent, and the grey ASCII arc behind it all.
+ * Figtree, like the app.
+ */
+@theme {
+  --font-sans: 'Figtree Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  --color-brand: #6d5cf6;
+  --color-brand-600: #5a48e8;
+  --color-brand-700: #4a39cf;
+  --color-brand-50: #f4f2ff;
+  --color-brand-100: #e9e5ff;
+  --color-brand-200: #d4ccff;
+
+  --color-ink: #121216;
+  --color-ink-2: #3c3c46;
+  --color-muted: #70707c;
+  --color-subtle: #a4a4b0;
+  --color-line: #ebebf0;
+  --color-line-2: #f4f4f7;
+  --color-canvas: #fbfbfc;
+  --color-surface: #ffffff;
+  --color-mark: #1c191b;
+
+  --color-positive: #16a34a;
+  --color-positive-bg: #eaf7ee;
+  --color-negative: #dc2626;
+
+  --shadow-card: 0 1px 2px rgb(18 18 22 / 0.04), 0 10px 30px -22px rgb(18 18 22 / 0.18);
+  --shadow-pop: 0 24px 60px -24px rgb(18 18 22 / 0.28), 0 2px 6px rgb(18 18 22 / 0.04);
+  --shadow-glow: 0 14px 34px -16px rgb(109 92 246 / 0.55);
+
+  --animate-marquee: marquee 40s linear infinite;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@layer base {
+  body {
+    @apply bg-white text-ink antialiased;
+  }
+  ::selection {
+    background: var(--color-brand-100);
+  }
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-brand) 60%, transparent);
+    outline-offset: 3px;
+    border-radius: 10px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+}
+
+/* The app's card: white, a hairline border, almost no shadow. */
+@utility card {
+  @apply rounded-2xl border border-line bg-surface;
+}
+
+/* The colours of the download card in the web app (and the closing call to action). */
+@utility bg-spectrum {
+  background: linear-gradient(125deg, #5b3df5 0%, #8b5cf6 28%, #d946ef 55%, #f97316 82%, #f59e0b 100%);
+}
+
+/* Hero field: lavender and violet glows that fade into the canvas. */
+@utility bg-aurora {
+  background:
+    radial-gradient(42% 52% at 16% 14%, rgb(221 214 254 / 0.95), transparent 70%),
+    radial-gradient(38% 46% at 86% 10%, rgb(199 210 254 / 0.9), transparent 70%),
+    radial-gradient(46% 50% at 72% 82%, rgb(251 231 255 / 0.9), transparent 70%),
+    radial-gradient(30% 36% at 30% 78%, rgb(139 124 248 / 0.28), transparent 70%),
+    linear-gradient(180deg, #f8f7ff, rgb(246 245 251 / 0));
+}
+
+/* The same soft violet mesh as the motion GIFs, for the frames around them. */
+@utility bg-mesh {
+  background:
+    radial-gradient(60% 60% at 0% 0%, rgb(221 214 254 / 0.95), transparent 70%),
+    radial-gradient(55% 55% at 100% 15%, rgb(199 210 254 / 0.85), transparent 70%),
+    radial-gradient(60% 55% at 25% 100%, rgb(139 124 248 / 0.45), transparent 70%),
+    radial-gradient(50% 50% at 100% 100%, rgb(251 231 255 / 0.95), transparent 70%),
+    #f6f4ff;
+}
+
+/* Strong violet card (the big number tiles). */
+@utility bg-violet {
+  background:
+    radial-gradient(80% 60% at 15% 0%, rgb(196 181 253 / 0.85), transparent 60%),
+    radial-gradient(70% 70% at 100% 100%, rgb(74 57 207 / 0.9), transparent 65%),
+    linear-gradient(160deg, #8b7cf8, #6d5cf6 50%, #5a48e8);
+}
+
+@utility bg-grid {
+  background-image:
+    linear-gradient(to right, rgb(18 18 22 / 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(18 18 22 / 0.045) 1px, transparent 1px);
+  background-size: 72px 72px;
+}
+
+@utility bg-dots {
+  background-image: radial-gradient(rgb(18 18 22 / 0.08) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}

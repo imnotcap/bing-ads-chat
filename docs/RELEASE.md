@@ -7,7 +7,7 @@ fra Cloudflare, så ingen skal hente en ny exe-fil efter den første installatio
 | --- | --- |
 | Download-side og appens server | https://app.xavieros.dk, når domænet er sat op (se **Eget domæne** nedenfor) – indtil da https://bing-ads-chat.casperjohansen.workers.dev, som også bliver ved med at virke |
 | Opdateringsfeed (signeret) | https://app.xavieros.dk/updates/latest.json (med workers.dev-adressen som reserve) |
-| Hjemmeside | https://xavieros.dk og www.xavieros.dk – holdes fri til hjemmesiden |
+| Hjemmeside | https://xavieros.dk og www.xavieros.dk (`website/`, se **Hjemmesiden** nedenfor) |
 | Kildekode + byggeri | https://github.com/imnotcap/bing-ads-chat (GitHub Actions bygger Windows) |
 
 * Cloudflare: **din egen konto** (Workers Free – ikke Inventarlands) · Worker `bing-ads-chat`: statiske filer + `/api/teams`
@@ -120,6 +120,24 @@ Workeren sammen med Windows-versionen:
   Uden dem svarer Microsoft *AADSTS50011* (omdirigerings-URI matcher ikke) i pop-up-vinduet.
 * Web-appen gemmer sit login i browserens localStorage for siden. Udvikler-tokenet til Microsoft
   Advertising bygges ikke ind i web-appen (siden er offentlig).
+
+## Hjemmesiden (xavieros.dk)
+
+Salgssiden ligger i `website/` (Vite + React) og udgives ved hver udgivelse som sin egen lille
+Cloudflare-Worker, `xavieros-website` (kun statiske filer), af `scripts/publish-website.mjs` – efter
+appen, så et problem med siden aldrig holder en opdatering tilbage.
+
+* Indtil domænet er aktivt: `https://xavieros-website.<jeres-subdomæne>.workers.dev` (står i Actions-loggen
+  under **Publish the website**).
+* Når xavieros.dk er aktiv på Cloudflare (se **Eget domæne**), får siden selv `xavieros.dk` og
+  `www.xavieros.dk`. Afviser Cloudflare dem (typisk en gammel DNS-post fra domæneudbyderen på
+  xavieros.dk eller www), udgives siden stadig på workers.dev med en advarsel – slet den gamle post under
+  DNS på Cloudflare, så sker det ved næste udgivelse.
+* Knapperne til web-appen og Windows-installeren peger på appens server (samme adresse som appen udgives
+  på – workers.dev indtil app.xavieros.dk svarer).
+* Lokalt: `pnpm --dir website install` og `pnpm --dir website dev` (http://localhost:5190).
+* **Kontaktadressen** står i `website/src/lib/ui.tsx` (`CONTACT_EMAIL`, i dag `kontakt@xavieros.dk`).
+  Demo-formularen åbner den besøgendes mailprogram med forespørgslen udfyldt – siden har ingen server.
 
 ## Første gang
 
