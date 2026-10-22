@@ -11,6 +11,7 @@
  *  3. verify  – read the entities back and only report what Microsoft now shows.
  */
 import { z } from 'zod';
+import { blockedBy } from './searchTerms';
 import { presetRange } from '@/lib/format';
 import { activeDailyBudget } from '@/bing/spend';
 import { findOperation, isReadOperation, missingRequired, searchOperations } from '@/bing/msOperations';
@@ -913,7 +914,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
   defineWrite({
     name: 'propose_negative_keywords',
     kind: 'write',
-    description: `Propose negative keywords for ONE campaign, found in its search terms, as a table the user ticks on/off (all ticked to start with) – they can also add their own. Use this – not add_negative_keywords – whenever you suggest negatives from search terms. Never mix campaigns in one table: if the user didn't name a campaign, ask which one (or suggest the one with the most wasted spend) before proposing. Get the candidates from run_report kind "searchterm" limited to that campaign (campaignIds); typical negatives: spend or many clicks without conversions, irrelevant intent (jobs, free, used, DIY, competitors, other products). Never propose a term that converts well or matches a product the business sells.`,
+    description: `Propose negative keywords for ONE campaign, found in its search terms, as a table the user ticks on/off (all ticked to start with) – they can also add their own. Use this – not add_negative_keywords – whenever you suggest negatives from search terms. Never mix campaigns in one table: if the user didn't name a campaign, ask which one (or suggest the one with the most wasted spend) before proposing. Get the candidates from get_search_terms (every term of the campaign or ad group at once) and put EVERY negative you find in this one call – up to 300; the user unticks what they want to keep, so never hold some back for a later round. Typical negatives: spend or clicks without conversions, irrelevant intent (jobs, free, used, DIY, competitors, other products than the ad group sells). Never propose a term that converts well or matches a product the business sells. Keep each candidate short: text, matchType, adGroupId and a 2–6 word reason – the app fills in the clicks, spend and conversions itself.`,
     schema: z.object({
       campaignId: z.string().describe('The one campaign all the negatives are for.'),
       candidates: z
@@ -922,18 +923,18 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
             text: z.string().min(1).max(100).describe('The negative keyword, usually the search term or the unwanted word in it.'),
             matchType: z.enum(['Exact', 'Phrase']).describe('Exact blocks only this search; Phrase blocks every search containing it.'),
             adGroupId: z.string().optional().describe('An ad group in the campaign – omit to add it on the campaign (blocks all its ad groups).'),
-            searchTerm: z.string().optional().describe('The search term it comes from, if different from text.'),
-            clicks: z.number().optional(),
-            spend: z.number().optional(),
-            conversions: z.number().optional(),
-            why: z.string().max(120).describe('Short Danish reason shown in the table, e.g. "Jobsøgning – ikke købsintention".'),
+            searchTerm: z.string().optional().describe('Leave out – the app finds the search terms the negative blocks.'),
+            clicks: z.number().optional().describe('Leave out – filled in by the app.'),
+            spend: z.number().optional().describe('Leave out – filled in by the app.'),
+            conversions: z.number().optional().describe('Leave out – filled in by the app.'),
+            why: z.string().max(120).describe('2–6 Danish words shown in the table, e.g. "Jobsøgning" or "Andet produkt: pengeskab".'),
           }),
         )
         .min(1)
-        .max(200),
+        .max(300),
       reason,
     }),
-    label: (i) => `Foreslår ${i.candidates.length} negative søgeord`,
+    label: (i) => (i.candidates?.length ? `Foreslår ${i.candidates.length} negative søgeord` : 'Foreslår negative søgeord'),
     async plan(input, ctx) {
       const c = await getCampaign(ctx, input.campaignId);
       const groups = new Map<string, string>();
@@ -960,6 +961,8 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
       }
       const notes = [...conflicts];
       if (already.length) notes.push(`Findes allerede som negative og springes over: ${already.map((k) => `"${k.text}"`).join(', ')}.`);
+      // What each negative would have blocked in the search terms just read (the model doesn't repeat the numbers).
+      const blocked = (k: (typeof input.candidates)[number]) => blockedBy(ctx.accountId, c.id, k);
       const lines: ChangeLine[] = input.candidates.map((k) => ({
         entity: 'Negativt søgeord',
         entityId: k.adGroupId ?? c.id,
@@ -969,10 +972,10 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
           // Microsoft's own names, as in the Microsoft Advertising interface.
           matchType: k.matchType,
           target: where(k),
-          searchTerm: k.searchTerm && k.searchTerm !== k.text ? k.searchTerm : null,
-          clicks: k.clicks ?? null,
-          spend: k.spend ?? null,
-          conversions: k.conversions ?? null,
+          searchTerm: k.searchTerm && k.searchTerm !== k.text ? k.searchTerm : (blocked(k)?.terms ?? 0) > 1 ? `${blocked(k)!.terms} søgetermer` : null,
+          clicks: k.clicks ?? blocked(k)?.clicks ?? null,
+          spend: k.spend ?? blocked(k)?.spend ?? null,
+          conversions: k.conversions ?? blocked(k)?.conversions ?? null,
           why: k.why,
         },
       }));
