@@ -5,7 +5,7 @@ import { AsciiField } from '@/components/ascii/AsciiArc';
 import { GradientASCII } from '@/components/ascii/GradientASCII';
 import { BRAND_NAMES, BrandIcon, type BrandId } from '@/components/BrandIcons';
 import { Logo } from '@/components/Header';
-import { ButtonLink, CONTACT_EMAIL, Container, CoverGif, DOWNLOAD_URL, Reveal, TwoTone, WEB_APP_URL, XavierShards, cn, ease } from '@/lib/ui';
+import { ButtonLink, CONTACT_EMAIL, Container, CoverClip, DOWNLOAD_URL, Reveal, TwoTone, WEB_APP_URL, XavierShards, cn, ease } from '@/lib/ui';
 
 /** The faint lines in the reference's product panels: a grid tipped back in perspective. */
 function PerspectiveGrid({ className }: { className?: string }) {
@@ -229,14 +229,14 @@ const SLIDES = [
     icon: ShoppingBag,
     title: 'Webshops',
     text: 'Find søgetermer, der koster uden at sælge, se ROAS og break-even pr. kampagne, og flyt budget derhen, hvor visningerne tabes.',
-    gif: '/gifs/app-analyse.gif',
+    clip: '/clips/app-analyse',
     alt: 'XavierOS viser forbrug og ROAS pr. kampagne og søgetermer uden konverteringer',
   },
   {
     icon: Building2,
     title: 'B2B og lead-generering',
     text: 'CPA mod jeres mål, LinkedIn-målretning i Microsoft Ads – og et tydeligt signal, når datagrundlaget er for lille til at konkludere.',
-    gif: '/gifs/xavier-fan.gif',
+    clip: '/clips/fan',
     alt: 'Animation: kampagnekort med ROAS, tabt visningsandel og et budgetforslag',
     contain: true,
   },
@@ -244,7 +244,7 @@ const SLIDES = [
     icon: Briefcase,
     title: 'Bureauer',
     text: 'Specialisterne får ændringerne forberedt og dokumenteret: godkendelseskort før hver ændring, aktivitetslog med fortryd og fælles tavler.',
-    gif: '/gifs/app-godkend.gif',
+    clip: '/clips/app-godkend',
     alt: 'XavierOS: negative søgeord vælges, godkendes og bekræftes hos Microsoft',
   },
 ];
@@ -272,11 +272,11 @@ export function Benefits() {
             <motion.div key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.45 }} className="absolute inset-0">
               {slide.contain ? (
                 <div className="absolute inset-y-0 right-[4%] aspect-[640/569]">
-                  <CoverGif src={slide.gif} alt={slide.alt} replay={i} />
+                  <CoverClip src={slide.clip} alt={slide.alt} replay={i} />
                 </div>
               ) : (
                 <div className="absolute inset-x-[4%] top-[7%] bottom-0 overflow-hidden rounded-t-[12px] border border-b-0 border-black/[0.06] bg-white shadow-[0_30px_80px_-40px_rgb(18_18_22/0.4)]">
-                  <CoverGif src={slide.gif} alt={slide.alt} position="top" replay={i} />
+                  <CoverClip src={slide.clip} alt={slide.alt} position="top" replay={i} />
                 </div>
               )}
             </motion.div>
@@ -319,10 +319,10 @@ export function Benefits() {
 
 /* ------------------------------------------------------------------- solutions */
 
-function ImageCard({ gif, alt, title }: { gif: string; alt: string; title: string }) {
+function ImageCard({ clip, alt, title }: { clip: string; alt: string; title: string }) {
   return (
     <Reveal className="relative h-[520px] overflow-hidden rounded-[10px] bg-mesh sm:h-[620px]">
-      <CoverGif src={gif} alt={alt} />
+      <CoverClip src={clip} alt={alt} />
       <h3 className="absolute left-7 top-7 max-w-[80%] text-[28px] font-medium tracking-[-0.03em] text-ink sm:text-[32px]">{title}</h3>
     </Reveal>
   );
@@ -367,7 +367,7 @@ export function Solutions() {
         </div>
       </Container>
       <div className="grid gap-2 px-2 md:grid-cols-2">
-        <ImageCard gif="/gifs/xavier-chat.gif" alt="Animation: et spørgsmål i chatten bliver til et svar med en graf og fundet spild" title="Rådgiveren i chatten" />
+        <ImageCard clip="/clips/chat" alt="Animation: et spørgsmål i chatten bliver til et svar med en graf og fundet spild" title="Rådgiveren i chatten" />
         <SpecCard
           icon={MousePointerClick}
           label="Godkendelse"
@@ -392,7 +392,7 @@ export function Solutions() {
             ['Sletning', 'Kan slås helt fra'],
           ]}
         />
-        <ImageCard gif="/gifs/xavier-board.gif" alt="Animation: et kort flyttes fra I gang til Færdig på planlægningstavlen" title="Planlægning for hele teamet" />
+        <ImageCard clip="/clips/board" alt="Animation: et kort flyttes fra I gang til Færdig på planlægningstavlen" title="Planlægning for hele teamet" />
       </div>
     </section>
   );
@@ -493,7 +493,7 @@ export function Principles() {
   return (
     <section aria-label="Principperne bag XavierOS" className="px-2 pt-2">
       <div className="relative h-[620px] overflow-hidden rounded-[10px] bg-ink sm:h-[680px]">
-        <CoverGif src="/gifs/app-godkend.gif" alt="" position="top" className="opacity-35 blur-[1px]" />
+        <CoverClip src="/clips/app-godkend" alt="" position="top" className="opacity-35 blur-[1px]" />
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgb(18_18_22/0.55),rgb(18_18_22/0.75))]" />
         <div className="relative px-5 pt-9 sm:px-8 lg:px-14">
           <AnimatePresence mode="wait">
@@ -511,7 +511,7 @@ export function Principles() {
         </div>
         <div className="absolute bottom-5 left-5 sm:bottom-8 sm:left-8 lg:left-14">
           <div className="relative hidden h-[210px] w-[360px] overflow-hidden rounded-[12px] bg-mesh sm:block">
-            <CoverGif src="/gifs/xavier-approve.gif" alt="Animation: et godkendelseskort bliver godkendt og bekræftet" />
+            <CoverClip src="/clips/approve" alt="Animation: et godkendelseskort bliver godkendt og bekræftet" />
           </div>
           <p className="mt-4 text-[13px] text-white/75">— Sådan er XavierOS bygget</p>
         </div>
@@ -590,7 +590,7 @@ export function Contact() {
               {CONTACT_EMAIL}
             </a>
             <div className="relative mt-5 aspect-[500/330] w-full max-w-[500px] overflow-hidden rounded-[10px] bg-mesh">
-              <CoverGif src="/gifs/xavier-followup.gif" alt="Animation: en opfølgning lander i Outlook-kalenderen med en påmindelse" />
+              <CoverClip src="/clips/followup" alt="Animation: en opfølgning lander i Outlook-kalenderen med en påmindelse" />
             </div>
           </div>
         </div>

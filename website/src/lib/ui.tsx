@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
-import { motion, useInView } from 'framer-motion';
+import { motion, useInView, useReducedMotion } from 'framer-motion';
 import { ArrowRight } from 'lucide-react';
-import { useRef, type ReactNode } from 'react';
+import { useRef, type CSSProperties, type ReactNode } from 'react';
 import { ScrambleText } from '@/components/ascii/ScrambleText';
 
 export const cn = (...v: ClassValue[]) => clsx(v);
@@ -159,6 +159,64 @@ export function Gif({ src, alt, width, height, className }: { src: string; alt: 
   return (
     <div ref={ref} className={cn('relative w-full', className)} style={{ aspectRatio: `${width} / ${height}` }}>
       {inView && <img src={url} alt={alt} width={width} height={height} decoding="async" className="absolute inset-0 block size-full" />}
+    </div>
+  );
+}
+
+/**
+ * The animated clips. Video rather than GIF: a GIF is capped at 256 colours and whole
+ * centiseconds per frame, which is what made the old ones look soft and jerky. The same
+ * clip as 60 fps video at more than twice the resolution is a fraction of the size.
+ *
+ * `src` is the name without an extension – `.webm`, `.mp4` and a `.jpg` poster sit next
+ * to each other. It starts when it scrolls into view, plays once and holds its last
+ * frame; under reduced motion only the last frame is shown.
+ */
+function clipSources(src: string) {
+  const base = `${import.meta.env.BASE_URL}${src.replace(/^\//, '')}`;
+  return { webm: `${base}.webm`, mp4: `${base}.mp4`, poster: `${base}.jpg` };
+}
+
+function ClipVideo({ src, alt, className, style, replay }: { src: string; alt: string; className?: string; style?: CSSProperties; replay?: string | number }) {
+  const { webm, mp4, poster } = clipSources(src);
+  const reduce = useReducedMotion();
+  if (reduce) return <img src={poster} alt={alt} decoding="async" className={className} style={style} />;
+  return (
+    <video
+      key={`${src}#${replay ?? ''}`}
+      autoPlay
+      muted
+      playsInline
+      poster={poster}
+      preload="auto"
+      aria-label={alt}
+      className={className}
+      style={style}
+    >
+      <source src={webm} type="video/webm" />
+      <source src={mp4} type="video/mp4" />
+    </video>
+  );
+}
+
+/** A clip in a box of its own, like an image with an aspect ratio. */
+export function Clip({ src, alt, width, height, className }: { src: string; alt: string; width: number; height: number; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, amount: 0.35 });
+  return (
+    <div ref={ref} className={cn('relative w-full', className)} style={{ aspectRatio: `${width} / ${height}` }}>
+      {inView && <ClipVideo src={src} alt={alt} className="absolute inset-0 block size-full" />}
+    </div>
+  );
+}
+
+/** A clip that fills its box (object-fit: cover). A new `replay` value starts it again. */
+export function CoverClip({ src, alt, className, position = 'center', replay }: { src: string; alt: string; className?: string; position?: string; replay?: string | number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, amount: 0.3 });
+  return (
+    <div ref={ref} className={cn('absolute inset-0', className)}>
+      {inView && <ClipVideo src={src} alt={alt} replay={replay} className="size-full object-cover" style={{ objectPosition: position }} />}
     </div>
   );
 }

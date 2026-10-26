@@ -35,7 +35,8 @@ function useRelease(): Release | null {
   useEffect(() => {
     fetch(`${SITE_URL}/version.json`, { cache: 'no-store' })
       .then((r) => (r.ok ? (r.json() as Promise<Release>) : null))
-      .then(setRelease, () => undefined);
+      // Only a real version number; anything else would read as "Version undefined".
+      .then((r) => setRelease(typeof r?.version === 'string' && r.version ? r : null), () => undefined);
   }, []);
   return release;
 }

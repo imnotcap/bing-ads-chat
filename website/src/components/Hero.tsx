@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { ArrowUpRight } from 'lucide-react';
 import { AsciiArc } from '@/components/ascii/AsciiArc';
-import { ButtonLink, Gif, WEB_APP_URL, ease } from '@/lib/ui';
+import { ButtonLink, Clip, WEB_APP_URL, ease } from '@/lib/ui';
 
 /**
  * The reference's hero: one full-width picture with the heading centred near the top
@@ -47,7 +47,7 @@ export function Hero() {
         >
           <div className="overflow-hidden rounded-t-[14px] border border-b-0 border-black/[0.07] bg-white p-1.5 pb-0 shadow-[0_-30px_80px_-40px_rgb(18_18_22/0.35)]">
             <div className="overflow-hidden rounded-t-[9px]">
-              <Gif src="/gifs/app-analyse.gif" alt="XavierOS analyserer kontoen: søgetermer, forslag og en graf over forbrug og ROAS" width={960} height={645} />
+              <Clip src="/clips/app-analyse" alt="XavierOS analyserer kontoen: søgetermer, forslag og en graf over forbrug og ROAS" width={960} height={645} />
             </div>
           </div>
         </motion.div>
