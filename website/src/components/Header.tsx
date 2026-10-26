@@ -6,13 +6,20 @@ import { ButtonLink, LogoMark, WEB_APP_URL, Wordmark, XavierShards, cn, ease } f
 export const NAV = [
   { label: 'Om appen', href: '#om' },
   { label: 'Funktioner', href: '#funktioner' },
-  { label: 'Proces', href: '#proces' },
+  { label: 'Priser', href: '#priser' },
+  { label: 'Blog', href: '/blog/' },
   { label: 'Web-app', href: WEB_APP_URL },
 ];
 
-export function Logo({ className, light }: { className?: string; light?: boolean }) {
+/**
+ * A link to a section of the front page only works as a bare hash while we are on it.
+ * From the blog it has to carry the path, or the browser looks for the section here.
+ */
+const linkTo = (href: string, home: boolean) => (home || !href.startsWith('#') ? href : `/${href}`);
+
+export function Logo({ className, light, home = true }: { className?: string; light?: boolean; home?: boolean }) {
   return (
-    <a href="#top" className={cn('flex items-center gap-2', className)} aria-label="XavierOS – til toppen">
+    <a href={home ? '#top' : '/'} className={cn('flex items-center gap-2', className)} aria-label="XavierOS – til forsiden">
       {light ? (
         <span className="grid size-7 shrink-0 place-items-center rounded-[28%] bg-white text-mark" aria-hidden="true">
           <XavierShards className="w-[58%]" />
@@ -25,23 +32,23 @@ export function Logo({ className, light }: { className?: string; light?: boolean
   );
 }
 
-/** Logo left, four links in the middle, one button right – as in the reference. */
-export function Header() {
+/** Logo left, the sections in the middle, one button right – as in the reference. */
+export function Header({ home = true }: { home?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <header className="relative z-40 bg-white">
       <div className="flex h-[68px] items-center justify-between px-5 sm:px-8 md:grid md:grid-cols-[1fr_auto_1fr] lg:px-14">
-        <Logo />
+        <Logo home={home} />
         <nav aria-label="Hovedmenu" className="hidden items-center gap-9 md:flex">
           {NAV.map((n) => (
-            <a key={n.href} href={n.href} className="text-[14px] font-medium text-ink-2 transition-colors hover:text-ink">
+            <a key={n.href} href={linkTo(n.href, home)} className="text-[14px] font-medium text-ink-2 transition-colors hover:text-ink">
               {n.label}
             </a>
           ))}
         </nav>
         <div className="flex justify-end">
           <div className="hidden md:block">
-            <ButtonLink href="#kontakt">Book en demo</ButtonLink>
+            <ButtonLink href={linkTo('#kontakt', home)}>Book en demo</ButtonLink>
           </div>
           <button
             type="button"
@@ -66,12 +73,12 @@ export function Header() {
           >
             <div className="grid gap-1 px-5 py-4">
               {NAV.map((n) => (
-                <a key={n.href} href={n.href} onClick={() => setOpen(false)} className="py-2.5 text-[16px] font-medium text-ink">
+                <a key={n.href} href={linkTo(n.href, home)} onClick={() => setOpen(false)} className="py-2.5 text-[16px] font-medium text-ink">
                   {n.label}
                 </a>
               ))}
               <div className="mt-3">
-                <ButtonLink href="#kontakt" onClick={() => setOpen(false)}>
+                <ButtonLink href={linkTo('#kontakt', home)} onClick={() => setOpen(false)}>
                   Book en demo
                 </ButtonLink>
               </div>

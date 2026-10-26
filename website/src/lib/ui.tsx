@@ -147,23 +147,6 @@ export function WindowsLogo({ className }: { className?: string }) {
 }
 
 /**
- * A GIF that plays once and stays on its last frame. It is only loaded when it
- * scrolls into view, so it starts when the visitor gets there instead of finishing
- * unseen further down the page. The box keeps its size until then (no jumping).
- */
-export function Gif({ src, alt, width, height, className }: { src: string; alt: string; width: number; height: number; className?: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, { once: true, amount: 0.35 });
-  // Relative to the site's base, so the build also works from a sub-folder.
-  const url = `${import.meta.env.BASE_URL}${src.replace(/^\//, '')}`;
-  return (
-    <div ref={ref} className={cn('relative w-full', className)} style={{ aspectRatio: `${width} / ${height}` }}>
-      {inView && <img src={url} alt={alt} width={width} height={height} decoding="async" className="absolute inset-0 block size-full" />}
-    </div>
-  );
-}
-
-/**
  * The animated clips. Video rather than GIF: a GIF is capped at 256 colours and whole
  * centiseconds per frame, which is what made the old ones look soft and jerky. The same
  * clip as 60 fps video at more than twice the resolution is a fraction of the size.
@@ -217,21 +200,6 @@ export function CoverClip({ src, alt, className, position = 'center', replay }: 
   return (
     <div ref={ref} className={cn('absolute inset-0', className)}>
       {inView && <ClipVideo src={src} alt={alt} replay={replay} className="size-full object-cover" style={{ objectPosition: position }} />}
-    </div>
-  );
-}
-
-/**
- * A GIF that fills its box (object-fit: cover), loaded – and so started – when it
- * scrolls into view. A new `replay` value starts it again (carousels).
- */
-export function CoverGif({ src, alt, className, position = 'center', replay }: { src: string; alt: string; className?: string; position?: string; replay?: string | number }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, { once: true, amount: 0.3 });
-  const url = `${import.meta.env.BASE_URL}${src.replace(/^\//, '')}`;
-  return (
-    <div ref={ref} className={cn('absolute inset-0', className)}>
-      {inView && <img key={`${url}#${replay ?? ''}`} src={replay !== undefined ? `${url}?r=${replay}` : url} alt={alt} decoding="async" className="size-full object-cover" style={{ objectPosition: position }} />}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { AsciiField } from '@/components/ascii/AsciiArc';
 import { GradientASCII } from '@/components/ascii/GradientASCII';
 import { BRAND_NAMES, BrandIcon, type BrandId } from '@/components/BrandIcons';
+import { POSTS } from '@/content/posts';
 import { Logo } from '@/components/Header';
 import { ButtonLink, CONTACT_EMAIL, Container, CoverClip, DOWNLOAD_URL, Reveal, TwoTone, WEB_APP_URL, XavierShards, cn, ease } from '@/lib/ui';
 
@@ -685,8 +686,9 @@ export function FinalCta() {
 /* --------------------------------------------------------------------- footer */
 
 const FOOTER: { title: string; links: [string, string][] }[] = [
-  { title: 'Navigation', links: [['Om appen', '#om'], ['Funktioner', '#funktioner'], ['Proces', '#proces'], ['Kontakt', '#kontakt']] },
-  { title: 'Kom i gang', links: [['Book en demo', '#kontakt'], ['Web-app', WEB_APP_URL], ['Hent til Windows', DOWNLOAD_URL]] },
+  { title: 'Navigation', links: [['Om appen', '/#om'], ['Funktioner', '/#funktioner'], ['Proces', '/#proces'], ['Priser', '/#priser']] },
+  { title: 'Kom i gang', links: [['Book en demo', '/#kontakt'], ['Web-app', WEB_APP_URL], ['Hent til Windows', DOWNLOAD_URL]] },
+  { title: 'Blog', links: [...POSTS.slice(0, 3).map((p): [string, string] => [p.title, `/blog/${p.slug}/`]), ['Alle artikler', '/blog/']] },
   { title: 'Kontakt', links: [[CONTACT_EMAIL, `mailto:${CONTACT_EMAIL}`]] },
 ];
 
@@ -698,7 +700,7 @@ export function Footer() {
         <AsciiField shape="rise" ink="#4a4752" opacity={0.6} mask="linear-gradient(135deg, transparent 45%, black 100%)" className="-z-10" />
         <div className="grid gap-12 lg:grid-cols-[1fr_auto]">
           <div>
-            <Logo light />
+            <Logo light home={false} />
             <p className="mt-6 max-w-[560px] text-[24px] font-medium leading-[1.25] tracking-[-0.025em] sm:text-[28px]">
               En AI-rådgiver til Microsoft Ads, der spørger først og tjekker efter.
             </p>

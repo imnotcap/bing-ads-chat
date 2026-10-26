@@ -18,3 +18,6 @@ cloudflare/public/version.json
 cloudflare/public/app/
 .wrangler/
 dist-web
+
+# The website's prerender bundle (website/scripts/prerender.mjs renders from it).
+website/dist-ssr/

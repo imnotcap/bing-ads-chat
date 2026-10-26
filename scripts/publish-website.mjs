@@ -19,12 +19,18 @@ const site = (process.env.BING_ADS_CHAT_SITE_URL ?? '').replace(/\/$/, '');
 const appDomain = (process.env.BING_ADS_CHAT_APP_DOMAIN ?? '').trim();
 const run = (cmd, env = {}) => execSync(cmd, { cwd: root, stdio: 'inherit', env: { ...process.env, CI: '1', ...env } });
 
-run('pnpm --dir website install --frozen-lockfile');
-run('pnpm --dir website build', site ? { VITE_SITE_URL: site } : {});
-
-const deploy = 'npx --yes wrangler@4 deploy --config website/wrangler.jsonc';
 // The site's own domain sits next to the app's (app.xavieros.dk → xavieros.dk).
 const zone = /^app\.([a-z0-9.-]+)$/i.exec(appDomain)?.[1];
+
+run('pnpm --dir website install --frozen-lockfile');
+// VITE_PUBLIC_URL is where the pages say they live: the canonical link, the sitemap and
+// the structured data are built from it, so it has to be the address visitors are served.
+run('pnpm --dir website build', {
+  ...(site ? { VITE_SITE_URL: site } : {}),
+  ...(zone ? { VITE_PUBLIC_URL: `https://${zone}` } : {}),
+});
+
+const deploy = 'npx --yes wrangler@4 deploy --config website/wrangler.jsonc';
 if (zone) {
   try {
     run(`${deploy} --domain ${zone} --domain www.${zone}`);
