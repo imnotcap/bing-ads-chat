@@ -86,14 +86,23 @@ if (deploy) {
   const clientId = (process.env.MS_CLIENT_ID ?? '').trim();
   if (!clientId) throw new Error('MS_CLIENT_ID mangler – tilføj den som GitHub-secret (se docs/RELEASE.md). Intet er udgivet.');
   if (!/^[0-9a-f-]{36}(,[0-9a-f-]{36})*$/i.test(clientId)) throw new Error('MS_CLIENT_ID ligner ikke et Application (client) ID. Intet er udgivet.');
+  const run = (cmd) => execSync(cmd, { cwd: root, stdio: 'inherit', env: { ...process.env, CI: '1' } });
+  const deployCmd = `npx --yes wrangler@4 deploy --config cloudflare/wrangler.jsonc --var MS_CLIENT_ID:${clientId}`;
   // The app's own domain (e.g. app.xavieros.dk), when its zone is active on the account (resolve-site.mjs).
   const domain = (process.env.BING_ADS_CHAT_APP_DOMAIN ?? '').trim();
-  const domainFlag = /^[a-z0-9.-]+$/i.test(domain) ? ` --domain ${domain}` : '';
-  execSync(`npx --yes wrangler@4 deploy --config cloudflare/wrangler.jsonc --var MS_CLIENT_ID:${clientId}${domainFlag}`, {
-    cwd: root,
-    stdio: 'inherit',
-    env: { ...process.env, CI: '1' },
-  });
+  if (/^[a-z0-9.-]+$/i.test(domain)) {
+    try {
+      run(`${deployCmd} --domain ${domain}`);
+    } catch {
+      // Cloudflare would not take the domain (typically an old DNS record on it). The update feed
+      // and the download page matter more than the address, so publish on workers.dev instead and
+      // say why – the next release tries the domain again.
+      console.log(`::warning::Cloudflare tog ikke imod ${domain} til appen (fx en gammel DNS-post på ${domain}) – appen udgives på workers.dev i stedet. Se docs/RELEASE.md → Eget domæne.`);
+      run(deployCmd);
+    }
+  } else {
+    run(deployCmd);
+  }
 }
 
 console.log(`
