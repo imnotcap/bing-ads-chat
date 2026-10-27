@@ -24,6 +24,18 @@ export const CONNECTOR_IDS = [
 ] as const;
 export type ConnectorId = (typeof CONNECTOR_IDS)[number];
 
+/**
+ * Archived: other marketing channels (Google Ads, Meta, LinkedIn, Daisycon, Klaviyo). The
+ * focus is the Microsoft Advertising assistant, so these are out of sight – not in
+ * Indstillinger, not tested at night, not given to the assistant. Nothing is deleted:
+ * the code, the ids and any keys already saved stay, and taking an id out of this list
+ * brings the connector back. SEO tools (Search Console, GA4, Ahrefs, Serper) and the
+ * shop's own data (Magento, PIM) are not archived.
+ */
+export const ARCHIVED_CONNECTOR_IDS: readonly ConnectorId[] = ['google_ads', 'meta_ads', 'linkedin_ads', 'daisycon', 'klaviyo'];
+export const isArchivedConnector = (id: string) => (ARCHIVED_CONNECTOR_IDS as readonly string[]).includes(id);
+export const ACTIVE_CONNECTOR_IDS: readonly ConnectorId[] = CONNECTOR_IDS.filter((id) => !isArchivedConnector(id));
+
 export type ConnectorGroup = 'ads' | 'seo' | 'shop';
 
 export const CONNECTOR_GROUPS: Record<ConnectorGroup, string> = {
@@ -286,6 +298,8 @@ export const CONNECTORS: ConnectorDef[] = [
 
 export const connectorDef = (id: ConnectorId) => CONNECTORS.find((c) => c.id === id)!;
 export const isConnectorId = (v: string): v is ConnectorId => (CONNECTOR_IDS as readonly string[]).includes(v);
+/** The connectors shown and used: everything that is not archived. */
+export const ACTIVE_CONNECTORS: ConnectorDef[] = CONNECTORS.filter((c) => !isArchivedConnector(c.id));
 
 export type ConnectorStatus = 'not_connected' | 'connected' | 'error' | 'needs_login';
 

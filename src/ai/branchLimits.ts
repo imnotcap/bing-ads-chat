@@ -88,7 +88,9 @@ const KIND: Record<LimitBranchId, LimitKind> = {
   pim: 'read',
 };
 
-export const LIMIT_BRANCH_IDS = Object.keys(KIND) as LimitBranchId[];
+/** Branches of the other marketing channels are archived with their connectors (workspace/connectors.ts); their limits stay stored. */
+const ARCHIVED_BRANCHES: LimitBranchId[] = ['google_ads', 'meta_ads', 'linkedin_ads', 'daisycon', 'klaviyo'];
+export const LIMIT_BRANCH_IDS = (Object.keys(KIND) as LimitBranchId[]).filter((id) => !ARCHIVED_BRANCHES.includes(id));
 export const isLimitBranchId = (v: string): v is LimitBranchId => v in KIND;
 export const limitKind = (id: LimitBranchId) => KIND[id];
 

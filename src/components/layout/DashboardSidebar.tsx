@@ -207,8 +207,8 @@ export function DashboardSidebar({ section }: { section: 'dashboard' | 'planning
 
   const categories = useMemo<Category[]>(() => {
     const nav = (id: string, label: string, icon: LucideIcon, target: View): NavItem => ({ id, label, icon, active: view === target, onSelect: () => go(target) });
-    const soon = (id: string, label: string, icon: LucideIcon): NavItem => ({ id, label, icon, active: false, soon: true });
     // Each channel folds out to its own pages; open unless folded (its page being open keeps it open).
+    // Google Ads, Meta and LinkedIn are archived: their "Snart" branches are gone from the menu.
     const branch = (id: string, label: string, brand: Brand, children: NavItem[], isSoon = false): NavItem => {
       const key = `branch:${id}`;
       const open = collapsed[key] === undefined ? !isSoon : !collapsed[key];
@@ -261,9 +261,6 @@ export function DashboardSidebar({ section }: { section: 'dashboard' | 'planning
             nav('campaigns', 'Kampagner', LayoutGrid, 'campaigns'),
             nav('products', 'Produkter', Package, 'products'),
           ]),
-          branch('gads', 'Google Ads', 'google_ads', [soon('gads-campaigns', 'Kampagner', LayoutGrid), soon('gads-products', 'Produkter', Package)], true),
-          branch('meta', 'Meta Ads', 'meta', [soon('meta-campaigns', 'Kampagner', LayoutGrid), soon('meta-catalog', 'Katalog', Package)], true),
-          branch('linkedin', 'LinkedIn Ads', 'linkedin', [soon('linkedin-campaigns', 'Kampagner', LayoutGrid)], true),
         ],
       },
     ];

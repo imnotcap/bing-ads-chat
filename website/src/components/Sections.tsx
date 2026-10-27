@@ -36,8 +36,6 @@ const PLATFORMS: { id: BrandId; soon?: boolean }[] = [
   { id: 'microsoft_ads' },
   { id: 'claude' },
   { id: 'outlook' },
-  { id: 'google_ads', soon: true },
-  { id: 'meta', soon: true },
   { id: 'webshop', soon: true },
 ];
 

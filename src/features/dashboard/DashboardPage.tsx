@@ -34,12 +34,8 @@ import { axisLabels, periodOf, type Granularity, type Period } from './period';
 
 const COLORS = ['#6d5cf6', '#14b8a6', '#8b5cf6', '#f59e0b', '#c4c4d0'];
 
-const CHANNELS: { id: string; label: string; brand: Brand; live: boolean }[] = [
-  { id: 'microsoft_ads', label: 'Microsoft Ads', brand: 'microsoft_ads', live: true },
-  { id: 'google_ads', label: 'Google Ads', brand: 'google_ads', live: false },
-  { id: 'meta', label: 'Meta Ads', brand: 'meta', live: false },
-  { id: 'linkedin', label: 'LinkedIn Ads', brand: 'linkedin', live: false },
-];
+// Google Ads, Meta and LinkedIn are archived while the focus is the Microsoft Ads assistant.
+const CHANNELS: { id: string; label: string; brand: Brand; live: boolean }[] = [{ id: 'microsoft_ads', label: 'Microsoft Ads', brand: 'microsoft_ads', live: true }];
 
 const TYPE_LABEL: Record<string, string> = { Search: 'Søgning', Shopping: 'Shopping', Audience: 'Audience', PerformanceMax: 'Performance Max' };
 
@@ -533,7 +529,7 @@ export function DashboardPage() {
               }}
               onStep={(d) => setOffset((o) => Math.max(0, o + d))}
             />
-            <ChannelPicker value={channel} onChange={setChannel} />
+            {CHANNELS.length > 1 && <ChannelPicker value={channel} onChange={setChannel} />}
             <div className="ml-auto flex items-center gap-2">
               <Tooltip content="Hent tallene igen">
                 <Button variant="secondary" size="icon-sm" aria-label="Opdatér" onClick={() => void refreshAdsData()}>

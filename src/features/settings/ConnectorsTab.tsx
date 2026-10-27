@@ -13,13 +13,14 @@ import { fmtRelative } from '@/lib/format';
 import { openExternal } from '@/lib/platform';
 import { cn, errorMessage } from '@/lib/utils';
 import { useAccount } from '@/stores/account';
-import { CONNECTORS, CONNECTOR_GROUPS, type ConnectorDef, type ConnectorGroup, type ConnectorStatus, type ConnectorSummary } from '@/workspace/connectors';
+import { ACTIVE_CONNECTORS, CONNECTOR_GROUPS, type ConnectorDef, type ConnectorGroup, type ConnectorStatus, type ConnectorSummary } from '@/workspace/connectors';
 import { completeSourceLogin, disconnectSource, loadSources, saveSource, startSourceLogin, testSource, useSources } from '@/workspace/sources';
 import { ConnectorLogo, type LogoId } from './ConnectorLogo';
 import { AdsConnectionForm, ClaudeKeyForm, InventarlandForm, MicrosoftSetupGuide, SharedBy } from './forms';
 
 type Group = ConnectorGroup | 'ai';
-const GROUPS: { id: Group; label: string }[] = [{ id: 'ai', label: 'AI' }, ...(Object.entries(CONNECTOR_GROUPS) as [ConnectorGroup, string][]).map(([id, label]) => ({ id, label }))];
+// A group with nothing left in it (Annoncering, once Google Ads, Meta and LinkedIn are archived) is not shown.
+const GROUPS: { id: Group; label: string }[] = [{ id: 'ai', label: 'AI' }, ...(Object.entries(CONNECTOR_GROUPS) as [ConnectorGroup, string][]).filter(([id]) => ACTIVE_CONNECTORS.some((c) => c.group === id)).map(([id, label]) => ({ id, label }))];
 
 /** The three connections that have their own forms (shared from before). */
 type BuiltinId = 'claude' | 'microsoft_ads' | 'inventarland';
@@ -75,7 +76,7 @@ function useItems(): Item[] {
         detail: inv?.connected ? (inv.error ?? inv.email) : null,
       },
     ];
-    const sources: Item[] = CONNECTORS.map((def) => {
+    const sources: Item[] = ACTIVE_CONNECTORS.map((def) => {
       const s = list?.find((c) => c.id === def.id);
       return {
         id: def.id,

@@ -243,14 +243,6 @@ function ConnectorsMenu() {
             </DropdownMenuItem>
           );
         })}
-        <DropdownMenuSeparator />
-        {(['google_ads', 'meta'] as Brand[]).map((b) => (
-          <div key={b} className="flex items-center gap-2.5 px-2.5 py-2 text-[13.5px] text-muted">
-            <BrandIcon brand={b} className="opacity-60" />
-            <span className="flex-1">{b === 'google_ads' ? 'Google Ads' : 'Meta Ads'}</span>
-            <span className="rounded-full bg-line-2 px-2 py-0.5 text-[11px]">Kommer snart</span>
-          </div>
-        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );

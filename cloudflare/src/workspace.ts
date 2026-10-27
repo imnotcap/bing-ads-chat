@@ -23,7 +23,7 @@ import { applyOp, boardOfOp, canSeeBoard, dataFor, isBoardData, mayApply, member
 import { INVENTARLAND_URL, INVENTARLAND_VIEWS, type AdsAccess, type CompanyInfo, type Invitation, type Role, type InventarlandView, type SharedKeyName, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
 import { LIMIT_BRANCH_IDS, cleanLimits, isLimitBranchId, type StoredLimits } from '../../src/ai/branchLimits';
 import { BRANCH_IDS, MAX_SECTION_CHARS, SECTION_IDS, cleanSections, defaultPlaybook, isBranchId, type PlaybookSections, type SectionId, type StoredPlaybook } from '../../src/ai/playbooks';
-import { CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isConnectorId, type ConnectorId, type ConnectorSaveResult } from '../../src/workspace/connectors';
+import { ACTIVE_CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isArchivedConnector, isConnectorId, type ConnectorId, type ConnectorSaveResult } from '../../src/workspace/connectors';
 import { AuthError, type MicrosoftIdentity } from './auth';
 import { AdsKeyError, adsAccountCustomers, adsProbe, adsRefresh, mergeAdsKeys, type AdsKeys } from './microsoftAds';
 import { clearCampaigns, initAdsCache, readCampaigns, writeCampaigns } from './adsCache';
@@ -364,10 +364,11 @@ export class Workspace extends DurableObject<Env> {
 
     /* ------------------------------- data sources ------------------------------- */
     if (path === '/connections' && method === 'GET') {
-      const rows = await this.ctx.storage.get<ConnState>(CONNECTOR_IDS.map((id) => `conn:${id}`));
-      return json({ connectors: CONNECTOR_IDS.map((id) => toSummary(id, rows.get(`conn:${id}`))) });
+      const rows = await this.ctx.storage.get<ConnState>(ACTIVE_CONNECTOR_IDS.map((id) => `conn:${id}`));
+      return json({ connectors: ACTIVE_CONNECTOR_IDS.map((id) => toSummary(id, rows.get(`conn:${id}`))) });
     }
     const cm = path.match(/^\/connections\/([a-z0-9_]+)(\/test|\/login\/start|\/login\/complete)?$/);
+    if (cm && isArchivedConnector(cm[1]!)) return fail('Forbindelsen er arkiveret.', 410);
     if (cm && isConnectorId(cm[1]!)) return this.connectionRoute(req, cm[1], cm[2] ?? '', user);
 
     /* ------------------------- budget and limits per branch ------------------------- */
@@ -796,7 +797,8 @@ export class Workspace extends DurableObject<Env> {
     if (await this.ctx.storage.get('ads')) results.microsoft_ads = await this.adsAccessToken(true).then(() => 'ok', (e: unknown) => (e instanceof Error ? e.message : 'fejl'));
     // The day's first sync of the stored days, so the first person in has fresh numbers at once.
     if (results.microsoft_ads === 'ok') results.daily = String(await this.planDailyAll());
-    for (const id of CONNECTOR_IDS) {
+    // Archived connectors are not tested: no call goes out for a channel nobody uses.
+    for (const id of ACTIVE_CONNECTOR_IDS) {
       const state = await this.ctx.storage.get<ConnState>(`conn:${id}`);
       if (!state || state.status === 'not_connected' || (state.status === 'needs_login' && !state.secrets.refreshToken && connectorDef(id).oauth)) continue;
       if (connectorDef(id).paidTest) continue;
