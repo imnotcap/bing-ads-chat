@@ -8,6 +8,7 @@ import { openDownloadPage } from '@/lib/updater';
 import { isBusy, useUpdate } from '@/stores/update';
 import { Button } from '../ui/button';
 import { Dialog, Tooltip } from '../ui/overlays';
+import { NOTES_FALLBACK, tidyNotes } from '@/lib/releaseNotes';
 
 const mb = (bytes: number) => `${(bytes / 1_048_576).toLocaleString('da-DK', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MB`;
 
@@ -70,7 +71,9 @@ export function UpdateDialog() {
           ) : (
             <>
               <p className="font-medium text-ink">Nyheder</p>
-              <p className="mt-1 whitespace-pre-line leading-relaxed">{available.notes ?? 'Forbedringer og fejlrettelser.'}</p>
+              {/* Tidied here too, so notes published before releaseNotes.ts existed read right; and
+                  scrolled, so a long text never pushes the buttons off the screen. */}
+              <p className="mt-1 max-h-[min(45vh,340px)] overflow-y-auto whitespace-pre-line pr-1 leading-relaxed">{tidyNotes(available.notes) || NOTES_FALLBACK}</p>
               <p className="mt-3 text-[12px] text-muted">Tager under et minut. Appen genstarter af sig selv, og dine samtaler og nøgler bevares.</p>
             </>
           )}

@@ -20,6 +20,7 @@ import { execSync } from 'node:child_process';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { releaseNotes } from '../src/lib/releaseNotes.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -32,16 +33,8 @@ const sig = files.find((f) => /_x64-setup\.exe\.sig$/.test(f));
 if (!setup || !sig) throw new Error(`Mangler den signerede installer (*_x64-setup.exe + .sig) i ${bundleDir}`);
 const version = /_(\d+\.\d+\.\d+)_x64-setup\.exe$/.exec(setup)[1];
 
-/** Commit message → short release notes (no co-author/session trailers). */
-function notesFrom(message) {
-  const lines = (message ?? '')
-    .split('\n')
-    .filter((l) => !/^(Co-Authored-By|Claude-Session|Signed-off-by):/i.test(l.trim()))
-    .join('\n')
-    .trim();
-  return lines.slice(0, 1500) || 'Forbedringer og fejlrettelser.';
-}
-const notes = notesFrom(process.env.RELEASE_NOTES);
+// The commit message, unwrapped and cut at a whole paragraph (the same code the app shows it with).
+const notes = releaseNotes(process.env.RELEASE_NOTES);
 const pubDate = new Date().toISOString();
 if (!process.env.BING_ADS_CHAT_SITE_URL) throw new Error('BING_ADS_CHAT_SITE_URL mangler – kør scripts/resolve-site.mjs først.');
 const site = process.env.BING_ADS_CHAT_SITE_URL.replace(/\/$/, '');
