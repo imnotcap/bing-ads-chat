@@ -22,10 +22,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { campaignMenuItems } from '@/features/campaigns/campaignMenu';
 import { startChat } from '@/features/chat/startChat';
 import { computeAlerts } from '@/features/insights/alerts';
-import { useCampaigns, usePeriodTrend, type CampaignRow } from '@/hooks/useAdsData';
+import { refreshAdsData, useCampaigns, usePeriodTrend, type CampaignRow } from '@/hooks/useAdsData';
 import { fmtCompact, fmtDate, fmtMoney, fmtNumber, fmtPercent } from '@/lib/format';
 import { saveExport } from '@/lib/platform';
-import { queryClient } from '@/lib/queryClient';
 import { cn, errorMessage } from '@/lib/utils';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
 import { useUi } from '@/stores/ui';
@@ -537,7 +536,7 @@ export function DashboardPage() {
             <ChannelPicker value={channel} onChange={setChannel} />
             <div className="ml-auto flex items-center gap-2">
               <Tooltip content="Hent tallene igen">
-                <Button variant="secondary" size="icon-sm" aria-label="Opdatér" onClick={() => void queryClient.invalidateQueries()}>
+                <Button variant="secondary" size="icon-sm" aria-label="Opdatér" onClick={() => void refreshAdsData()}>
                   <RefreshCw className={cn(fetching && 'animate-spin')} />
                 </Button>
               </Tooltip>

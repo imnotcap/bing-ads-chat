@@ -22,7 +22,7 @@ export function sectionOf(view: View): Section {
 }
 
 /** Pages of the Dashboard section (the rail returns to the last one used). */
-const DASHBOARD_PAGES: View[] = ['dashboard', 'campaigns', 'products'];
+const DASHBOARD_PAGES: View[] = ['dashboard', 'daily', 'campaigns', 'products'];
 
 function RailButton({ label, icon: Icon, active, onClick, dot, badge }: { label: string; icon: LucideIcon; active: boolean; onClick: () => void; dot?: boolean; badge?: number }) {
   return (

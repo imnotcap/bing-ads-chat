@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 
-export type View = 'chat' | 'dashboard' | 'campaigns' | 'products' | 'activity' | 'board';
+export type View = 'chat' | 'dashboard' | 'daily' | 'campaigns' | 'products' | 'activity' | 'board';
 
 /** Views of the dashboard workspace (its own sidebar). */
-export const DASHBOARD_VIEWS: View[] = ['dashboard', 'campaigns', 'products', 'activity', 'board'];
+export const DASHBOARD_VIEWS: View[] = ['dashboard', 'daily', 'campaigns', 'products', 'activity', 'board'];
 export const isDashboardView = (v: View) => DASHBOARD_VIEWS.includes(v);
 export type SettingsTab = 'connections' | 'users' | 'spend' | 'training' | 'ai' | 'business' | 'appearance' | 'data' | 'about' | 'models';
 

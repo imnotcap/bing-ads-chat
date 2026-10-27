@@ -25,8 +25,27 @@ import { LIMIT_BRANCH_IDS, cleanLimits, isLimitBranchId, type StoredLimits } fro
 import { BRANCH_IDS, MAX_SECTION_CHARS, SECTION_IDS, cleanSections, defaultPlaybook, isBranchId, type PlaybookSections, type SectionId, type StoredPlaybook } from '../../src/ai/playbooks';
 import { CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isConnectorId, type ConnectorId, type ConnectorSaveResult } from '../../src/workspace/connectors';
 import { AuthError, type MicrosoftIdentity } from './auth';
-import { AdsKeyError, adsProbe, adsRefresh, mergeAdsKeys, type AdsKeys } from './microsoftAds';
+import { AdsKeyError, adsAccountCustomers, adsProbe, adsRefresh, mergeAdsKeys, type AdsKeys } from './microsoftAds';
 import { clearCampaigns, initAdsCache, readCampaigns, writeCampaigns } from './adsCache';
+import {
+  TRAILING_DAYS,
+  activeJob,
+  clearDaily,
+  copenhagen,
+  coverageOf,
+  enqueue,
+  initAdsDaily,
+  knownAccounts,
+  nextJob,
+  officeHours,
+  planSync,
+  recordError,
+  stateOf,
+  stepJob,
+  validRange,
+  viewOf,
+} from './adsDaily';
+import { addDays, type DateRange } from '../../src/lib/format';
 import { clearProducts, initProductCache, readProducts, writeProducts } from './productCache';
 import { allPurchases, billingState, buyPack, initBilling, recordUsage } from './billing';
 import type { Directory } from './directory';
@@ -121,6 +140,7 @@ export class Workspace extends DurableObject<Env> {
     void this.ctx.blockConcurrencyWhile(async () => {
       initAdsCache(this.ctx.storage.sql);
       initProductCache(this.ctx.storage.sql);
+      initAdsDaily(this.ctx.storage.sql);
       initBilling(this.ctx.storage.sql);
       this.boardMeta = (await this.ctx.storage.get<BoardMeta>('boards:meta')) ?? { version: 0 };
       this.boards = (await this.ctx.storage.get<BoardData>('boards:data')) ?? null;
@@ -274,6 +294,8 @@ export class Workspace extends DurableObject<Env> {
         this.adsToken = { value: probe.accessToken, expiresAt: Date.now() + probe.expiresIn * 1000 };
         clearCampaigns(this.ctx.storage.sql);
         clearProducts(this.ctx.storage.sql);
+        clearDaily(this.ctx.storage.sql);
+        await this.ctx.storage.delete('ads:customers');
       } catch (e) {
         if (e instanceof AdsKeyError) return fail(e.message, 400);
         throw e;
@@ -285,6 +307,8 @@ export class Workspace extends DurableObject<Env> {
       this.adsToken = null;
       clearCampaigns(this.ctx.storage.sql);
       clearProducts(this.ctx.storage.sql);
+      clearDaily(this.ctx.storage.sql);
+      await this.ctx.storage.delete('ads:customers');
       return json(await this.info());
     }
     // The campaigns of the connected account, cached here (adsCache.ts).
@@ -316,6 +340,19 @@ export class Workspace extends DurableObject<Env> {
       if (ads.accountId && accountId !== ads.accountId) return fail('Kun den forbundne konto kan gemmes.', 403);
       const error = writeProducts(this.ctx.storage, accountId, String(body.period ?? ''), Number(body.fetchedAt), Number(body.scanned), body.products);
       return error ? fail(error, 400) : json({ ok: true });
+    }
+    // The account's days (adsDaily.ts): always answered from here at once; whatever is
+    // missing or out of date is fetched by the Worker in the background. POST = Opdatér.
+    if ((path === '/workspace/ads/daily' && method === 'GET') || (path === '/workspace/ads/daily/refresh' && method === 'POST')) {
+      const ads = await this.ctx.storage.get<AdsConnection>('ads');
+      if (!ads) return fail('Microsoft Advertising er ikke forbundet.', 409);
+      const accountId = url.searchParams.get('account') ?? '';
+      if (!/^\d+$/.test(accountId)) return fail('Ugyldigt konto-id.', 400);
+      if (ads.accountId && accountId !== ads.accountId) return fail('Kun den forbundne konto kan hentes.', 403);
+      const range = validRange(url.searchParams.get('from'), url.searchParams.get('to'));
+      if (!range) return fail('Ugyldig periode.', 400);
+      await this.planDaily(accountId, range, method === 'POST', ads);
+      return json(viewOf(this.ctx.storage.sql, accountId, range, Date.now()));
     }
     if (path === '/workspace/ads/token' && method === 'POST') {
       const ads = await this.ctx.storage.get<AdsConnection>('ads');
@@ -547,6 +584,108 @@ export class Workspace extends DurableObject<Env> {
     };
   }
 
+  /* ------------------------------ the stored days ------------------------------ */
+
+  /** Plans the one report an account needs now, if any (adsDaily.ts → planSync), and wakes the alarm for it. */
+  private async planDaily(accountId: string, want: DateRange, manual: boolean, ads: AdsConnection) {
+    const sql = this.ctx.storage.sql;
+    const now = Date.now();
+    const cph = copenhagen(now);
+    const state = stateOf(sql, accountId);
+    const plan = planSync({
+      now,
+      today: cph.date,
+      office: officeHours(cph),
+      want,
+      coverage: coverageOf(sql, accountId),
+      state,
+      active: !!activeJob(sql, accountId, now),
+      blocked: !!ads.error,
+      manual,
+    });
+    if (!plan) return;
+    let customerId = state?.customerId ?? null;
+    if (!customerId) {
+      try {
+        customerId = await this.adsCustomerOf(accountId, ads);
+      } catch (e) {
+        recordError(sql, accountId, e instanceof Error ? e.message : 'Kontoen kunne ikke findes hos Microsoft.', now);
+        return;
+      }
+    }
+    if (enqueue(this.ctx.storage, { accountId, customerId, ...plan }, now)) await this.wakeDaily(now);
+  }
+
+  /** The morning schedule: the last 30 days of every account that has stored days. */
+  private async planDailyAll(): Promise<number> {
+    const ads = await this.ctx.storage.get<AdsConnection>('ads');
+    if (!ads) return 0;
+    const today = copenhagen(Date.now()).date;
+    let planned = 0;
+    for (const { accountId } of knownAccounts(this.ctx.storage.sql)) {
+      if (ads.accountId && accountId !== ads.accountId) continue;
+      if (!coverageOf(this.ctx.storage.sql, accountId)) continue;
+      await this.planDaily(accountId, { from: addDays(today, -TRAILING_DAYS), to: today }, false, ads);
+      planned++;
+    }
+    return planned;
+  }
+
+  /**
+   * The customer an ad account belongs to (a report has to name both). From the stored
+   * Konto-ID/Kunde-ID when they match, else looked up once and kept for a day – and an
+   * account that was not there is not looked up again for an hour.
+   */
+  private async adsCustomerOf(accountId: string, ads: AdsConnection): Promise<string> {
+    if (ads.accountId === accountId && ads.customerId) return ads.customerId;
+    const cached = await this.ctx.storage.get<{ at: number; map: Record<string, string> }>('ads:customers');
+    const age = cached ? Date.now() - cached.at : Infinity;
+    const hit = cached?.map[accountId];
+    if (hit && age < 24 * 3600_000) return hit;
+    if (!hit && age < 3600_000) throw new AuthError(`Konto ${accountId} findes ikke for den forbundne Microsoft-bruger.`, 404);
+    const token = await this.adsAccessToken(false);
+    let map: Map<string, string>;
+    try {
+      map = await adsAccountCustomers((input, init) => fetch(input, init), ads, token);
+    } catch (e) {
+      if (e instanceof AdsKeyError) throw new AuthError(e.message, e.kind === 'auth' ? 409 : 502);
+      throw e;
+    }
+    await this.ctx.storage.put('ads:customers', { at: Date.now(), map: Object.fromEntries(map) });
+    const found = map.get(accountId);
+    if (!found) throw new AuthError(`Konto ${accountId} findes ikke for den forbundne Microsoft-bruger.`, 404);
+    return found;
+  }
+
+  private async wakeDaily(at: number) {
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || current > at) await this.ctx.storage.setAlarm(at);
+  }
+
+  /** One step of the next due report (adsDaily.ts → stepJob), then the alarm for the step after. */
+  override async alarm() {
+    const sql = this.ctx.storage.sql;
+    const job = nextJob(sql);
+    if (!job) return;
+    if (job.nextAt <= Date.now()) {
+      await stepJob(
+        this.ctx.storage,
+        {
+          fetch: (input, init) => fetch(input, init),
+          now: () => Date.now(),
+          access: async (fresh) => {
+            const ads = await this.ctx.storage.get<AdsConnection>('ads');
+            if (!ads) throw new AuthError('Microsoft Advertising er ikke forbundet.', 409);
+            return { accessToken: await this.adsAccessToken(fresh), developerToken: ads.developerToken };
+          },
+        },
+        job,
+      );
+    }
+    const next = nextJob(sql);
+    if (next) await this.ctx.storage.setAlarm(Math.max(next.nextAt, Date.now()));
+  }
+
   /** A Microsoft Advertising access token from the shared sign-in (refreshed here). */
   private adsAccessToken(fresh: boolean): Promise<string> {
     if (!fresh && this.adsToken && this.adsToken.expiresAt > Date.now() + 120_000) return Promise.resolve(this.adsToken.value);
@@ -655,6 +794,8 @@ export class Workspace extends DurableObject<Env> {
     const results: Record<string, string> = {};
     // Microsoft Advertising: a refresh keeps the token alive (it lapses after 90 unused days).
     if (await this.ctx.storage.get('ads')) results.microsoft_ads = await this.adsAccessToken(true).then(() => 'ok', (e: unknown) => (e instanceof Error ? e.message : 'fejl'));
+    // The day's first sync of the stored days, so the first person in has fresh numbers at once.
+    if (results.microsoft_ads === 'ok') results.daily = String(await this.planDailyAll());
     for (const id of CONNECTOR_IDS) {
       const state = await this.ctx.storage.get<ConnState>(`conn:${id}`);
       if (!state || state.status === 'not_connected' || (state.status === 'needs_login' && !state.secrets.refreshToken && connectorDef(id).oauth)) continue;

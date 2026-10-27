@@ -5,6 +5,7 @@ import type { Effort, ModelId, ModelInfo } from '@/ai/models';
 import type { DatePreset } from '@/lib/format';
 import { DEFAULT_LIMITS, type BranchLimits } from '@/ai/branchLimits';
 import { DEFAULT_PRODUCT_COLUMNS } from '@/features/products/defaults';
+import type { RoasScale } from '@/features/dashboard/daily';
 
 /**
  * Microsoft Advertising's budget and limits – a local mirror of the shared branch limits
@@ -73,12 +74,16 @@ interface SettingsState {
   appearance: Appearance;
   datePreset: DatePreset;
   onboarded: boolean;
+  /** Dagligt overblik: where ROAS turns from red to green, per ad account (features/dashboard/daily.ts). */
+  roasScales: Record<string, RoasScale>;
   setSpend: (patch: Partial<SpendRules>) => void;
   setAi: (patch: Partial<AiSettings>) => void;
   setBusiness: (patch: Partial<BusinessProfile>) => void;
   setAppearance: (patch: Partial<Appearance>) => void;
   setDatePreset: (p: DatePreset) => void;
   setOnboarded: (v: boolean) => void;
+  /** null = back to the default scale. */
+  setRoasScale: (accountId: string, scale: RoasScale | null) => void;
 }
 
 export const useSettings = create<SettingsState>()(
@@ -110,12 +115,18 @@ export const useSettings = create<SettingsState>()(
       },
       datePreset: 'last30',
       onboarded: false,
+      roasScales: {},
       setSpend: (patch) => set((s) => ({ spend: { ...s.spend, ...patch } })),
       setAi: (patch) => set((s) => ({ ai: { ...s.ai, ...patch } })),
       setBusiness: (patch) => set((s) => ({ business: { ...s.business, ...patch } })),
       setAppearance: (patch) => set((s) => ({ appearance: { ...s.appearance, ...patch } })),
       setDatePreset: (datePreset) => set({ datePreset }),
       setOnboarded: (onboarded) => set({ onboarded }),
+      setRoasScale: (accountId, scale) =>
+        set((s) => {
+          const { [accountId]: _old, ...rest } = s.roasScales;
+          return { roasScales: scale ? { ...rest, [accountId]: scale } : rest };
+        }),
     }),
     {
       name: 'bac.settings',

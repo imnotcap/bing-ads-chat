@@ -10,9 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Badge, Segmented, Switch } from '@/components/ui/controls';
 import { Select, Tooltip } from '@/components/ui/overlays';
 import { change, derive, sumMetrics } from '@/bing/metrics';
-import { useAccountTrend, useCampaigns, useSelectedRange, type CampaignRow } from '@/hooks/useAdsData';
+import { refreshAdsData, useAccountTrend, useCampaigns, useSelectedRange, type CampaignRow } from '@/hooks/useAdsData';
 import { DATE_PRESET_LABELS, fmtMoney, fmtNumber, fmtPercent, type DatePreset } from '@/lib/format';
-import { queryClient } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
 import { useCurrentAccount } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
@@ -109,7 +108,7 @@ export function CampaignsPage() {
           aria-label="Periode"
           options={(Object.keys(DATE_PRESET_LABELS) as DatePreset[]).map((p) => ({ value: p, label: DATE_PRESET_LABELS[p], icon: <CalendarDays className="size-3.5 text-muted" /> }))}
         />
-        <Button variant="secondary" size="sm" onClick={() => void queryClient.invalidateQueries()}>
+        <Button variant="secondary" size="sm" onClick={() => void refreshAdsData()}>
           <RefreshCw className={cn(isFetching && 'animate-spin')} /> Opdatér
         </Button>
         <Button variant="gradient" size="sm" onClick={() => ask('Gennemgå alle kampagner i den valgte periode og giv mig en prioriteret liste med de vigtigste forbedringer.')}>

@@ -16,6 +16,7 @@ import { ActivityPage } from '@/features/activity/ActivityPage';
 import { CampaignsPage } from '@/features/campaigns/CampaignsPage';
 import { ProductsPage } from '@/features/products/ProductsPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
+import { DailyPage } from '@/features/dashboard/DailyPage';
 import { BoardPage } from '@/features/board/BoardPage';
 import { ChatView } from '@/features/chat/ChatView';
 import { RAIL_WIDTH, SessionRail } from '@/features/chat/SessionRail';
@@ -170,6 +171,7 @@ function Shell() {
                 </div>
               )}
               {view === 'dashboard' && <DashboardPage key="dashboard" />}
+              {view === 'daily' && <DailyPage key="daily" />}
               {view === 'campaigns' && <CampaignsPage key="campaigns" />}
               {view === 'products' && <ProductsPage key="products" />}
               {view === 'activity' && <ActivityPage key="activity" />}

@@ -7,7 +7,10 @@
  * Docs: https://learn.microsoft.com/advertising/guides/migrate-to-rest
  */
 import { msFetch } from '@/lib/platform';
+import { extractErrorMessages, isThrottled } from './msErrors';
 import type { MsService } from './types';
+
+export { extractErrorMessages };
 
 export const SERVICE_URLS: Record<MsService, string> = {
   campaign: 'https://campaign.api.bingads.microsoft.com/CampaignManagement/v13',
@@ -27,28 +30,6 @@ export class MsApiError extends Error {
     super(message);
     this.name = 'MsApiError';
   }
-}
-
-/** Collects human readable messages from Microsoft's (nested) error payloads. */
-export function extractErrorMessages(payload: unknown, out: string[] = [], depth = 0): string[] {
-  if (!payload || depth > 6 || out.length >= 8) return out;
-  if (Array.isArray(payload)) {
-    for (const p of payload) extractErrorMessages(p, out, depth + 1);
-    return out;
-  }
-  if (typeof payload === 'object') {
-    const o = payload as Record<string, unknown>;
-    const msg = typeof o.Message === 'string' ? o.Message : typeof o.message === 'string' ? o.message : null;
-    const code = o.ErrorCode ?? o.Code ?? o.code;
-    if (msg) {
-      const line = code !== undefined && code !== null ? `${msg} (${String(code)})` : msg;
-      if (!out.includes(line)) out.push(line);
-    }
-    for (const [k, v] of Object.entries(o)) {
-      if (k !== 'Message' && k !== 'message' && v && typeof v === 'object') extractErrorMessages(v, out, depth + 1);
-    }
-  }
-  return out;
 }
 
 export interface MsAccess {
@@ -135,7 +116,7 @@ export class MsAdsClient {
       if (res.ok) return json as T;
 
       const messages = extractErrorMessages(json);
-      const throttled = res.status === 429 || messages.some((m) => /\((117|207|4204)\)$/.test(m));
+      const throttled = isThrottled(res.status, messages);
       if (throttled && attempt < 2) {
         await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
         lastError = json;

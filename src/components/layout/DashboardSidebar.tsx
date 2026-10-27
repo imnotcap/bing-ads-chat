@@ -4,7 +4,7 @@
  * categories are listed at the bottom so they can be shown again.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronDown, Eye, EyeOff, LayoutDashboard, LayoutGrid, Package, Plus, Search, SquareKanban, UserRound,
+import { CalendarDays, ChevronDown, Eye, EyeOff, LayoutDashboard, LayoutGrid, Package, Plus, Search, SquareKanban, UserRound,
   UsersRound, type LucideIcon } from '@/components/icons';
 import { useMemo, useState } from 'react';
 import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
@@ -256,7 +256,11 @@ export function DashboardSidebar({ section }: { section: 'dashboard' | 'planning
         id: 'paid',
         label: 'Betalt markedsføring',
         items: [
-          branch('msads', 'Microsoft Ads', 'microsoft_ads', [nav('campaigns', 'Kampagner', LayoutGrid, 'campaigns'), nav('products', 'Produkter', Package, 'products')]),
+          branch('msads', 'Microsoft Ads', 'microsoft_ads', [
+            nav('daily', 'Dagligt overblik', CalendarDays, 'daily'),
+            nav('campaigns', 'Kampagner', LayoutGrid, 'campaigns'),
+            nav('products', 'Produkter', Package, 'products'),
+          ]),
           branch('gads', 'Google Ads', 'google_ads', [soon('gads-campaigns', 'Kampagner', LayoutGrid), soon('gads-products', 'Produkter', Package)], true),
           branch('meta', 'Meta Ads', 'meta', [soon('meta-campaigns', 'Kampagner', LayoutGrid), soon('meta-catalog', 'Katalog', Package)], true),
           branch('linkedin', 'LinkedIn Ads', 'linkedin', [soon('linkedin-campaigns', 'Kampagner', LayoutGrid)], true),

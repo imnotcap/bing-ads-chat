@@ -18,6 +18,7 @@ import {
   ChevronRight,
   Copy,
   LayoutGrid,
+  CalendarDays,
   Activity,
   Menu,
   Package,
@@ -59,7 +60,7 @@ import { UpdateButton } from './UpdatePrompt';
 import { NotificationBell } from '../notifications/NotificationBell';
 
 /** Where you are, shown as a breadcrumb in the top bar. */
-const PAGE_TITLES = { dashboard: ['Dashboard', 'Overblik'], campaigns: ['Dashboard', 'Microsoft Ads', 'Kampagner'], products: ['Dashboard', 'Microsoft Ads', 'Produkter'], activity: ['Aktivitet'], board: ['Planlægning'] } as const;
+const PAGE_TITLES = { dashboard: ['Dashboard', 'Overblik'], daily: ['Dashboard', 'Microsoft Ads', 'Dagligt overblik'], campaigns: ['Dashboard', 'Microsoft Ads', 'Kampagner'], products: ['Dashboard', 'Microsoft Ads', 'Produkter'], activity: ['Aktivitet'], board: ['Planlægning'] } as const;
 
 function IconButton({ label, onClick, disabled, children, shortcut }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode; shortcut?: string }) {
   return (
@@ -232,6 +233,9 @@ function AppMenu() {
           <PanelRight /> <span className="flex-1">{insights ? 'Skjul session' : 'Vis session'}</span> <span className="text-[11px] text-subtle">Ctrl I</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => go('daily')}>
+          <CalendarDays /> Dagligt overblik
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => go('campaigns')}>
           <LayoutGrid /> Kampagner
         </DropdownMenuItem>
