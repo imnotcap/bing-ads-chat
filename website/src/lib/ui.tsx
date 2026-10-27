@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
-import { motion, useInView, useReducedMotion } from 'framer-motion';
+import { motion, useInView } from 'framer-motion';
 import { ArrowRight } from 'lucide-react';
-import { useRef, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { ScrambleText } from '@/components/ascii/ScrambleText';
 
 export const cn = (...v: ClassValue[]) => clsx(v);
@@ -151,9 +151,13 @@ export function WindowsLogo({ className }: { className?: string }) {
  * centiseconds per frame, which is what made the old ones look soft and jerky. The same
  * clip as 60 fps video at more than twice the resolution is a fraction of the size.
  *
- * `src` is the name without an extension – `.webm`, `.mp4` and a `.jpg` poster sit next
- * to each other. It starts when it scrolls into view, plays once and holds its last
- * frame; under reduced motion only the last frame is shown.
+ * `src` is the name without an extension – `.webm`, `.mp4` and a `.jpg` poster (the
+ * first frame) sit next to each other. It starts when it scrolls into view, plays once –
+ * never on a loop – and then stays on its last frame.
+ *
+ * It plays also when Windows' "animation effects" are off (prefers-reduced-motion): a
+ * still of the first frame showed nothing of what the clip is there to show, and a clip
+ * that runs once and stops is not the ongoing motion that setting is about.
  */
 function clipSources(src: string) {
   const base = `${import.meta.env.BASE_URL}${src.replace(/^\//, '')}`;
@@ -162,11 +166,24 @@ function clipSources(src: string) {
 
 function ClipVideo({ src, alt, className, style, replay }: { src: string; alt: string; className?: string; style?: CSSProperties; replay?: string | number }) {
   const { webm, mp4, poster } = clipSources(src);
-  const reduce = useReducedMotion();
-  if (reduce) return <img src={poster} alt={alt} decoding="async" className={className} style={style} />;
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    // React only sets `muted` as a property. Safari wants the attribute as well before it
+    // lets a video start on its own, so it is set here – and the start asked for outright
+    // rather than left to the autoplay attribute alone.
+    v.muted = true;
+    v.defaultMuted = true;
+    v.setAttribute('muted', '');
+    v.play().catch(() => {
+      /* the browser refused; the first frame stays, as with any blocked autoplay */
+    });
+  }, [src, replay]);
   return (
     <video
       key={`${src}#${replay ?? ''}`}
+      ref={ref}
       autoPlay
       muted
       playsInline
