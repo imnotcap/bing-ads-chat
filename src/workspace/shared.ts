@@ -140,11 +140,20 @@ export function inventarland<T>(view: InventarlandView, params: Record<string, s
 /* ------------------------- Google Ads (audit, read only) ------------------------- */
 
 /**
- * Connects the Google Ads account the audit compares with – read only, with a service
- * account. The JSON key is sent once, checked against Google and kept on Cloudflare only;
- * leave `key` empty to keep the stored one. Administrators only.
+ * Connects the Google Ads account the audit compares with – read only. Either the way
+ * Inventarland Dashboard does it (OAuth client + refresh token) or with a service account's
+ * JSON key. The secrets are sent once, checked against Google and kept on Cloudflare only;
+ * empty ones keep what is stored. Administrators only.
  */
-export async function connectGoogleAudit(opts: { key?: string; customerId: string; loginCustomerId?: string }) {
+export async function connectGoogleAudit(opts: {
+  method: 'oauth' | 'service_account';
+  key?: string;
+  clientId?: string;
+  clientSecret?: string;
+  refreshToken?: string;
+  customerId: string;
+  loginCustomerId?: string;
+}) {
   applyWorkspace(await api<WorkspaceInfo>('/workspace/google', { method: 'PUT', body: JSON.stringify(opts) }));
 }
 

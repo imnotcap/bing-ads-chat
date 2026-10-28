@@ -6,7 +6,10 @@ import {
   GoogleAdsReader,
   assertReadOnly,
   explainGoogleError,
+  accessTokenFor,
+  authIdentity,
   googleAccessToken,
+  oauthAccessToken,
   parseServiceAccountKey,
   googleDimension,
   readCampaigns,
@@ -275,5 +278,34 @@ describe('reading one campaign’s insides', () => {
     const { reader, queries } = fake([]);
     await expect(readNegatives(reader, '1 OR 1=1')).rejects.toThrow(/Ugyldigt kampagne-id/);
     expect(queries).toEqual([]);
+  });
+});
+
+describe('signing in the Inventarland way (OAuth client + refresh token)', () => {
+  const oauth = { clientId: '123.apps.googleusercontent.com', clientSecret: 'GOCSPX-x', refreshToken: '1//0abc' };
+
+  it('swaps the refresh token for an access token – through the read-only gate', async () => {
+    let url = '';
+    let form = new URLSearchParams();
+    const fetchFn: FetchLike = async (u, init) => {
+      url = u;
+      form = new URLSearchParams(String(init?.body));
+      return Response.json({ access_token: 'ya29.o', expires_in: 3599 });
+    };
+    expect(await accessTokenFor(fetchFn, { kind: 'oauth', oauth }, 1000)).toEqual({ value: 'ya29.o', expiresAt: 1000 + 3599_000 });
+    expect(url).toBe(GOOGLE_TOKEN_URL);
+    expect(Object.fromEntries(form)).toEqual({ client_id: oauth.clientId, client_secret: 'GOCSPX-x', refresh_token: '1//0abc', grant_type: 'refresh_token' });
+  });
+
+  it('says what to do when Google refuses the token, as Inventarland does', async () => {
+    const answer = (body: object) => async () => Response.json(body, { status: 400 });
+    await expect(oauthAccessToken(answer({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }), oauth, 0)).rejects.toThrow(/udløbet eller tilbagekaldt.*I produktion/);
+    await expect(oauthAccessToken(answer({ error: 'invalid_client' }), oauth, 0)).rejects.toThrow(/client ID\/secret passer ikke/);
+  });
+
+  it('keeps tokens for different sign-ins apart', async () => {
+    const key = parseServiceAccountKey((await makeKey()).json);
+    expect(authIdentity({ kind: 'service_account', key })).toBe('gsc-chat@search-console-mcp-abc123.iam.gserviceaccount.com');
+    expect(authIdentity({ kind: 'oauth', oauth })).not.toBe(authIdentity({ kind: 'oauth', oauth: { ...oauth, refreshToken: '1//0other' } }));
   });
 });

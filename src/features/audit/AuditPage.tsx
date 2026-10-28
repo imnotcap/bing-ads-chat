@@ -24,6 +24,7 @@ import { cn, errorMessage } from '@/lib/utils';
 import { isAdmin, useAccount } from '@/stores/account';
 import { useCurrentAccount } from '@/stores/connection';
 import { connectGoogleAudit, disconnectGoogleAudit } from '@/workspace/shared';
+import { SecretInput } from '../settings/forms';
 import { PERIOD_LABELS, changeAudit, refreshGoogle, useAuditUi, type AuditPeriod, type GoogleCampaign } from './data';
 import { DetailCompare, STEP_TAB, TAB_LABEL, tabsFor } from './DetailCompare';
 import { rankCandidates } from './match';
@@ -72,15 +73,23 @@ const fmtCustomer = (id: string | null | undefined) => (id && id.length === 10 ?
 
 /* ------------------------------ Google connection ------------------------------ */
 
+type ConnectMethod = 'oauth' | 'service_account';
+
 function ConnectGoogle({ onDone }: { onDone?: () => void }) {
   const google = useAccount((s) => s.workspace?.google);
   const admin = useAccount((s) => isAdmin(s.user));
+  const [method, setMethod] = useState<ConnectMethod>(google?.method ?? 'oauth');
   const [key, setKey] = useState<{ name: string; text: string } | null>(null);
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [refreshToken, setRefreshToken] = useState('');
   const [customerId, setCustomerId] = useState(fmtCustomer(google?.customerId));
   const [loginId, setLoginId] = useState(fmtCustomer(google?.loginCustomerId));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
+  // Secrets already stored for this method may be left empty (they are kept).
+  const stored = !!google?.connected && google.method === method;
 
   const pick = async (f: File | undefined) => {
     setError(null);
@@ -89,12 +98,21 @@ function ConnectGoogle({ onDone }: { onDone?: () => void }) {
     setKey({ name: f.name, text: await f.text() });
   };
 
+  const ready =
+    customerId.replace(/\D/g, '').length === 10 && (method === 'oauth' ? stored || (!!clientId.trim() && !!clientSecret.trim() && !!refreshToken.trim()) : stored || !!key);
+
   const save = async () => {
     setBusy(true);
     setError(null);
     try {
-      await connectGoogleAudit({ key: key?.text, customerId, loginCustomerId: loginId });
+      await connectGoogleAudit(
+        method === 'oauth'
+          ? { method, clientId, clientSecret, refreshToken, customerId, loginCustomerId: loginId }
+          : { method, key: key?.text, customerId, loginCustomerId: loginId },
+      );
       setKey(null);
+      setClientSecret('');
+      setRefreshToken('');
       toast.success('Google Ads er forbundet – kun læsning');
       onDone?.();
     } catch (e) {
@@ -104,8 +122,10 @@ function ConnectGoogle({ onDone }: { onDone?: () => void }) {
     }
   };
 
+  const keep = stored ? 'Gemt – lad feltet stå tomt for at beholde det' : undefined;
+
   return (
-    <div className="grid max-w-[640px] gap-5 rounded-2xl border border-line bg-surface p-6">
+    <div className="grid max-w-[680px] gap-5 rounded-2xl border border-line bg-surface p-6">
       <div>
         <h2 className="flex items-center gap-2 text-[17px] font-medium text-ink">
           <Lock className="size-4 text-brand" /> Forbind Google Ads – kun læsning
@@ -115,29 +135,71 @@ function ConnectGoogle({ onDone }: { onDone?: () => void }) {
           læsning, før det sendes.
         </p>
       </div>
-      <ol className="grid list-decimal gap-2 pl-5 text-[13px] leading-relaxed text-ink-2">
-        <li>
-          I Google Ads: <b>Administrator → Adgang og sikkerhed → +</b>. Skriv <b>{SERVICE_ACCOUNT}</b>, vælg <b>Kun læseadgang</b>, og tilføj. Det er den eneste service-konto, der kan forbindes.
-        </li>
-        <li>
-          I Google Cloud-projektet, som service-kontoen hører til: slå <b>Google Ads API</b> til under APIs &amp; Services. Svarer Google, at projektet ikke har adgang til
-          API'et, skal der søges om adgang på Google Ads API-siden i Cloud Console.
-        </li>
-        <li>Vælg service-kontoens JSON-nøgle herunder. Den gemmes kun i jeres Cloudflare og vises aldrig igen.</li>
-      </ol>
+      <Segmented
+        layoutId="google-connect-method"
+        size="sm"
+        value={method}
+        onChange={(m: ConnectMethod) => {
+          setMethod(m);
+          setError(null);
+        }}
+        options={[
+          { value: 'oauth', label: 'Som Inventarland Dashboard' },
+          { value: 'service_account', label: 'Service-konto' },
+        ]}
+        className="justify-self-start"
+      />
+      {method === 'oauth' ? (
+        <ol className="grid list-decimal gap-2 pl-5 text-[13px] leading-relaxed text-ink-2">
+          <li>
+            Brug de samme tre værdier som i <b>Inventarland Dashboard → Integrationer → Google Ads</b>: OAuth client ID, client secret og refresh token. Ingen
+            developer token – Google har udfaset det.
+          </li>
+          <li>
+            Refresh-tokenet hører til en Google-bruger med adgang til Ads-kontoen. Appen læser kun – også hvis brugeren selv må ændre i Google – men har I en bruger med{' '}
+            <b>Kun læseadgang</b>, så brug hellere dens token.
+          </li>
+          <li>Værdierne gemmes kun i jeres Cloudflare og sendes aldrig tilbage til appen.</li>
+        </ol>
+      ) : (
+        <ol className="grid list-decimal gap-2 pl-5 text-[13px] leading-relaxed text-ink-2">
+          <li>
+            I Google Ads: <b>Administrator → Adgang og sikkerhed → +</b>. Skriv <b>{SERVICE_ACCOUNT}</b>, vælg <b>Kun læseadgang</b>, og tilføj. Det er den eneste
+            service-konto, der kan forbindes.
+          </li>
+          <li>I service-kontoens Google Cloud-projekt: slå <b>Google Ads API</b> til under APIs &amp; Services.</li>
+          <li>Vælg service-kontoens JSON-nøgle herunder. Den gemmes kun i jeres Cloudflare og vises aldrig igen.</li>
+        </ol>
+      )}
       {!admin ? (
         <p className="rounded-xl bg-line-2 px-4 py-3 text-[13px] text-ink-2">Kun en administrator kan forbinde Google Ads. Bed en administrator om at gøre det her.</p>
       ) : (
         <div className="grid gap-4">
-          <Field label="Service-kontoens JSON-nøgle" hint={google?.connected && !key ? `Gemt: ${google.serviceAccount}. Vælg kun en fil, hvis nøglen skal skiftes.` : undefined}>
-            <div className="flex items-center gap-3">
-              <Button variant="secondary" size="sm" onClick={() => file.current?.click()}>
-                <FileUp /> Vælg fil
-              </Button>
-              <span className="truncate text-[13px] text-muted">{key ? key.name : 'Ingen fil valgt'}</span>
-              <input ref={file} type="file" accept=".json,application/json" className="hidden" onChange={(e) => void pick(e.target.files?.[0])} />
-            </div>
-          </Field>
+          {method === 'oauth' ? (
+            <>
+              <Field label="OAuth client ID" htmlFor="g-client" hint={stored && !clientId ? 'Gemt – lad feltet stå tomt for at beholde det' : 'Slutter på .apps.googleusercontent.com'}>
+                <Input id="g-client" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="123…apps.googleusercontent.com" autoComplete="off" spellCheck={false} />
+              </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="OAuth client secret" htmlFor="g-secret" hint={keep}>
+                  <SecretInput id="g-secret" value={clientSecret} onChange={setClientSecret} placeholder="GOCSPX-…" />
+                </Field>
+                <Field label="OAuth refresh token" htmlFor="g-refresh" hint={keep}>
+                  <SecretInput id="g-refresh" value={refreshToken} onChange={setRefreshToken} placeholder="1//0…" />
+                </Field>
+              </div>
+            </>
+          ) : (
+            <Field label="Service-kontoens JSON-nøgle" hint={stored && !key ? `Gemt: ${google?.serviceAccount}. Vælg kun en fil, hvis nøglen skal skiftes.` : undefined}>
+              <div className="flex items-center gap-3">
+                <Button variant="secondary" size="sm" onClick={() => file.current?.click()}>
+                  <FileUp /> Vælg fil
+                </Button>
+                <span className="truncate text-[13px] text-muted">{key ? key.name : 'Ingen fil valgt'}</span>
+                <input ref={file} type="file" accept=".json,application/json" className="hidden" onChange={(e) => void pick(e.target.files?.[0])} />
+              </div>
+            </Field>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Google Ads-kundenummer" htmlFor="g-customer" hint="Øverst i Google Ads, fx 123-456-7890.">
               <Input id="g-customer" value={customerId} onChange={(e) => setCustomerId(e.target.value)} placeholder="123-456-7890" inputMode="numeric" />
@@ -152,7 +214,7 @@ function ConnectGoogle({ onDone }: { onDone?: () => void }) {
             </p>
           )}
           <div className="flex items-center gap-2">
-            <Button onClick={save} disabled={busy || (!key && !google?.connected) || customerId.replace(/\D/g, '').length !== 10}>
+            <Button onClick={save} disabled={busy || !ready}>
               {busy && <Loader2 className="animate-spin" />} Test og gem
             </Button>
             {google?.connected && (

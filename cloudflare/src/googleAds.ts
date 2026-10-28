@@ -11,8 +11,9 @@
  *    anything.
  * 3. The assistant gets no Google tools; the app reads through the workspace's routes.
  *
- * Signing in: the service account's JSON key signs a JWT (RS256, WebCrypto), which Google's
- * token endpoint swaps for an access token with the `adwords` scope. No developer token:
+ * Signing in, two ways: the service account's JSON key signs a JWT (RS256, WebCrypto), which
+ * Google's token endpoint swaps for an access token with the `adwords` scope – or, as in
+ * Inventarland Dashboard, an OAuth client and a user's refresh token (`oauthAccessToken`). No developer token:
  * Google retired it on 9 September 2026 – access follows the Google Cloud project the
  * service account belongs to (the Google Ads API must be enabled there).
  *
@@ -167,6 +168,66 @@ export async function googleAccessToken(fetchFn: FetchLike, key: ServiceAccountK
     throw new GoogleAdsError(`Google afviste service-kontoens nøgle (${why}). Er nøglen slettet i Google Cloud, så hent en ny.`, 'auth');
   }
   return { value: body.access_token, expiresAt: nowMs + (body.expires_in ?? 3600) * 1000 };
+}
+
+/* ------------------------- signing in the Inventarland way ------------------------- */
+
+/**
+ * The other way in – the same as Inventarland Dashboard: an OAuth client (id + secret)
+ * from the Google Cloud project, and the refresh token of a Google user with access to
+ * the Ads account. Google sees that user, with that user's rights – which is why the
+ * read-only gate above matters just as much here.
+ */
+export interface OAuthCredentials {
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+}
+
+/** How the workspace signs in to Google Ads. */
+export type GoogleAuth = { kind: 'service_account'; key: ServiceAccountKey } | { kind: 'oauth'; oauth: OAuthCredentials };
+
+/** Who Google sees – also what a stored access token belongs to. */
+export function authIdentity(auth: GoogleAuth): string {
+  return auth.kind === 'service_account' ? auth.key.clientEmail : `oauth:${auth.oauth.clientId}:${auth.oauth.refreshToken.slice(-12)}`;
+}
+
+/** Google's answer to a refresh token, in plain Danish (as in Inventarland). */
+export function oauthTokenError(status: number, body: string): GoogleAdsError {
+  let code = '';
+  let description = '';
+  try {
+    const j = JSON.parse(body) as { error?: string; error_description?: string };
+    code = j.error ?? '';
+    description = j.error_description ?? '';
+  } catch {
+    /* not JSON */
+  }
+  if (code === 'invalid_grant')
+    return new GoogleAdsError(
+      `Refresh-tokenet er udløbet eller tilbagekaldt${description ? ` (${description})` : ''}. Opret et nyt – og sæt Google Cloud-appens OAuth-skærm til "I produktion", ellers udløber tokens efter 7 dage.`,
+      'auth',
+    );
+  if (code === 'invalid_client' || code === 'unauthorized_client') return new GoogleAdsError(`OAuth client ID/secret passer ikke sammen med refresh-tokenet (${code}).`, 'auth');
+  return new GoogleAdsError(`Google-login fejlede (${code || `HTTP ${status}`}).`, 'auth');
+}
+
+export async function oauthAccessToken(fetchFn: FetchLike, oauth: OAuthCredentials, nowMs: number): Promise<GoogleToken> {
+  const res = await readOnlyFetch(fetchFn)(GOOGLE_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+    body: new URLSearchParams({ client_id: oauth.clientId, client_secret: oauth.clientSecret, refresh_token: oauth.refreshToken, grant_type: 'refresh_token' }).toString(),
+  });
+  const text = await res.text();
+  if (!res.ok) throw oauthTokenError(res.status, text);
+  const body = JSON.parse(text) as { access_token?: string; expires_in?: number };
+  if (!body.access_token) throw new GoogleAdsError('Google gav intet adgangstoken.', 'auth');
+  return { value: body.access_token, expiresAt: nowMs + (body.expires_in ?? 3600) * 1000 };
+}
+
+/** An access token, whichever way the workspace signs in. */
+export function accessTokenFor(fetchFn: FetchLike, auth: GoogleAuth, nowMs: number): Promise<GoogleToken> {
+  return auth.kind === 'service_account' ? googleAccessToken(fetchFn, auth.key, nowMs) : oauthAccessToken(fetchFn, auth.oauth, nowMs);
 }
 
 /* ---------------------------------- reading ---------------------------------- */

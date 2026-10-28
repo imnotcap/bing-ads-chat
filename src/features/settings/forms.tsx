@@ -13,7 +13,7 @@ import { connectInventarland, disconnectInventarland, disconnectSharedAds, goDem
 import { INVENTARLAND_URL, type SharedKeyInfo } from '@/workspace/types';
 import { removeAnthropicKey, saveAnthropicKey, testAnthropicKey } from './connection';
 
-function SecretInput({ value, onChange, placeholder, id }: { value: string; onChange: (v: string) => void; placeholder?: string; id?: string }) {
+export function SecretInput({ value, onChange, placeholder, id }: { value: string; onChange: (v: string) => void; placeholder?: string; id?: string }) {
   const [show, setShow] = useState(false);
   return (
     <div className="relative">

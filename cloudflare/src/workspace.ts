@@ -33,7 +33,8 @@ import {
   GoogleAdsError,
   GoogleAdsReader,
   digits,
-  googleAccessToken,
+  accessTokenFor,
+  authIdentity,
   parseServiceAccountKey,
   readAccount as readGoogleAccount,
   readAds as readGoogleAds,
@@ -43,7 +44,9 @@ import {
   readSearchTerms as readGoogleSearchTerms,
   readStructure as readGoogleStructure,
   type GoogleAccount,
+  type GoogleAuth,
   type GoogleCampaign,
+  type OAuthCredentials,
   type ServiceAccountKey,
 } from './googleAds';
 import {
@@ -112,11 +115,13 @@ interface InventarlandConnection {
 }
 
 /**
- * Google Ads for the audit – read only (googleAds.ts). The service account's private key
- * stays here; the app is only told which account and which service account.
+ * Google Ads for the audit – read only (googleAds.ts). Signed in with a service account's
+ * key, or – as in Inventarland Dashboard – an OAuth client and a refresh token. The secrets
+ * stay here; the app is only told which account and which way.
  */
 interface GoogleConnection {
-  key: ServiceAccountKey;
+  key?: ServiceAccountKey;
+  oauth?: OAuthCredentials;
   customerId: string;
   loginCustomerId: string | null;
   version: string | null;
@@ -130,6 +135,12 @@ interface GoogleCampaignsCache {
   fetchedAt: number;
   account: GoogleAccount;
   campaigns: GoogleCampaign[];
+}
+
+/** How a stored connection signs in (connections saved before OAuth had only a key). */
+function googleAuthOf(conn: GoogleConnection): GoogleAuth | null {
+  if (conn.oauth) return { kind: 'oauth', oauth: conn.oauth };
+  return conn.key ? { kind: 'service_account', key: conn.key } : null;
 }
 
 const GOOGLE_FRESH_MS = 24 * 3600_000;
@@ -177,7 +188,7 @@ export class Workspace extends DurableObject<Env> {
   private adsToken: { value: string; expiresAt: number } | null = null;
   private adsPending: Promise<string> | null = null;
   private invCache = new Map<string, { at: number; body: string }>();
-  private googleToken: { value: string; expiresAt: number; email: string } | null = null;
+  private googleToken: { value: string; expiresAt: number; who: string } | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -412,22 +423,51 @@ export class Workspace extends DurableObject<Env> {
     // is saved. Only ever read (googleAds.ts → readOnlyFetch).
     if (path === '/workspace/google' && method === 'PUT') {
       if (user.role !== 'admin') return fail('Kun administratorer kan forbinde Google Ads.', 403);
-      const body = (await req.json()) as { key?: string; customerId?: string; loginCustomerId?: string | null };
+      const body = (await req.json()) as {
+        method?: 'oauth' | 'service_account';
+        key?: string;
+        clientId?: string;
+        clientSecret?: string;
+        refreshToken?: string;
+        customerId?: string;
+        loginCustomerId?: string | null;
+      };
       const old = await this.ctx.storage.get<GoogleConnection>('google');
       const customerId = digits(body.customerId);
       const loginCustomerId = digits(body.loginCustomerId) || null;
       if (customerId.length !== 10) return fail('Google Ads-kundenummeret skal have 10 cifre (fx 123-456-7890).', 400);
       if (loginCustomerId && loginCustomerId.length !== 10) return fail('Administratorkontoens (MCC) ID skal have 10 cifre.', 400);
       try {
-        const key = body.key?.trim() ? parseServiceAccountKey(body.key) : old?.key;
-        if (!key) return fail('Vælg service-kontoens JSON-nøgle.', 400);
-        // Once connected, only a new key for the very same service account is accepted.
-        if (old && key.clientEmail !== old.key.clientEmail)
-          return fail(`Audit'en er forbundet med ${old.key.clientEmail}. Kun en nøgle til den samme service-konto kan gemmes.`, 400);
+        let auth: GoogleAuth;
+        if (body.method === 'oauth') {
+          // Empty fields keep what is stored (secrets are never sent back to the app).
+          const oauth: OAuthCredentials = {
+            clientId: body.clientId?.trim() || old?.oauth?.clientId || '',
+            clientSecret: body.clientSecret?.trim() || old?.oauth?.clientSecret || '',
+            refreshToken: body.refreshToken?.trim() || old?.oauth?.refreshToken || '',
+          };
+          if (!oauth.clientId || !oauth.clientSecret || !oauth.refreshToken) return fail('Udfyld OAuth client ID, client secret og refresh token.', 400);
+          auth = { kind: 'oauth', oauth };
+        } else {
+          const key = body.key?.trim() ? parseServiceAccountKey(body.key) : old?.key;
+          if (!key) return fail('Vælg service-kontoens JSON-nøgle.', 400);
+          // Once connected with a service account, only a new key for the very same one is accepted.
+          if (old?.key && key.clientEmail !== old.key.clientEmail)
+            return fail(`Audit'en er forbundet med ${old.key.clientEmail}. Kun en nøgle til den samme service-konto kan gemmes.`, 400);
+          auth = { kind: 'service_account', key };
+        }
         this.googleToken = null;
-        const reader = this.googleReader({ key, customerId, loginCustomerId, version: old?.version ?? null });
+        const reader = this.googleReader({ auth, customerId, loginCustomerId, version: old?.version ?? null });
         const account = await readGoogleAccount(reader, customerId);
-        const conn: GoogleConnection = { key, customerId, loginCustomerId, version: reader.version, account, connectedBy: user.name, connectedAt: Date.now() };
+        const conn: GoogleConnection = {
+          ...(auth.kind === 'oauth' ? { oauth: auth.oauth } : { key: auth.key }),
+          customerId,
+          loginCustomerId,
+          version: reader.version,
+          account,
+          connectedBy: user.name,
+          connectedAt: Date.now(),
+        };
         await this.ctx.storage.put('google', conn);
         await this.clearGoogleCache(0);
       } catch (e) {
@@ -454,7 +494,7 @@ export class Workspace extends DurableObject<Env> {
       const refresh = url.searchParams.get('refresh') === '1';
       if (cached && (age < GOOGLE_REFRESH_MIN_MS || (!refresh && age < GOOGLE_FRESH_MS))) return json(cached);
       try {
-        const reader = this.googleReader(conn);
+        const reader = this.googleReader({ ...conn, auth: googleAuthOf(conn) });
         const campaigns = await readGoogleCampaigns(reader, range.from, range.to);
         const fresh: GoogleCampaignsCache = { fetchedAt: Date.now(), account: conn.account, campaigns };
         if (reader.version !== conn.version) await this.ctx.storage.put('google', { ...conn, version: reader.version });
@@ -487,7 +527,7 @@ export class Workspace extends DurableObject<Env> {
       const refresh = url.searchParams.get('refresh') === '1';
       if (cached && (age < GOOGLE_REFRESH_MIN_MS || (!refresh && age < GOOGLE_FRESH_MS))) return json(cached);
       try {
-        const reader = this.googleReader(conn);
+        const reader = this.googleReader({ ...conn, auth: googleAuthOf(conn) });
         const data =
           part === 'structure'
             ? await readGoogleStructure(reader, id, range.from, range.to)
@@ -707,13 +747,16 @@ export class Workspace extends DurableObject<Env> {
   /* --------------------------- shared connections --------------------------- */
 
   /** A reader of the Google Ads account; the access token is kept here until shortly before it runs out. */
-  private googleReader(conn: Pick<GoogleConnection, 'key' | 'customerId' | 'loginCustomerId' | 'version'>): GoogleAdsReader {
+  private googleReader(conn: { auth: GoogleAuth | null; customerId: string; loginCustomerId: string | null; version: string | null }): GoogleAdsReader {
     const fetchFn = (input: string, init?: RequestInit) => fetch(input, init);
+    const auth = conn.auth;
+    if (!auth) throw new GoogleAdsError('Google Ads-forbindelsen mangler sine nøgler – forbind den igen.', 'auth');
+    const who = authIdentity(auth);
     const token = async () => {
       const t = this.googleToken;
-      if (t && t.email === conn.key.clientEmail && t.expiresAt - 300_000 > Date.now()) return t.value;
-      const fresh = await googleAccessToken(fetchFn, conn.key, Date.now());
-      this.googleToken = { ...fresh, email: conn.key.clientEmail };
+      if (t && t.who === who && t.expiresAt - 300_000 > Date.now()) return t.value;
+      const fresh = await accessTokenFor(fetchFn, auth, Date.now());
+      this.googleToken = { ...fresh, who };
       return fresh.value;
     };
     return new GoogleAdsReader(fetchFn, token, conn);
@@ -763,8 +806,9 @@ export class Workspace extends DurableObject<Env> {
       google: google
         ? {
             connected: true,
-            serviceAccount: google.key.clientEmail,
-            projectId: google.key.projectId,
+            method: google.oauth ? ('oauth' as const) : ('service_account' as const),
+            serviceAccount: google.key?.clientEmail ?? null,
+            projectId: google.key?.projectId ?? null,
             customerId: google.customerId,
             loginCustomerId: google.loginCustomerId,
             accountName: google.account.name,
@@ -773,7 +817,7 @@ export class Workspace extends DurableObject<Env> {
             connectedBy: google.connectedBy,
             connectedAt: google.connectedAt,
           }
-        : { connected: false, serviceAccount: null, projectId: null, customerId: null, loginCustomerId: null, accountName: null, currency: null, timeZone: null, connectedBy: null, connectedAt: null },
+        : { connected: false, method: null, serviceAccount: null, projectId: null, customerId: null, loginCustomerId: null, accountName: null, currency: null, timeZone: null, connectedBy: null, connectedAt: null },
     };
   }
 

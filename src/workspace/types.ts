@@ -117,6 +117,8 @@ export interface WorkspaceInfo {
   /** Google Ads for the audit – read only, with a service account (cloudflare/src/googleAds.ts). */
   google: {
     connected: boolean;
+    /** How it signs in: OAuth as in Inventarland Dashboard, or a service account. */
+    method: 'oauth' | 'service_account' | null;
     /** The service account's e-mail (the private key never leaves Cloudflare). */
     serviceAccount: string | null;
     projectId: string | null;
