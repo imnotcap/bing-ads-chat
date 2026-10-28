@@ -11,6 +11,8 @@
  *  3. verify  – read the entities back and only report what Microsoft now shows.
  */
 import { z } from 'zod';
+import { issueLines, reviewAd } from '../adCopy';
+import { adReviewContext, evidenceSchema } from './adReview';
 import { blockedBy } from './searchTerms';
 import { presetRange } from '@/lib/format';
 import { activeDailyBudget } from '@/bing/spend';
@@ -1046,19 +1048,20 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
     name: 'create_responsive_search_ad',
     kind: 'write',
     description:
-      'Create a responsive search ad in a Search campaign. keywordHeadline is the ad group\'s main search keyword standing alone (e.g. "Butiksinventar" or "{KeyWord:Butiksinventar}") – it always becomes headline 1, pinned to position 1. Then 2–14 other unique headlines (max 30 characters each) that don\'t repeat the keyword alone, 2–4 unique descriptions (max 90 characters each), final URL (https), optional display paths (max 15 characters each, no spaces; path2 needs path1). Pin other headlines/descriptions only when there is a reason (e.g. a brand or offer that must always show in position 2); unpinned texts let Microsoft test combinations. The user can change every pin on the approval card. Write in the language of the campaign (Danish by default) and follow the tone of voice from the business profile. New ads go through Microsoft editorial review before they serve – the tool reads the ad back and reports its editorial status.',
+      'Create a responsive search ad in a Search campaign. Run review_ad_copy on the draft first and fix what it flags. keywordHeadline is the ad group\'s main search keyword standing alone (e.g. "Butiksinventar" or "{KeyWord:Butiksinventar}") – it always becomes headline 1, pinned to position 1. Then 7–14 other unique headlines (max 30 characters each, several of them 20 or shorter) that don\'t repeat the keyword alone – at least 8 in all, each saying something different (keyword variants, offer, proof, call to action) – 3–4 unique descriptions (max 90 characters each), final URL (https), optional display paths (max 15 characters each, no spaces; path2 needs path1). Pin as little as possible (the keyword headline and, at most, one or two texts that must always show); never pin descriptions without a reason. Pass `evidence` for every factual claim (price, free shipping, delivery time, guarantee): a quote from the landing page that contains the number and unit. The tool refuses an ad that cannot serve (e.g. every headline pinned to one position) and shows warnings on the approval card. The user can change every pin on the approval card. Write in the language of the campaign (Danish by default) and follow the tone of voice from the business profile. New ads go through Microsoft editorial review before they serve – the tool reads the ad back and reports its editorial status.',
     schema: z.object({
       campaignId: z.string(),
       adGroupId: z.string(),
       keywordHeadline: adText(30, 'Søgeordsoverskriften').describe('The main search keyword alone – always headline 1, pinned to position 1.'),
-      headlines: z.array(adText(30, 'Overskrift')).min(2).max(14).describe('The other headlines (headline 2 onwards).'),
+      headlines: z.array(adText(30, 'Overskrift')).min(2).max(14).describe('The other headlines (headline 2 onwards) – together with the keyword headline at least 8.'),
       headlinePins: z
         .array(z.enum(['', '1', '2', '3']))
         .max(14)
         .optional()
         .describe('Per entry in headlines: "" = any position (default), "1"–"3" = always in that position.'),
       descriptions: z.array(adText(90, 'Beskrivelse')).min(2).max(4),
-      descriptionPins: z.array(z.enum(['', '1', '2'])).max(4).optional().describe('Per description: "" = any position (default), "1" or "2".'),
+      descriptionPins: z.array(z.enum(['', '1', '2'])).max(4).optional().describe('Per description: "" = any position (default), "1" or "2". Leave empty unless a text must always show.'),
+      evidence: evidenceSchema,
       finalUrl: z.string().url(),
       path1: z.string().max(1000).refine((t) => finalLength(t) <= 15, 'Visningssti må højst være 15 tegn').optional(),
       path2: z.string().max(1000).refine((t) => finalLength(t) <= 15, 'Visningssti må højst være 15 tegn').optional(),
@@ -1080,11 +1083,11 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
       if (input.path2 && !input.path1) throw new Error('Visningssti 2 kræver visningssti 1.');
       for (const p of [input.path1, input.path2]) if (p && p.includes('/')) throw new Error(`Visningsstien "${p}" må ikke indeholde skråstreg – brug path1 og path2 til hver sin del.`);
       const notes = await servingBlockers(ctx, c, g);
-      if (headlines.some((h) => h.includes('!'))) notes.push('Microsofts redaktionelle regler tillader ikke udråbstegn i overskrifter – overskrifter med "!" risikerer at blive afvist.');
-      if (headlines.length < 8) notes.push(`Kun ${headlines.length} overskrifter – med 8–15 forskellige har Microsoft flere kombinationer at teste.`);
-      const alsoFirst = input.headlines.filter((_, i) => headlinePins[i + 1] === 1);
-      if (alsoFirst.length) notes.push(`Også fastgjort til position 1: ${alsoFirst.map((h) => `"${h}"`).join(', ')} – så skiftes de med søgeordet, og søgeordet vises ikke altid først.`);
-      if (headlinePins.filter(Boolean).length === headlines.length) notes.push('Alle overskrifter er fastgjort – så kan Microsoft ikke teste kombinationer.');
+      // The same review the assistant ran on the draft: an ad that cannot serve is refused, warnings go on the card.
+      const review = reviewAd({ headlines, headlinePins, descriptions: input.descriptions, descriptionPins, evidence: input.evidence, ...(await adReviewContext(ctx, c.id, g.id)) });
+      const errors = issueLines(review, ['error']);
+      if (errors.length) throw new Error(`Annoncen kan ikke oprettes som skrevet: ${errors.join(' ')}`);
+      notes.push(...issueLines(review, ['warning']), ...review.issues.filter((i) => i.code === 'shared_position_1').map((i) => i.text));
       const host = (() => {
         try {
           return new URL(input.finalUrl).hostname.replace(/^www\./, '');
@@ -1171,6 +1174,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
               pinnedHeadlines: headlines.flatMap((h, i) => (headlinePins[i] ? [{ headline: h, position: headlinePins[i] }] : [])),
               ...(pinsLost.length ? { pinsNotConfirmed: pinsLost } : {}),
               warnings: [...notes, ...(editorial ? [editorial] : [])],
+              tips: issueLines(review, ['tip']),
               instruction: 'The ad exists in Microsoft Advertising. Tell the user its editorial status – an ad under review (Inactive) does not serve yet.',
             },
             summary: `Annonce oprettet og bekræftet${editorial ? ' · afventer/afvist redaktionelt' : ''}`,
