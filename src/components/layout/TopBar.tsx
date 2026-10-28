@@ -60,7 +60,7 @@ import { UpdateButton } from './UpdatePrompt';
 import { NotificationBell } from '../notifications/NotificationBell';
 
 /** Where you are, shown as a breadcrumb in the top bar. */
-const PAGE_TITLES = { dashboard: ['Dashboard', 'Overblik'], daily: ['Dashboard', 'Microsoft Ads', 'Dagligt overblik'], campaigns: ['Dashboard', 'Microsoft Ads', 'Kampagner'], products: ['Dashboard', 'Microsoft Ads', 'Produkter'], activity: ['Aktivitet'], board: ['Planlægning'] } as const;
+const PAGE_TITLES = { dashboard: ['Dashboard', 'Overblik'], daily: ['Dashboard', 'Microsoft Ads', 'Dagligt overblik'], campaigns: ['Dashboard', 'Microsoft Ads', 'Kampagner'], products: ['Dashboard', 'Microsoft Ads', 'Produkter'], activity: ['Aktivitet'], board: ['Planlægning'], audit: ['Audit', 'Microsoft mod Google'] } as const;
 
 function IconButton({ label, onClick, disabled, children, shortcut }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode; shortcut?: string }) {
   return (

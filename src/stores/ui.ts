@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type View = 'chat' | 'dashboard' | 'daily' | 'campaigns' | 'products' | 'activity' | 'board';
+export type View = 'chat' | 'dashboard' | 'daily' | 'campaigns' | 'products' | 'activity' | 'board' | 'audit';
 
 /** Views of the dashboard workspace (its own sidebar). */
 export const DASHBOARD_VIEWS: View[] = ['dashboard', 'daily', 'campaigns', 'products', 'activity', 'board'];

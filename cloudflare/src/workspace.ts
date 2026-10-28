@@ -27,6 +27,19 @@ import { ACTIVE_CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isArchivedCo
 import { AuthError, type MicrosoftIdentity } from './auth';
 import { AdsKeyError, adsAccountCustomers, adsProbe, adsRefresh, mergeAdsKeys, type AdsKeys } from './microsoftAds';
 import { clearCampaigns, initAdsCache, readCampaigns, writeCampaigns } from './adsCache';
+import { changeAudit, parseOp, readAudits } from './audit';
+import {
+  GoogleAdsError,
+  GoogleAdsReader,
+  digits,
+  googleAccessToken,
+  parseServiceAccountKey,
+  readAccount as readGoogleAccount,
+  readCampaigns as readGoogleCampaigns,
+  type GoogleAccount,
+  type GoogleCampaign,
+  type ServiceAccountKey,
+} from './googleAds';
 import {
   TRAILING_DAYS,
   activeJob,
@@ -92,6 +105,31 @@ interface InventarlandConnection {
   error: string | null;
 }
 
+/**
+ * Google Ads for the audit – read only (googleAds.ts). The service account's private key
+ * stays here; the app is only told which account and which service account.
+ */
+interface GoogleConnection {
+  key: ServiceAccountKey;
+  customerId: string;
+  loginCustomerId: string | null;
+  version: string | null;
+  account: GoogleAccount;
+  connectedBy: string;
+  connectedAt: number;
+}
+
+/** Google's campaigns for one period, read at most once a day unless someone asks again. */
+interface GoogleCampaignsCache {
+  fetchedAt: number;
+  account: GoogleAccount;
+  campaigns: GoogleCampaign[];
+}
+
+const GOOGLE_FRESH_MS = 24 * 3600_000;
+const GOOGLE_REFRESH_MIN_MS = 10 * 60_000;
+const GOOGLE_KEEP_MS = 3 * 24 * 3600_000;
+
 interface BoardMeta {
   version: number;
 }
@@ -133,6 +171,7 @@ export class Workspace extends DurableObject<Env> {
   private adsToken: { value: string; expiresAt: number } | null = null;
   private adsPending: Promise<string> | null = null;
   private invCache = new Map<string, { at: number; body: string }>();
+  private googleToken: { value: string; expiresAt: number; email: string } | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -362,6 +401,75 @@ export class Workspace extends DurableObject<Env> {
       return json(body);
     }
 
+    /* ------------------------- Google Ads (audit, read only) ------------------------- */
+    // Connected by an administrator with the service account's JSON key, tested before it
+    // is saved. Only ever read (googleAds.ts → readOnlyFetch).
+    if (path === '/workspace/google' && method === 'PUT') {
+      if (user.role !== 'admin') return fail('Kun administratorer kan forbinde Google Ads.', 403);
+      const body = (await req.json()) as { key?: string; customerId?: string; loginCustomerId?: string | null };
+      const old = await this.ctx.storage.get<GoogleConnection>('google');
+      const customerId = digits(body.customerId);
+      const loginCustomerId = digits(body.loginCustomerId) || null;
+      if (customerId.length !== 10) return fail('Google Ads-kundenummeret skal have 10 cifre (fx 123-456-7890).', 400);
+      if (loginCustomerId && loginCustomerId.length !== 10) return fail('Administratorkontoens (MCC) ID skal have 10 cifre.', 400);
+      try {
+        const key = body.key?.trim() ? parseServiceAccountKey(body.key) : old?.key;
+        if (!key) return fail('Vælg service-kontoens JSON-nøgle.', 400);
+        // Once connected, only a new key for the very same service account is accepted.
+        if (old && key.clientEmail !== old.key.clientEmail)
+          return fail(`Audit'en er forbundet med ${old.key.clientEmail}. Kun en nøgle til den samme service-konto kan gemmes.`, 400);
+        this.googleToken = null;
+        const reader = this.googleReader({ key, customerId, loginCustomerId, version: old?.version ?? null });
+        const account = await readGoogleAccount(reader, customerId);
+        const conn: GoogleConnection = { key, customerId, loginCustomerId, version: reader.version, account, connectedBy: user.name, connectedAt: Date.now() };
+        await this.ctx.storage.put('google', conn);
+        await this.clearGoogleCache(0);
+      } catch (e) {
+        if (e instanceof GoogleAdsError) return fail(e.message, 400);
+        throw e;
+      }
+      return json(await this.info());
+    }
+    if (path === '/workspace/google' && method === 'DELETE') {
+      if (user.role !== 'admin') return fail('Kun administratorer kan fjerne Google Ads.', 403);
+      await this.ctx.storage.delete('google');
+      this.googleToken = null;
+      await this.clearGoogleCache(0);
+      return json(await this.info());
+    }
+    if (path === '/workspace/google/campaigns' && method === 'GET') {
+      const conn = await this.ctx.storage.get<GoogleConnection>('google');
+      if (!conn) return fail('Google Ads er ikke forbundet til audit.', 409);
+      const range = validRange(url.searchParams.get('from'), url.searchParams.get('to'));
+      if (!range) return fail('Ugyldig periode.', 400);
+      const cacheKey = `gads:campaigns:${conn.customerId}:${range.from}:${range.to}`;
+      const cached = await this.ctx.storage.get<GoogleCampaignsCache>(cacheKey);
+      const age = cached ? Date.now() - cached.fetchedAt : Infinity;
+      const refresh = url.searchParams.get('refresh') === '1';
+      if (cached && (age < GOOGLE_REFRESH_MIN_MS || (!refresh && age < GOOGLE_FRESH_MS))) return json(cached);
+      try {
+        const reader = this.googleReader(conn);
+        const campaigns = await readGoogleCampaigns(reader, range.from, range.to);
+        const fresh: GoogleCampaignsCache = { fetchedAt: Date.now(), account: conn.account, campaigns };
+        if (reader.version !== conn.version) await this.ctx.storage.put('google', { ...conn, version: reader.version });
+        await this.clearGoogleCache(GOOGLE_KEEP_MS);
+        await this.ctx.storage.put(cacheKey, fresh);
+        return json(fresh);
+      } catch (e) {
+        // Google not answering: the last copy is better than nothing – the app shows its age.
+        if (e instanceof GoogleAdsError) return cached ? json({ ...cached, error: e.message }) : fail(e.message, 502);
+        throw e;
+      }
+    }
+
+    /* ---------------------------------- audit ---------------------------------- */
+    if (path === '/workspace/audit' && method === 'GET') return json({ audits: await readAudits(this.ctx.storage) });
+    if (path === '/workspace/audit' && method === 'POST') {
+      const op = parseOp(await req.json());
+      if (typeof op === 'string') return fail(op, 400);
+      return json({ audit: await changeAudit(this.ctx.storage, op, user.name, Date.now()) });
+    }
+
     /* ------------------------------- data sources ------------------------------- */
     if (path === '/connections' && method === 'GET') {
       const rows = await this.ctx.storage.get<ConnState>(ACTIVE_CONNECTOR_IDS.map((id) => `conn:${id}`));
@@ -550,11 +658,32 @@ export class Workspace extends DurableObject<Env> {
 
   /* --------------------------- shared connections --------------------------- */
 
+  /** A reader of the Google Ads account; the access token is kept here until shortly before it runs out. */
+  private googleReader(conn: Pick<GoogleConnection, 'key' | 'customerId' | 'loginCustomerId' | 'version'>): GoogleAdsReader {
+    const fetchFn = (input: string, init?: RequestInit) => fetch(input, init);
+    const token = async () => {
+      const t = this.googleToken;
+      if (t && t.email === conn.key.clientEmail && t.expiresAt - 300_000 > Date.now()) return t.value;
+      const fresh = await googleAccessToken(fetchFn, conn.key, Date.now());
+      this.googleToken = { ...fresh, email: conn.key.clientEmail };
+      return fresh.value;
+    };
+    return new GoogleAdsReader(fetchFn, token, conn);
+  }
+
+  /** Drops stored Google reads older than `keepMs` (0 = all of them). */
+  private async clearGoogleCache(keepMs: number) {
+    const stored = await this.ctx.storage.list<GoogleCampaignsCache>({ prefix: 'gads:' });
+    const old = [...stored].filter(([, v]) => !keepMs || Date.now() - (v?.fetchedAt ?? 0) > keepMs).map(([k]) => k);
+    if (old.length) await this.ctx.storage.delete(old);
+  }
+
   private async info(): Promise<WorkspaceInfo> {
-    const [ads, keys, inv] = await Promise.all([
+    const [ads, keys, inv, google] = await Promise.all([
       this.ctx.storage.get<AdsConnection>('ads'),
       this.ctx.storage.get<Keys>('keys'),
       this.ctx.storage.get<InventarlandConnection>('inventarland'),
+      this.ctx.storage.get<GoogleConnection>('google'),
     ]);
     const keyInfo = (k?: { value: string; by: string; at: number }) => (k ? { hint: hint(k.value), by: k.by, at: k.at } : null);
     return {
@@ -582,6 +711,20 @@ export class Workspace extends DurableObject<Env> {
         connectedAt: inv?.connectedAt ?? null,
         error: inv?.error ?? null,
       },
+      google: google
+        ? {
+            connected: true,
+            serviceAccount: google.key.clientEmail,
+            projectId: google.key.projectId,
+            customerId: google.customerId,
+            loginCustomerId: google.loginCustomerId,
+            accountName: google.account.name,
+            currency: google.account.currency,
+            timeZone: google.account.timeZone,
+            connectedBy: google.connectedBy,
+            connectedAt: google.connectedAt,
+          }
+        : { connected: false, serviceAccount: null, projectId: null, customerId: null, loginCustomerId: null, accountName: null, currency: null, timeZone: null, connectedBy: null, connectedAt: null },
     };
   }
 

@@ -18,6 +18,8 @@ import { ProductsPage } from '@/features/products/ProductsPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { DailyPage } from '@/features/dashboard/DailyPage';
 import { BoardPage } from '@/features/board/BoardPage';
+import { AuditPage } from '@/features/audit/AuditPage';
+import { AuditSidebar } from '@/features/audit/AuditSidebar';
 import { ChatView } from '@/features/chat/ChatView';
 import { RAIL_WIDTH, SessionRail } from '@/features/chat/SessionRail';
 import { Onboarding } from '@/features/onboarding/Onboarding';
@@ -130,7 +132,7 @@ function Shell() {
                       exit={{ opacity: 0, y: -8 }}
                       transition={{ duration: 0.2, ease: EASE }}
                     >
-                      {section === 'chat' ? <Sidebar /> : <DashboardSidebar section={section === 'planning' ? 'planning' : 'dashboard'} />}
+                      {section === 'chat' ? <Sidebar /> : section === 'audit' ? <AuditSidebar /> : <DashboardSidebar section={section === 'planning' ? 'planning' : 'dashboard'} />}
                     </motion.div>
                   </AnimatePresence>
                 </div>
@@ -176,6 +178,7 @@ function Shell() {
               {view === 'products' && <ProductsPage key="products" />}
               {view === 'activity' && <ActivityPage key="activity" />}
               {view === 'board' && <BoardPage key="board" />}
+              {view === 'audit' && <AuditPage key="audit" />}
             </AnimatePresence>
           </div>
         </main>

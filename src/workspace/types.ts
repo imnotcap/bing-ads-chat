@@ -114,6 +114,20 @@ export interface WorkspaceInfo {
     connectedAt: number | null;
     error: string | null;
   };
+  /** Google Ads for the audit – read only, with a service account (cloudflare/src/googleAds.ts). */
+  google: {
+    connected: boolean;
+    /** The service account's e-mail (the private key never leaves Cloudflare). */
+    serviceAccount: string | null;
+    projectId: string | null;
+    customerId: string | null;
+    loginCustomerId: string | null;
+    accountName: string | null;
+    currency: string | null;
+    timeZone: string | null;
+    connectedBy: string | null;
+    connectedAt: number | null;
+  };
 }
 
 export interface AdsAccess {
