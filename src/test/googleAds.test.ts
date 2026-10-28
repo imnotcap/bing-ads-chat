@@ -258,11 +258,14 @@ describe('reading one campaign’s insides', () => {
       [/FROM campaign_shared_set/, [{ sharedSet: { id: '42', name: 'Generelle' } }]],
       [/FROM shared_criterion/, [{ sharedSet: { id: '42' }, sharedCriterion: { keyword: { text: 'gratis', matchType: 'BROAD' } } }]],
     ]);
-    expect(await readNegatives(reader, '77')).toEqual([
-      { text: 'ikea', matchType: 'exact', level: 'campaign' },
-      { text: 'gaming', matchType: 'phrase', level: 'adgroup', adGroupName: 'Stole' },
-      { text: 'gratis', matchType: 'broad', level: 'list', listName: 'Generelle' },
-    ]);
+    expect(await readNegatives(reader, '77')).toEqual({
+      negatives: [
+        { text: 'ikea', matchType: 'exact', level: 'campaign' },
+        { text: 'gaming', matchType: 'phrase', level: 'adgroup', adGroupName: 'Stole' },
+        { text: 'gratis', matchType: 'broad', level: 'list', listName: 'Generelle' },
+      ],
+      adGroups: [],
+    });
     expect(queries[3]).toContain('shared_set.id IN (42)');
   });
 

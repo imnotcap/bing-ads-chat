@@ -59,7 +59,8 @@ const GOOGLE_BID: Record<string, string> = {
 
 function googleBid(g: GoogleCampaign, currency: string): string {
   const base = GOOGLE_BID[g.bidStrategy] ?? g.bidStrategy;
-  const target = g.targetRoas ? `mål ${fmtPercent(g.targetRoas, 0)}` : g.targetCpa ? `mål ${fmtMoney(g.targetCpa, currency)}` : '';
+  // The same unit as Microsoft's side (bidLabel): ROAS as a ratio, 4,5 = 450 %.
+  const target = g.targetRoas ? `mål-ROAS ${fmtNumber(g.targetRoas, 2)}` : g.targetCpa ? `mål-CPA ${fmtMoney(g.targetCpa, currency)}` : '';
   return [base, target, g.portfolio ? 'porteføljestrategi' : ''].filter(Boolean).join(' · ');
 }
 
@@ -442,6 +443,10 @@ function CompareTable({ row, bingCurrency, googleCurrency }: { row: AuditRow; bi
           ))}
         </tbody>
       </table>
+      <p className="border-t border-line-2 px-4 py-2.5 text-[12px] leading-relaxed text-subtle">
+        Konverteringer og konverteringsværdi tælles ikke ens i de to platforme (attribution, tidsvindue og hvilke handlinger der tæller med), så sammenlign retning og størrelsesorden – ikke
+        decimalerne. ROAS-mål er forholdstal (4,5 = 450 %).
+      </p>
       {bingCurrency && googleCurrency && bingCurrency !== googleCurrency && (
         <p className="flex items-center gap-2 px-4 py-2.5 text-[12.5px] text-warning">
           <TriangleAlert className="size-3.5" /> Kontiene har forskellig valuta ({bingCurrency} og {googleCurrency}) – beløbene kan ikke sammenlignes direkte.

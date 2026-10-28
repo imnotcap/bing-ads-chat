@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { blocks, compareAds, compareExclusions, compareKeywords, compareNegatives, compareSearchTerms, exclusionsOf, normUrl, pairGroups } from '@/features/audit/compare';
-import { bingDimension, type DListingNode, type DNegative } from '@/features/audit/detail';
+import { bingDimension, type DListingNode, type DNegative, type NegativeDetail } from '@/features/audit/detail';
 import { toListingNodes } from '@/features/audit/bingDetail';
 
 const node = (id: string, parentId: string | null, dim: string, value: string, o: Partial<DListingNode> = {}): DListingNode => ({ id, parentId, group: 'Alle produkter', unit: true, excluded: false, dim, value, ...o });
@@ -57,6 +57,7 @@ describe('excluded products', () => {
 });
 
 describe('negative keywords', () => {
+  const detail = (negatives: DNegative[], adGroups: string[] = []): NegativeDetail => ({ negatives, adGroups });
   const g: DNegative[] = [
     { text: 'gratis', matchType: 'broad', level: 'list', listName: 'Generelle' },
     { text: 'brugt kontorstol', matchType: 'phrase', level: 'campaign' },
@@ -72,7 +73,7 @@ describe('negative keywords', () => {
       { text: 'gaming', matchType: 'phrase', level: 'adgroup', adGroupName: 'Andet' }, // another ad group
       { text: 'leje', matchType: 'phrase', level: 'campaign' },
     ];
-    const r = compareNegatives(g, b);
+    const r = compareNegatives(detail(g, ['Kontorstole']), detail(b, ['Kontorstole', 'Andet']));
     expect(r.missingInBing.map((n) => [n.text, n.matchType, n.suggested, n.sources.join()])).toEqual([
       ['brugt kontorstol', 'phrase', 'phrase', 'Kampagne'],
       ['gaming', 'phrase', 'phrase', 'Annoncegruppe: Kontorstole'],
@@ -82,7 +83,7 @@ describe('negative keywords', () => {
   });
 
   it('suggests phrase for Google’s broad negatives (Bing has no broad negatives)', () => {
-    expect(compareNegatives(g, []).missingInBing.find((n) => n.text === 'gratis')!.suggested).toBe('phrase');
+    expect(compareNegatives(detail(g), detail([])).missingInBing.find((n) => n.text === 'gratis')!.suggested).toBe('phrase');
   });
 
   it('knows what each match type stops', () => {
@@ -174,5 +175,79 @@ describe('ads', () => {
       },
     ]);
     expect(normUrl('HTTPS://www.Shop.dk/a/#x')).toBe('shop.dk/a');
+  });
+});
+
+describe('the Materialeskabe campaign: Google "Exact #2" is Microsoft "Exact"', () => {
+  const group = (adGroupName: string, ...texts: string[]): DNegative[] => texts.map((text) => ({ text, matchType: 'exact', level: 'adgroup', adGroupName }));
+  const googleGroups = ['Værktøjsskab | Exact', 'Værkstedsskabe | Exact', 'Værkstedsskabe | Exact #2', 'Værkstedsskabe | Phrase', 'Stålskab | Phrase'];
+  const bingGroups = ['Værktøjsskab | Exact', 'Værkstedsskabe | Exact', 'Værkstedsskabe | Phrase', 'Stålskab | Phrase'];
+  const google: NegativeDetail = {
+    adGroups: googleGroups,
+    negatives: [
+      ...group('Værkstedsskabe | Exact #2', 'små stålskabe', 'sort metalskab', 'lille metalskab'),
+      ...group('Værkstedsskabe | Phrase', 'værktøjsskab på hjul', 'værktøjsvæg'),
+      ...group('Stålskab | Phrase', 'sikkerhedsskab'),
+    ],
+  };
+  // Microsoft has the three "#2" ones on its one Exact group, and nothing else yet.
+  const bing: NegativeDetail = { adGroups: bingGroups, negatives: group('Værkstedsskabe | Exact', 'små stålskabe', 'sort metalskab', 'lille metalskab') };
+
+  it('counts negatives on a group that stands for Google’s as covered', () => {
+    const r = compareNegatives(google, bing);
+    expect(r.googleTotal).toBe(6);
+    expect(r.covered).toBe(3);
+    expect(r.missingInBing.map((n) => n.text)).toEqual(['værktøjsskab på hjul', 'værktøjsvæg', 'sikkerhedsskab']);
+  });
+
+  it('says exactly which Microsoft group each missing one belongs in – Phrase stays Phrase', () => {
+    const missing = compareNegatives(google, bing).missingInBing;
+    expect(missing.map((n) => n.target)).toEqual([
+      { kind: 'adgroup', group: 'Værkstedsskabe | Phrase' },
+      { kind: 'adgroup', group: 'Værkstedsskabe | Phrase' },
+      { kind: 'adgroup', group: 'Stålskab | Phrase' },
+    ]);
+  });
+
+  it('does not take a negative on the Phrase group for one on the Exact group', () => {
+    const b: NegativeDetail = { adGroups: bingGroups, negatives: group('Værkstedsskabe | Phrase', 'små stålskabe') };
+    expect(compareNegatives(google, b).missingInBing.map((n) => n.text)).toContain('små stålskabe');
+  });
+
+  it('gives no placement when Microsoft has no ad group like Google’s – never a guess', () => {
+    const lonely: NegativeDetail = { adGroups: ['Helt andet'], negatives: [] };
+    expect(compareNegatives(google, lonely).missingInBing.every((n) => n.target.kind === 'adgroup' && n.target.group === null)).toBe(true);
+  });
+
+  it('says so when a covered negative is weaker in Microsoft (Google broad, several words → phrase)', () => {
+    const g: NegativeDetail = { adGroups: [], negatives: [{ text: 'stål skab', matchType: 'broad', level: 'campaign' }, { text: 'gratis', matchType: 'broad', level: 'campaign' }] };
+    const b: NegativeDetail = { adGroups: [], negatives: [{ text: 'stål skab', matchType: 'phrase', level: 'campaign' }, { text: 'gratis', matchType: 'phrase', level: 'campaign' }] };
+    const r = compareNegatives(g, b);
+    expect(r.missingInBing).toEqual([]);
+    expect(r.weaker).toBe(1); // "gratis" is one word: phrase = broad
+  });
+});
+
+describe('keywords that are in Microsoft, but not where Google has them', () => {
+  const k = (adGroupId: string, text: string, status = 'active') => ({ adGroupId, text, matchType: 'exact' as const, status });
+  const google = { adGroups: [{ id: '1', name: 'Skabe | Exact #2', status: 'active' }], keywords: [k('1', 'lille metalskab'), k('1', 'sort metalskab'), k('1', 'lavt metalskab')] };
+  const bing = {
+    adGroups: [{ id: '9', name: 'Skabe | Exact', status: 'active' }, { id: '8', name: 'Andet', status: 'active' }],
+    keywords: [k('9', 'lille metalskab'), k('8', 'sort metalskab'), k('9', 'lavt metalskab', 'paused')],
+  };
+
+  it('is not "missing" when the text is in another ad group or paused – and says where', () => {
+    const r = compareKeywords(google, bing);
+    expect(r.missingInBing).toEqual([]);
+    expect(r.elsewhereInBing.map((x) => [x.text, x.found.map((f) => `${f.group}:${f.status}`).join()])).toEqual([
+      ['sort metalskab', 'Andet:active'],
+      ['lavt metalskab', 'Skabe | Exact:paused'],
+    ]);
+  });
+
+  it('is missing only when the text is nowhere in the Microsoft campaign', () => {
+    const r = compareKeywords({ ...google, keywords: [k('1', 'helt nyt søgeord')] }, bing);
+    expect(r.missingInBing.map((x) => x.text)).toEqual(['helt nyt søgeord']);
+    expect(r.elsewhereInBing).toEqual([]);
   });
 });

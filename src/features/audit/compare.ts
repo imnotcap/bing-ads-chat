@@ -10,7 +10,7 @@
  *
  * Pure functions – no imports through the `@/` alias.
  */
-import type { CampaignStructure, DAd, DAdGroup, DListingNode, DNegative, DSearchTerm, DetailMetrics, MatchKind } from './detail';
+import type { CampaignStructure, DAd, DAdGroup, DListingNode, DNegative, DSearchTerm, DetailMetrics, MatchKind, NegativeDetail } from './detail';
 import { nameScore } from './match';
 
 /* ---------------------------------- helpers ---------------------------------- */
@@ -143,12 +143,20 @@ export interface NegativeGap {
   sources: string[];
   /** What to add in Bing (Bing has no broad negatives: phrase is the nearest). */
   suggested: 'exact' | 'phrase';
+  /**
+   * Where it belongs in Microsoft: the Bing ad group that matches the Google ad group it is
+   * on (`group`), or the campaign. `null` group + `onAdGroup`: it is on a Google ad group
+   * that has no counterpart in Microsoft – the person decides where it goes.
+   */
+  target: { kind: 'campaign' } | { kind: 'adgroup'; group: string | null };
 }
 
 export interface NegativeComparison {
   missingInBing: NegativeGap[];
   onlyInBing: NegativeGap[];
   covered: number;
+  /** Of the covered ones: Google's broad, several-word negatives, which Microsoft only has as phrase (it has no broad negatives). */
+  weaker: number;
   googleTotal: number;
 }
 
@@ -164,35 +172,55 @@ function coversMatch(google: MatchKind, bing: MatchKind): boolean {
   return bing === 'phrase' || bing === 'broad';
 }
 
-export function compareNegatives(google: DNegative[], bing: DNegative[]): NegativeComparison {
+/** Google broad, several words – Microsoft's phrase only stops the words in that order. */
+const weakerThanGoogle = (google: DNegative, bing: DNegative) => google.matchType === 'broad' && bing.matchType !== 'broad' && normText(google.text).includes(' ');
+
+/** The names of the Bing ad groups a Google ad group stands for: the same name, else the alike ones. */
+export function counterparts(googleGroup: string, bingGroups: string[]): string[] {
+  const same = bingGroups.filter((b) => normName(b) === normName(googleGroup));
+  if (same.length) return same;
+  return bingGroups
+    .map((b) => ({ b, score: nameScore(googleGroup, b) }))
+    .filter((x) => x.score >= 0.5)
+    .sort((a, b) => b.score - a.score)
+    .map((x) => x.b);
+}
+
+export function compareNegatives(google: NegativeDetail, bing: NegativeDetail): NegativeComparison {
   const key = (n: DNegative) => `${normText(n.text)}|${n.matchType}`;
+  const targetOf = (n: DNegative): NegativeGap['target'] => (n.level === 'adgroup' ? { kind: 'adgroup', group: counterparts(n.adGroupName ?? '', bing.adGroups)[0] ?? null } : { kind: 'campaign' });
   const merge = (list: DNegative[]) => {
     const byKey = new Map<string, NegativeGap>();
     for (const n of list) {
       const k = key(n);
-      const gap = byKey.get(k) ?? { text: normText(n.text), matchType: n.matchType, sources: [], suggested: n.matchType === 'exact' ? 'exact' : 'phrase' };
+      const gap = byKey.get(k) ?? { text: normText(n.text), matchType: n.matchType, sources: [], suggested: n.matchType === 'exact' ? 'exact' : 'phrase', target: targetOf(n) };
       const src = sourceOf(n);
       if (!gap.sources.includes(src)) gap.sources.push(src);
       byKey.set(k, gap);
     }
     return byKey;
   };
-  // A Bing negative on the campaign or in a list covers everything; one on an ad group only that group.
-  const bingCovers = (g: DNegative) =>
-    bing.some(
-      (b) =>
-        normText(b.text) === normText(g.text) &&
-        coversMatch(g.matchType, b.matchType) &&
-        (b.level !== 'adgroup' || (g.level === 'adgroup' && normName(b.adGroupName ?? '') === normName(g.adGroupName ?? ''))),
+  // Which Bing negative stops it: one on the campaign or in a list stops it everywhere; one on an
+  // ad group only there – in the ad group that stands for Google's (not only the one with the same name).
+  const coveredBy = (g: DNegative): DNegative | null => {
+    const groups = g.level === 'adgroup' ? counterparts(g.adGroupName ?? '', bing.adGroups).map(normName) : [];
+    return (
+      bing.negatives.find(
+        (b) => normText(b.text) === normText(g.text) && coversMatch(g.matchType, b.matchType) && (b.level !== 'adgroup' || (g.level === 'adgroup' && groups.includes(normName(b.adGroupName ?? '')))),
+      ) ?? null
     );
-  const googleCovers = (b: DNegative) => google.some((g) => normText(g.text) === normText(b.text));
-  const missing = google.filter((g) => !bingCovers(g));
-  const g = merge(google);
+  };
+  const googleHas = (b: DNegative) => google.negatives.some((g) => normText(g.text) === normText(b.text));
+  const missing = google.negatives.filter((g) => !coveredBy(g));
+  const all = merge(google.negatives);
+  const missingKeys = merge(missing);
+  const weakKeys = new Set(google.negatives.filter((g) => !missing.includes(g) && weakerThanGoogle(g, coveredBy(g)!)).map(key));
   return {
-    missingInBing: [...merge(missing).values()],
-    onlyInBing: [...merge(bing.filter((b) => !googleCovers(b))).values()],
-    covered: g.size - merge(missing).size,
-    googleTotal: g.size,
+    missingInBing: [...missingKeys.values()],
+    onlyInBing: [...merge(bing.negatives.filter((b) => !googleHas(b))).values()],
+    covered: all.size - missingKeys.size,
+    weaker: [...weakKeys].filter((k) => !missingKeys.has(k)).length,
+    googleTotal: all.size,
   };
 }
 
@@ -201,10 +229,16 @@ export function compareNegatives(google: DNegative[], bing: DNegative[]): Negati
 export interface KeywordGap {
   text: string;
   matchType: MatchKind;
-  /** The Google ad group, and the Bing one it is paired with (null: missing in Bing). */
+  /** The Google ad group, and the Bing one it is paired with (null: no counterpart). */
   googleGroup: string;
   bingGroup: string | null;
   metrics?: DetailMetrics;
+}
+
+/** An active Google keyword that Microsoft has – but not where, or not running. */
+export interface KeywordElsewhere extends KeywordGap {
+  /** The Bing ad group(s) it is in, and whether it is running there. */
+  found: { group: string; status: string }[];
 }
 
 export interface MatchTypeDiff {
@@ -217,8 +251,10 @@ export interface MatchTypeDiff {
 
 export interface KeywordComparison {
   pairs: GroupPair[];
-  /** Active Google keywords Bing does not have in the paired group – most converting first. */
+  /** Active Google keywords that are nowhere in the Microsoft campaign – most converting first. */
   missingInBing: KeywordGap[];
+  /** Active in Google, in Microsoft only in another ad group – or paused. */
+  elsewhereInBing: KeywordElsewhere[];
   onlyInBing: { text: string; matchType: MatchKind; bingGroup: string }[];
   matchTypeDiffs: MatchTypeDiff[];
 }
@@ -227,22 +263,37 @@ const active = (status: string) => status === 'active';
 
 export function compareKeywords(google: CampaignStructure, bing: CampaignStructure): KeywordComparison {
   const pairs = pairGroups(google.adGroups, bing.adGroups);
+  const bingGroupName = new Map(bing.adGroups.map((g) => [g.id, g.name]));
+  // Where each keyword text is in Microsoft, in the whole campaign (paused ones too).
+  const inBing = new Map<string, { group: string; status: string }[]>();
+  for (const k of bing.keywords) {
+    if (k.status === 'deleted') continue;
+    const list = inBing.get(normText(k.text)) ?? [];
+    list.push({ group: bingGroupName.get(k.adGroupId) ?? '', status: k.status });
+    inBing.set(normText(k.text), list);
+  }
   const missingInBing: KeywordGap[] = [];
+  const elsewhereInBing: KeywordElsewhere[] = [];
   const onlyInBing: KeywordComparison['onlyInBing'] = [];
   const matchTypeDiffs: MatchTypeDiff[] = [];
   for (const p of pairs) {
     const gk = p.google ? google.keywords.filter((k) => k.adGroupId === p.google!.id && active(k.status)) : [];
-    const bk = p.bing ? bing.keywords.filter((k) => k.adGroupId === p.bing!.id && k.status !== 'deleted') : [];
+    const bk = p.bing ? bing.keywords.filter((k) => k.adGroupId === p.bing!.id && active(k.status)) : [];
     const types = (list: typeof gk, text: string) => [...new Set(list.filter((k) => normText(k.text) === text).map((k) => k.matchType))].sort();
     const gTexts = new Set(gk.map((k) => normText(k.text)));
     const bTexts = new Set(bk.map((k) => normText(k.text)));
     for (const k of gk) {
       const text = normText(k.text);
-      if (!bTexts.has(text)) missingInBing.push({ text, matchType: k.matchType, googleGroup: p.google!.name, bingGroup: p.bing?.name ?? null, metrics: k.metrics });
+      if (bTexts.has(text)) continue;
+      const gap = { text, matchType: k.matchType, googleGroup: p.google!.name, bingGroup: p.bing?.name ?? null, metrics: k.metrics };
+      const found = inBing.get(text);
+      if (found?.length) elsewhereInBing.push({ ...gap, found });
+      else missingInBing.push(gap);
     }
     for (const k of bk) {
       const text = normText(k.text);
-      if (!gTexts.has(text)) onlyInBing.push({ text, matchType: k.matchType, bingGroup: p.bing!.name });
+      // Only in Microsoft when Google has it in no ad group at all.
+      if (!gTexts.has(text) && !google.keywords.some((g) => active(g.status) && normText(g.text) === text)) onlyInBing.push({ text, matchType: k.matchType, bingGroup: p.bing!.name });
     }
     if (p.google && p.bing)
       for (const text of gTexts) {
@@ -252,8 +303,10 @@ export function compareKeywords(google: CampaignStructure, bing: CampaignStructu
         if (g.join() !== b.join()) matchTypeDiffs.push({ text, googleGroup: p.google.name, bingGroup: p.bing.name, google: g, bing: b });
       }
   }
-  missingInBing.sort((a, b) => (b.metrics?.conversions ?? 0) - (a.metrics?.conversions ?? 0) || (b.metrics?.clicks ?? 0) - (a.metrics?.clicks ?? 0));
-  return { pairs, missingInBing, onlyInBing, matchTypeDiffs };
+  const byValue = (a: KeywordGap, b: KeywordGap) => (b.metrics?.conversions ?? 0) - (a.metrics?.conversions ?? 0) || (b.metrics?.clicks ?? 0) - (a.metrics?.clicks ?? 0);
+  missingInBing.sort(byValue);
+  elsewhereInBing.sort(byValue);
+  return { pairs, missingInBing, elsewhereInBing, onlyInBing, matchTypeDiffs };
 }
 
 /* ---------------------------------- search terms ---------------------------------- */

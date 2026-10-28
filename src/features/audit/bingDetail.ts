@@ -6,7 +6,7 @@
 import { getBackend } from '@/bing/backend';
 import type { AdGroup, AdsBackend, ProductTreeNode } from '@/bing/types';
 import type { DateRange } from '@/lib/format';
-import { bingDimension, type CampaignStructure, type DAd, type DAdGroup, type DListingNode, type DNegative, type DSearchTerm, type MatchKind } from './detail';
+import { bingDimension, type CampaignStructure, type DAd, type DAdGroup, type DListingNode, type DNegative, type DSearchTerm, type MatchKind, type NegativeDetail } from './detail';
 
 const lower = (v: string | null | undefined) => (v ?? '').trim().toLowerCase();
 const kind = (m: string): MatchKind => (/^exact$/i.test(m) ? 'exact' : /^phrase$/i.test(m) ? 'phrase' : 'broad');
@@ -42,7 +42,7 @@ export async function bingStructure(accountId: string, campaignId: string): Prom
   };
 }
 
-export async function bingNegatives(accountId: string, campaignId: string): Promise<DNegative[]> {
+export async function bingNegatives(accountId: string, campaignId: string): Promise<NegativeDetail> {
   const b = await getBackend();
   const out: DNegative[] = [];
   for (const n of await b.listNegativeKeywords(accountId, 'Campaign', campaignId, campaignId)) out.push({ text: lower(n.text), matchType: kind(n.matchType), level: 'campaign' });
@@ -54,7 +54,7 @@ export async function bingNegatives(accountId: string, campaignId: string): Prom
   if (b.listNegativeKeywordLists)
     for (const list of await b.listNegativeKeywordLists(accountId, campaignId))
       for (const n of list.keywords) out.push({ text: lower(n.text), matchType: kind(n.matchType), level: 'list', listName: list.name });
-  return out.filter((n) => n.text);
+  return { negatives: out.filter((n) => n.text), adGroups: groups.map((g) => g.name) };
 }
 
 /** A tree node in the shared shape; Microsoft's unit/subdivision worked out from the tree when it did not say. */

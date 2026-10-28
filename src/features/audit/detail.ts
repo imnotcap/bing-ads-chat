@@ -37,6 +37,12 @@ export interface CampaignStructure {
   keywords: DKeyword[];
 }
 
+/** A campaign's negative keywords, and the names of all its ad groups (also those without any). */
+export interface NegativeDetail {
+  negatives: DNegative[];
+  adGroups: string[];
+}
+
 export interface DNegative {
   text: string;
   matchType: MatchKind;
@@ -80,7 +86,7 @@ export const DETAIL_PARTS: DetailPart[] = ['structure', 'negatives', 'products',
 
 export interface DetailData {
   structure: CampaignStructure;
-  negatives: DNegative[];
+  negatives: NegativeDetail;
   products: DListingNode[];
   searchterms: DSearchTerm[];
   ads: { adGroups: DAdGroup[]; ads: DAd[] };

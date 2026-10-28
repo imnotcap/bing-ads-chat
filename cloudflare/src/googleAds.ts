@@ -19,7 +19,7 @@
  *
  * No imports through the app's `@/` alias (the Worker is bundled without it).
  */
-import type { CampaignStructure, DAd, DAdGroup, DListingNode, DNegative, DSearchTerm, DetailMetrics, MatchKind } from '../../src/features/audit/detail';
+import type { CampaignStructure, DAd, DAdGroup, DListingNode, DNegative, DSearchTerm, DetailMetrics, MatchKind, NegativeDetail } from '../../src/features/audit/detail';
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -469,7 +469,7 @@ export async function readStructure(reader: GoogleAdsReader, campaignId: string,
 }
 
 /** The campaign's negative keywords: on the campaign, on its ad groups, and in the shared lists it uses. */
-export async function readNegatives(reader: GoogleAdsReader, campaignId: string): Promise<DNegative[]> {
+export async function readNegatives(reader: GoogleAdsReader, campaignId: string): Promise<NegativeDetail> {
   const id = idOf(campaignId);
   const out: DNegative[] = [];
   const onCampaign = await reader.rows<{ campaignCriterion?: { keyword?: KeywordInfo } }>(
@@ -493,7 +493,8 @@ export async function readNegatives(reader: GoogleAdsReader, campaignId: string)
     for (const r of items)
       out.push({ text: lower(r.sharedCriterion?.keyword?.text), matchType: matchKind(r.sharedCriterion?.keyword?.matchType), level: 'list', listName: names.get(String(r.sharedSet?.id ?? '')) ?? '' });
   }
-  return out.filter((n) => n.text);
+  const groups = await reader.rows<{ adGroup?: { name?: string } }>(`SELECT ad_group.name FROM ad_group WHERE campaign.id = ${id} AND ad_group.status != 'REMOVED'`);
+  return { negatives: out.filter((n) => n.text), adGroups: groups.map((g) => g.adGroup?.name ?? '').filter(Boolean) };
 }
 
 interface CaseValue {
