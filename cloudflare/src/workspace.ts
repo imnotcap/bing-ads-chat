@@ -28,6 +28,7 @@ import { AuthError, type MicrosoftIdentity } from './auth';
 import { AdsKeyError, adsAccountCustomers, adsProbe, adsRefresh, mergeAdsKeys, type AdsKeys } from './microsoftAds';
 import { clearCampaigns, initAdsCache, readCampaigns, writeCampaigns } from './adsCache';
 import { changeAudit, parseOp, readAudits } from './audit';
+import { DETAIL_PARTS } from '../../src/features/audit/detail';
 import {
   GoogleAdsError,
   GoogleAdsReader,
@@ -35,7 +36,12 @@ import {
   googleAccessToken,
   parseServiceAccountKey,
   readAccount as readGoogleAccount,
+  readAds as readGoogleAds,
   readCampaigns as readGoogleCampaigns,
+  readListingGroups as readGoogleListingGroups,
+  readNegatives as readGoogleNegatives,
+  readSearchTerms as readGoogleSearchTerms,
+  readStructure as readGoogleStructure,
   type GoogleAccount,
   type GoogleCampaign,
   type ServiceAccountKey,
@@ -462,6 +468,48 @@ export class Workspace extends DurableObject<Env> {
       }
     }
 
+    // One Google campaign's insides for the audit (detail.ts), one part at a time – each
+    // read at most once a day, like the campaigns.
+    if (path === '/workspace/google/campaign' && method === 'GET') {
+      const conn = await this.ctx.storage.get<GoogleConnection>('google');
+      if (!conn) return fail('Google Ads er ikke forbundet til audit.', 409);
+      const id = url.searchParams.get('id') ?? '';
+      const part = url.searchParams.get('part') ?? '';
+      if (!/^\d{1,20}$/.test(id)) return fail('Ugyldigt kampagne-id.', 400);
+      if (!(DETAIL_PARTS as string[]).includes(part)) return fail('Ukendt del.', 400);
+      const range = validRange(url.searchParams.get('from'), url.searchParams.get('to'));
+      if (!range) return fail('Ugyldig periode.', 400);
+      const pmax = url.searchParams.get('pmax') === '1';
+      const dated = part === 'structure' || part === 'searchterms';
+      const cacheKey = `gads:detail:${conn.customerId}:${id}:${part}${pmax ? ':pmax' : ''}${dated ? `:${range.from}:${range.to}` : ''}`;
+      const cached = await this.ctx.storage.get<{ fetchedAt: number; data: unknown }>(cacheKey);
+      const age = cached ? Date.now() - cached.fetchedAt : Infinity;
+      const refresh = url.searchParams.get('refresh') === '1';
+      if (cached && (age < GOOGLE_REFRESH_MIN_MS || (!refresh && age < GOOGLE_FRESH_MS))) return json(cached);
+      try {
+        const reader = this.googleReader(conn);
+        const data =
+          part === 'structure'
+            ? await readGoogleStructure(reader, id, range.from, range.to)
+            : part === 'negatives'
+              ? await readGoogleNegatives(reader, id)
+              : part === 'products'
+                ? await readGoogleListingGroups(reader, conn.customerId, id, pmax)
+                : part === 'searchterms'
+                  ? await readGoogleSearchTerms(reader, id, range.from, range.to)
+                  : await readGoogleAds(reader, id);
+        const fresh = { fetchedAt: Date.now(), data };
+        if (reader.version !== conn.version) await this.ctx.storage.put('google', { ...conn, version: reader.version });
+        await this.clearGoogleCache(GOOGLE_KEEP_MS);
+        // A very large part is answered but not kept (a stored value has a size limit).
+        if (JSON.stringify(fresh).length < 100_000) await this.ctx.storage.put(cacheKey, fresh);
+        return json(fresh);
+      } catch (e) {
+        if (e instanceof GoogleAdsError) return cached ? json({ ...cached, error: e.message }) : fail(e.message, 502);
+        throw e;
+      }
+    }
+
     /* ---------------------------------- audit ---------------------------------- */
     if (path === '/workspace/audit' && method === 'GET') return json({ audits: await readAudits(this.ctx.storage) });
     if (path === '/workspace/audit' && method === 'POST') {
@@ -675,7 +723,8 @@ export class Workspace extends DurableObject<Env> {
   private async clearGoogleCache(keepMs: number) {
     const stored = await this.ctx.storage.list<GoogleCampaignsCache>({ prefix: 'gads:' });
     const old = [...stored].filter(([, v]) => !keepMs || Date.now() - (v?.fetchedAt ?? 0) > keepMs).map(([k]) => k);
-    if (old.length) await this.ctx.storage.delete(old);
+    // At most 128 keys per delete.
+    for (let i = 0; i < old.length; i += 128) await this.ctx.storage.delete(old.slice(i, i + 128));
   }
 
   private async info(): Promise<WorkspaceInfo> {

@@ -8,6 +8,9 @@ import { api } from '@/workspace/api';
 import { queryClient } from '@/lib/queryClient';
 import { addDays, type DateRange } from '@/lib/format';
 import { useAccount } from '@/stores/account';
+import { useConnection } from '@/stores/connection';
+import { bingAds, bingNegatives, bingProducts, bingSearchTerms, bingStructure } from './bingDetail';
+import type { DetailData, DetailPart } from './detail';
 import { applyOp, type AuditOp } from './ops';
 import type { CampaignAudit } from './steps';
 
@@ -93,6 +96,60 @@ export async function refreshGoogle(range: DateRange) {
   queryClient.setQueryData(googleKey(range), fresh);
 }
 
+/* ------------------------------- one campaign's insides ------------------------------- */
+
+const dated = (part: DetailPart) => part === 'structure' || part === 'searchterms';
+
+const googleDetailKey = (googleId: string, part: DetailPart, range: DateRange, pmax: boolean) =>
+  ['google-detail', googleId, part, pmax, ...(dated(part) ? [range.from, range.to] : [])] as const;
+
+/** One part of a Google campaign (read only; the workspace keeps it for a day). */
+export function useGoogleDetail<P extends DetailPart>(googleId: string | null | undefined, part: P, range: DateRange, pmax: boolean, enabled: boolean) {
+  return useQuery({
+    queryKey: googleDetailKey(googleId ?? '', part, range, pmax),
+    enabled: enabled && !!googleId,
+    retry: false,
+    queryFn: () =>
+      api<{ fetchedAt: number; data: DetailData[P]; error?: string }>(
+        `/workspace/google/campaign?id=${googleId}&part=${part}&from=${range.from}&to=${range.to}${pmax ? '&pmax=1' : ''}`,
+      ),
+  });
+}
+
+/** One part of the Microsoft campaign, read with the app's own connection. */
+export function useBingDetail<P extends DetailPart>(campaignId: string, part: P, range: DateRange, pmax: boolean, enabled: boolean) {
+  const accountId = useConnection((s) => s.accountId);
+  const mode = useConnection((s) => s.mode);
+  return useQuery({
+    queryKey: ['bing-detail', mode, accountId, campaignId, part, pmax, ...(dated(part) ? [range.from, range.to] : [])],
+    enabled: enabled && !!accountId,
+    retry: false,
+    queryFn: async (): Promise<DetailData[P]> => {
+      const id = accountId!;
+      const load: { [K in DetailPart]: () => Promise<DetailData[K]> } = {
+        structure: () => bingStructure(id, campaignId),
+        negatives: () => bingNegatives(id, campaignId),
+        products: () => bingProducts(id, campaignId, pmax),
+        searchterms: () => bingSearchTerms(id, campaignId, range),
+        ads: () => bingAds(id, campaignId),
+      };
+      return load[part]();
+    },
+  });
+}
+
+/** Opdatér for one campaign: both sides read again (Google at most every 10 minutes). */
+export async function refreshDetail(googleId: string | null | undefined, campaignId: string, part: DetailPart, range: DateRange, pmax: boolean) {
+  await Promise.all([
+    googleId
+      ? api<unknown>(`/workspace/google/campaign?id=${googleId}&part=${part}&from=${range.from}&to=${range.to}${pmax ? '&pmax=1' : ''}&refresh=1`).then((fresh) =>
+          queryClient.setQueryData(googleDetailKey(googleId, part, range, pmax), fresh),
+        )
+      : null,
+    queryClient.invalidateQueries({ queryKey: ['bing-detail'], predicate: (q) => q.queryKey.includes(campaignId) && q.queryKey.includes(part) }),
+  ]);
+}
+
 /* ---------------------------------- period ---------------------------------- */
 
 export type AuditPeriod = '30' | '90' | 'year';
@@ -111,9 +168,21 @@ export function auditRange(period: AuditPeriod, today: string): DateRange {
 
 /* ---------------------------------- page state ---------------------------------- */
 
-export const useAuditUi = create<{ selected: string | null; period: AuditPeriod; select: (id: string | null) => void; setPeriod: (p: AuditPeriod) => void }>((set) => ({
+export type CompareTab = 'products' | 'negatives' | 'keywords' | 'searchterms' | 'ads';
+
+export const useAuditUi = create<{
+  selected: string | null;
+  period: AuditPeriod;
+  /** The comparison open on the campaign page. */
+  tab: CompareTab | null;
+  select: (id: string | null) => void;
+  setPeriod: (p: AuditPeriod) => void;
+  setTab: (t: CompareTab | null) => void;
+}>((set) => ({
   selected: null,
   period: '30',
+  tab: null,
   select: (selected) => set({ selected }),
   setPeriod: (period) => set({ period }),
+  setTab: (tab) => set({ tab }),
 }));

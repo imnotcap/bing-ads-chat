@@ -113,6 +113,30 @@ export interface NegativeKeyword {
 
 export type NegativeEntityType = 'Campaign' | 'AdGroup';
 
+/** A shared negative keyword list a campaign uses (GetSharedEntityAssociationsByEntityIds). */
+export interface NegativeKeywordList {
+  id: string;
+  name: string;
+  keywords: NegativeKeyword[];
+}
+
+/**
+ * One node of a product tree: a Shopping ad group's product partition, or a Performance
+ * Max asset group's listing group. `operand` is Microsoft's (Id, Brand, ProductType1,
+ * CustomLabel0, CategoryL1, Condition, All …); an empty `attribute` is "everything else".
+ */
+export interface ProductTreeNode {
+  id: string;
+  parentId: string | null;
+  /** The ad group or asset group the tree belongs to. */
+  group: string;
+  /** Null when Microsoft did not say (worked out from the tree instead). */
+  unit: boolean | null;
+  excluded: boolean;
+  operand: string;
+  attribute: string;
+}
+
 /* ---------------- mutations ---------------- */
 
 export interface CampaignPatch {
@@ -370,6 +394,12 @@ export interface AdsBackend {
   listAds(accountId: string, adGroupId: string): Promise<Ad[]>;
   /** `campaignId`: the campaign the entity belongs to (Microsoft needs it for ad groups). */
   listNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, campaignId: string): Promise<NegativeKeyword[]>;
+  /** The shared negative keyword lists the campaign uses, with their keywords (live only). */
+  listNegativeKeywordLists?(accountId: string, campaignId: string): Promise<NegativeKeywordList[]>;
+  /** A Shopping ad group's product partitions – which are bid on and which are excluded (live only). */
+  listProductPartitions?(accountId: string, adGroupId: string, adGroupName: string): Promise<ProductTreeNode[]>;
+  /** A Performance Max campaign's listing groups, for all its asset groups (live only). */
+  listAssetGroupListingGroups?(accountId: string, campaignId: string): Promise<ProductTreeNode[]>;
 
   updateCampaigns(accountId: string, patches: CampaignPatch[]): Promise<MutationResult>;
   createCampaign(accountId: string, spec: NewCampaign): Promise<MutationResult>;

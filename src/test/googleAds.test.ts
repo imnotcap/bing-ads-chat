@@ -8,8 +8,12 @@ import {
   explainGoogleError,
   googleAccessToken,
   parseServiceAccountKey,
+  googleDimension,
   readCampaigns,
+  readListingGroups,
+  readNegatives,
   readOnlyFetch,
+  readSearchTerms,
   signAssertion,
   type FetchLike,
 } from '../../cloudflare/src/googleAds';
@@ -187,5 +191,89 @@ describe('reading campaigns', () => {
     expect(explainGoogleError(403, disabled).message).toMatch(/ikke slået til/);
     const denied = JSON.stringify([{ error: { code: 403, status: 'PERMISSION_DENIED', details: [{ errors: [{ errorCode: { authorizationError: 'USER_PERMISSION_DENIED' }, message: "User doesn't have permission to access customer." }] }] } }]);
     expect(explainGoogleError(403, denied).message).toMatch(/Kun læseadgang/);
+  });
+});
+
+describe('reading one campaign’s insides', () => {
+  /** Answers each GAQL query with the rows of the first matching rule. */
+  const fake = (rules: [RegExp, unknown[]][]) => {
+    const queries: string[] = [];
+    const fetchFn: FetchLike = async (_, init) => {
+      const q = (JSON.parse(String(init!.body)) as { query: string }).query;
+      queries.push(q);
+      return Response.json([{ results: rules.find(([re]) => re.test(q))?.[1] ?? [] }]);
+    };
+    return { reader: new GoogleAdsReader(fetchFn, async () => 't', { customerId: '1234567890' }), queries };
+  };
+
+  it('reads a Shopping product tree with its excluded items', async () => {
+    const { reader, queries } = fake([
+      [
+        /FROM ad_group_criterion/,
+        [
+          { adGroup: { id: '5', name: 'Alle' }, adGroupCriterion: { criterionId: '1', negative: false, listingGroup: { type: 'SUBDIVISION' } } },
+          { adGroup: { id: '5', name: 'Alle' }, adGroupCriterion: { criterionId: '2', negative: true, listingGroup: { type: 'UNIT', parentAdGroupCriterion: 'customers/1234567890/adGroupCriteria/5~1', caseValue: { productItemId: { value: 'SKU-100' } } } } },
+          { adGroup: { id: '5', name: 'Alle' }, adGroupCriterion: { criterionId: '3', negative: false, listingGroup: { type: 'UNIT', parentAdGroupCriterion: 'customers/1234567890/adGroupCriteria/5~1', caseValue: { productItemId: {} } } } },
+        ],
+      ],
+    ]);
+    const nodes = await readListingGroups(reader, '1234567890', '77', false);
+    expect(queries[0]).toContain("campaign.id = 77 AND ad_group_criterion.type = 'LISTING_GROUP'");
+    expect(nodes).toEqual([
+      { id: '5~1', parentId: null, group: 'Alle', unit: false, excluded: false, dim: 'all', value: '' },
+      { id: '5~2', parentId: '5~1', group: 'Alle', unit: true, excluded: true, dim: 'id', value: 'sku-100' },
+      { id: '5~3', parentId: '5~1', group: 'Alle', unit: true, excluded: false, dim: 'id', value: '' },
+    ]);
+  });
+
+  it('reads Performance Max listing groups (excluded units) by asset group', async () => {
+    const { reader, queries } = fake([
+      [
+        /FROM asset_group_listing_group_filter/,
+        [
+          { assetGroup: { id: '8', name: 'Bestsellere' }, assetGroupListingGroupFilter: { id: '1', type: 'SUBDIVISION' } },
+          { assetGroup: { id: '8', name: 'Bestsellere' }, assetGroupListingGroupFilter: { id: '2', type: 'UNIT_EXCLUDED', parentListingGroupFilter: 'customers/1234567890/assetGroupListingGroupFilters/8~1', caseValue: { productBrand: { value: 'Acme' } } } },
+        ],
+      ],
+    ]);
+    const nodes = await readListingGroups(reader, '123-456-7890', '77', true);
+    expect(queries[0]).toContain("asset_group.campaign = 'customers/1234567890/campaigns/77'");
+    expect(nodes[1]).toEqual({ id: '8~2', parentId: '8~1', group: 'Bestsellere', unit: true, excluded: true, dim: 'brand', value: 'acme' });
+  });
+
+  it('maps every product dimension', () => {
+    expect(googleDimension({ productType: { level: 'LEVEL2', value: 'Stole' } })).toEqual({ dim: 'type2', value: 'stole' });
+    expect(googleDimension({ productCustomAttribute: { index: 'INDEX0', value: 'Udsalg' } })).toEqual({ dim: 'label0', value: 'udsalg' });
+    expect(googleDimension({ productCondition: { condition: 'USED' } })).toEqual({ dim: 'condition', value: 'used' });
+    expect(googleDimension({ productCategory: { level: 'LEVEL1', categoryId: '536' } })).toEqual({ dim: 'category1', value: '536' });
+  });
+
+  it('reads negatives on the campaign, its ad groups and its shared lists', async () => {
+    const { reader, queries } = fake([
+      [/FROM campaign_criterion/, [{ campaignCriterion: { keyword: { text: 'IKEA', matchType: 'EXACT' } } }]],
+      [/FROM ad_group_criterion/, [{ adGroup: { name: 'Stole' }, adGroupCriterion: { keyword: { text: 'gaming', matchType: 'PHRASE' } } }]],
+      [/FROM campaign_shared_set/, [{ sharedSet: { id: '42', name: 'Generelle' } }]],
+      [/FROM shared_criterion/, [{ sharedSet: { id: '42' }, sharedCriterion: { keyword: { text: 'gratis', matchType: 'BROAD' } } }]],
+    ]);
+    expect(await readNegatives(reader, '77')).toEqual([
+      { text: 'ikea', matchType: 'exact', level: 'campaign' },
+      { text: 'gaming', matchType: 'phrase', level: 'adgroup', adGroupName: 'Stole' },
+      { text: 'gratis', matchType: 'broad', level: 'list', listName: 'Generelle' },
+    ]);
+    expect(queries[3]).toContain('shared_set.id IN (42)');
+  });
+
+  it('adds search terms up across ad groups', async () => {
+    const m = (clicks: string, costMicros: string, conversions: number) => ({ impressions: '10', clicks, costMicros, conversions, conversionsValue: conversions * 100 });
+    const { reader } = fake([
+      [/FROM search_term_view/, [{ searchTermView: { searchTerm: 'Kontorstol' }, metrics: m('3', '30000000', 1) }, { searchTermView: { searchTerm: 'kontorstol' }, metrics: m('2', '20000000', 0) }]],
+    ]);
+    expect(await readSearchTerms(reader, '77', '2026-10-01', '2026-10-27')).toEqual([{ term: 'kontorstol', impressions: 20, clicks: 5, spend: 50, conversions: 1, revenue: 100 }]);
+  });
+
+  it('refuses a campaign id that is not a number (nothing reaches the query)', async () => {
+    const { reader, queries } = fake([]);
+    await expect(readNegatives(reader, '1 OR 1=1')).rejects.toThrow(/Ugyldigt kampagne-id/);
+    expect(queries).toEqual([]);
   });
 });

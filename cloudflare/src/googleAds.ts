@@ -16,8 +16,9 @@
  * Google retired it on 9 September 2026 – access follows the Google Cloud project the
  * service account belongs to (the Google Ads API must be enabled there).
  *
- * No imports from the app (the Worker is bundled without the `@/` alias).
+ * No imports through the app's `@/` alias (the Worker is bundled without it).
  */
+import type { CampaignStructure, DAd, DAdGroup, DListingNode, DNegative, DSearchTerm, DetailMetrics, MatchKind } from '../../src/features/audit/detail';
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -343,4 +344,220 @@ export async function readCampaigns(reader: GoogleAdsReader, from: string, to: s
     })
     .filter((c) => c.id)
     .sort((a, b) => b.metrics.spend - a.metrics.spend);
+}
+
+/* --------------------------- one campaign's insides (audit) --------------------------- */
+
+const lower = (v: unknown) => String(v ?? '').trim().toLowerCase();
+const matchKind = (v: unknown): MatchKind => (v === 'EXACT' ? 'exact' : v === 'PHRASE' ? 'phrase' : 'broad');
+const statusWord = (v: unknown) => (v === 'ENABLED' ? 'active' : v === 'PAUSED' ? 'paused' : lower(v));
+const idOf = (id: string) => {
+  if (!/^\d{1,20}$/.test(id)) throw new GoogleAdsError('Ugyldigt kampagne-id.', 'api');
+  return id;
+};
+const period = (from: string, to: string) => {
+  if (!DATE.test(from) || !DATE.test(to)) throw new GoogleAdsError('Ugyldig periode.', 'api');
+  return `segments.date BETWEEN '${from}' AND '${to}'`;
+};
+
+interface MetricsRow {
+  impressions?: string;
+  clicks?: string;
+  costMicros?: string;
+  conversions?: number;
+  conversionsValue?: number;
+}
+const metricsOf = (m: MetricsRow | undefined): DetailMetrics => ({
+  impressions: num(m?.impressions),
+  clicks: num(m?.clicks),
+  spend: micros(m?.costMicros) ?? 0,
+  conversions: num(m?.conversions),
+  revenue: num(m?.conversionsValue),
+});
+
+interface KeywordInfo {
+  text?: string;
+  matchType?: string;
+}
+
+/** Ad groups and keywords, with each keyword's numbers for the period. */
+export async function readStructure(reader: GoogleAdsReader, campaignId: string, from: string, to: string): Promise<CampaignStructure> {
+  const id = idOf(campaignId);
+  const groups = await reader.rows<{ adGroup?: { id?: string; name?: string; status?: string } }>(
+    `SELECT ad_group.id, ad_group.name, ad_group.status FROM ad_group WHERE campaign.id = ${id} AND ad_group.status != 'REMOVED'`,
+  );
+  const keywords = await reader.rows<{ adGroup?: { id?: string }; adGroupCriterion?: { criterionId?: string; status?: string; keyword?: KeywordInfo } }>(
+    `SELECT ad_group.id, ad_group_criterion.criterion_id, ad_group_criterion.status, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type FROM ad_group_criterion WHERE campaign.id = ${id} AND ad_group_criterion.type = 'KEYWORD' AND ad_group_criterion.negative = FALSE AND ad_group_criterion.status != 'REMOVED'`,
+  );
+  const stats = await reader.rows<{ adGroup?: { id?: string }; adGroupCriterion?: { criterionId?: string }; metrics?: MetricsRow }>(
+    `SELECT ad_group.id, ad_group_criterion.criterion_id, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.conversions_value FROM keyword_view WHERE campaign.id = ${id} AND ${period(from, to)}`,
+  );
+  const byKey = new Map(stats.map((s) => [`${s.adGroup?.id}~${s.adGroupCriterion?.criterionId}`, s.metrics]));
+  return {
+    adGroups: groups.map((g) => ({ id: String(g.adGroup?.id ?? ''), name: g.adGroup?.name ?? '', status: statusWord(g.adGroup?.status) })).filter((g) => g.id),
+    keywords: keywords
+      .map((k) => ({
+        adGroupId: String(k.adGroup?.id ?? ''),
+        text: lower(k.adGroupCriterion?.keyword?.text),
+        matchType: matchKind(k.adGroupCriterion?.keyword?.matchType),
+        status: statusWord(k.adGroupCriterion?.status),
+        metrics: metricsOf(byKey.get(`${k.adGroup?.id}~${k.adGroupCriterion?.criterionId}`)),
+      }))
+      .filter((k) => k.text),
+  };
+}
+
+/** The campaign's negative keywords: on the campaign, on its ad groups, and in the shared lists it uses. */
+export async function readNegatives(reader: GoogleAdsReader, campaignId: string): Promise<DNegative[]> {
+  const id = idOf(campaignId);
+  const out: DNegative[] = [];
+  const onCampaign = await reader.rows<{ campaignCriterion?: { keyword?: KeywordInfo } }>(
+    `SELECT campaign_criterion.keyword.text, campaign_criterion.keyword.match_type FROM campaign_criterion WHERE campaign.id = ${id} AND campaign_criterion.negative = TRUE AND campaign_criterion.type = 'KEYWORD'`,
+  );
+  for (const r of onCampaign) out.push({ text: lower(r.campaignCriterion?.keyword?.text), matchType: matchKind(r.campaignCriterion?.keyword?.matchType), level: 'campaign' });
+  const onGroups = await reader.rows<{ adGroup?: { name?: string }; adGroupCriterion?: { keyword?: KeywordInfo } }>(
+    `SELECT ad_group.name, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type FROM ad_group_criterion WHERE campaign.id = ${id} AND ad_group_criterion.negative = TRUE AND ad_group_criterion.type = 'KEYWORD' AND ad_group_criterion.status != 'REMOVED'`,
+  );
+  for (const r of onGroups)
+    out.push({ text: lower(r.adGroupCriterion?.keyword?.text), matchType: matchKind(r.adGroupCriterion?.keyword?.matchType), level: 'adgroup', adGroupName: r.adGroup?.name ?? '' });
+  const lists = await reader.rows<{ sharedSet?: { id?: string; name?: string } }>(
+    `SELECT shared_set.id, shared_set.name FROM campaign_shared_set WHERE campaign.id = ${id} AND campaign_shared_set.status = 'ENABLED' AND shared_set.type = 'NEGATIVE_KEYWORDS'`,
+  );
+  const names = new Map(lists.map((l) => [String(l.sharedSet?.id ?? ''), l.sharedSet?.name ?? '']));
+  const ids = [...names.keys()].filter((k) => /^\d+$/.test(k));
+  if (ids.length) {
+    const items = await reader.rows<{ sharedSet?: { id?: string }; sharedCriterion?: { keyword?: KeywordInfo } }>(
+      `SELECT shared_set.id, shared_criterion.keyword.text, shared_criterion.keyword.match_type FROM shared_criterion WHERE shared_set.id IN (${ids.join(', ')}) AND shared_criterion.type = 'KEYWORD'`,
+    );
+    for (const r of items)
+      out.push({ text: lower(r.sharedCriterion?.keyword?.text), matchType: matchKind(r.sharedCriterion?.keyword?.matchType), level: 'list', listName: names.get(String(r.sharedSet?.id ?? '')) ?? '' });
+  }
+  return out.filter((n) => n.text);
+}
+
+interface CaseValue {
+  productItemId?: { value?: string };
+  productBrand?: { value?: string };
+  productType?: { level?: string; value?: string };
+  productCustomAttribute?: { index?: string; value?: string };
+  productCategory?: { level?: string; categoryId?: string };
+  productCondition?: { condition?: string };
+  productChannel?: { channel?: string };
+}
+
+const digitOf = (v: unknown) => /(\d)$/.exec(String(v ?? ''))?.[1] ?? '';
+
+/** Google's listing dimension → the shared one (detail.ts). No case value = the root. */
+export function googleDimension(cv: CaseValue | undefined): { dim: string; value: string } {
+  if (!cv || !Object.keys(cv).length) return { dim: 'all', value: '' };
+  if (cv.productItemId) return { dim: 'id', value: lower(cv.productItemId.value) };
+  if (cv.productBrand) return { dim: 'brand', value: lower(cv.productBrand.value) };
+  if (cv.productType) return { dim: `type${digitOf(cv.productType.level) || '1'}`, value: lower(cv.productType.value) };
+  if (cv.productCustomAttribute) return { dim: `label${String(Number(digitOf(cv.productCustomAttribute.index) || 0))}`, value: lower(cv.productCustomAttribute.value) };
+  if (cv.productCategory) return { dim: `category${digitOf(cv.productCategory.level) || '1'}`, value: lower(cv.productCategory.categoryId) };
+  if (cv.productCondition) return { dim: 'condition', value: lower(cv.productCondition.condition) };
+  if (cv.productChannel) return { dim: 'channel', value: lower(cv.productChannel.channel) };
+  return { dim: Object.keys(cv)[0]!.toLowerCase(), value: '' };
+}
+
+const CASE_FIELDS = (prefix: string) =>
+  [
+    'product_item_id.value',
+    'product_brand.value',
+    'product_type.level',
+    'product_type.value',
+    'product_custom_attribute.index',
+    'product_custom_attribute.value',
+    'product_category.level',
+    'product_category.category_id',
+    'product_condition.condition',
+    'product_channel.channel',
+  ]
+    .map((f) => `${prefix}.case_value.${f}`)
+    .join(', ');
+
+/** The last part of a resource name, "customers/1/adGroupCriteria/2~3" → "2~3". */
+const tail = (resource: unknown) => String(resource ?? '').split('/').pop() ?? '';
+
+/**
+ * The product tree: Shopping's product groups (per ad group), or for Performance Max the
+ * listing groups of its asset groups. Excluded units are what the audit compares.
+ */
+export async function readListingGroups(reader: GoogleAdsReader, customerId: string, campaignId: string, pmax: boolean): Promise<DListingNode[]> {
+  const id = idOf(campaignId);
+  if (pmax) {
+    const rows = await reader.rows<{ assetGroup?: { id?: string; name?: string }; assetGroupListingGroupFilter?: { id?: string; type?: string; parentListingGroupFilter?: string; caseValue?: CaseValue } }>(
+      `SELECT asset_group.id, asset_group.name, asset_group_listing_group_filter.id, asset_group_listing_group_filter.type, asset_group_listing_group_filter.parent_listing_group_filter, ${CASE_FIELDS('asset_group_listing_group_filter')} FROM asset_group_listing_group_filter WHERE asset_group.campaign = 'customers/${digits(customerId)}/campaigns/${id}' AND asset_group.status != 'REMOVED'`,
+    );
+    return rows.map((r) => {
+      const f = r.assetGroupListingGroupFilter ?? {};
+      return {
+        // "assetGroupId~filterId", as in the parent's resource name.
+        id: `${r.assetGroup?.id}~${f.id}`,
+        parentId: f.parentListingGroupFilter ? tail(f.parentListingGroupFilter) : null,
+        group: r.assetGroup?.name ?? '',
+        unit: f.type !== 'SUBDIVISION',
+        excluded: f.type === 'UNIT_EXCLUDED',
+        ...googleDimension(f.caseValue),
+      };
+    });
+  }
+  const rows = await reader.rows<{ adGroup?: { id?: string; name?: string }; adGroupCriterion?: { criterionId?: string; negative?: boolean; listingGroup?: { type?: string; parentAdGroupCriterion?: string; caseValue?: CaseValue } } }>(
+    `SELECT ad_group.id, ad_group.name, ad_group_criterion.criterion_id, ad_group_criterion.negative, ad_group_criterion.listing_group.type, ad_group_criterion.listing_group.parent_ad_group_criterion, ${CASE_FIELDS('ad_group_criterion.listing_group')} FROM ad_group_criterion WHERE campaign.id = ${id} AND ad_group_criterion.type = 'LISTING_GROUP' AND ad_group_criterion.status != 'REMOVED'`,
+  );
+  return rows.map((r) => {
+    const c = r.adGroupCriterion ?? {};
+    const lg = c.listingGroup ?? {};
+    return {
+      id: `${r.adGroup?.id}~${c.criterionId}`,
+      parentId: lg.parentAdGroupCriterion ? tail(lg.parentAdGroupCriterion) : null,
+      group: r.adGroup?.name ?? '',
+      unit: lg.type === 'UNIT',
+      excluded: !!c.negative,
+      ...googleDimension(lg.caseValue),
+    };
+  });
+}
+
+/** The search terms of the period, added up per term (the most clicked first, at most 1,000). */
+export async function readSearchTerms(reader: GoogleAdsReader, campaignId: string, from: string, to: string): Promise<DSearchTerm[]> {
+  const id = idOf(campaignId);
+  const rows = await reader.rows<{ searchTermView?: { searchTerm?: string }; metrics?: MetricsRow }>(
+    `SELECT search_term_view.search_term, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.conversions_value FROM search_term_view WHERE campaign.id = ${id} AND ${period(from, to)} AND metrics.impressions > 0 ORDER BY metrics.clicks DESC LIMIT 3000`,
+  );
+  const byTerm = new Map<string, DSearchTerm>();
+  for (const r of rows) {
+    const term = lower(r.searchTermView?.searchTerm);
+    if (!term) continue;
+    const m = metricsOf(r.metrics);
+    const t = byTerm.get(term) ?? { term, impressions: 0, clicks: 0, spend: 0, conversions: 0, revenue: 0 };
+    byTerm.set(term, { term, impressions: t.impressions + m.impressions, clicks: t.clicks + m.clicks, spend: t.spend + m.spend, conversions: t.conversions + m.conversions, revenue: t.revenue + m.revenue });
+  }
+  return [...byTerm.values()].sort((a, b) => b.clicks - a.clicks).slice(0, 1000);
+}
+
+/** The ads (not removed) with their texts and final URLs, and the ad groups they are in. */
+export async function readAds(reader: GoogleAdsReader, campaignId: string): Promise<{ adGroups: DAdGroup[]; ads: DAd[] }> {
+  const id = idOf(campaignId);
+  const groups = await reader.rows<{ adGroup?: { id?: string; name?: string; status?: string } }>(
+    `SELECT ad_group.id, ad_group.name, ad_group.status FROM ad_group WHERE campaign.id = ${id} AND ad_group.status != 'REMOVED'`,
+  );
+  const rows = await reader.rows<{
+    adGroup?: { id?: string };
+    adGroupAd?: { status?: string; ad?: { type?: string; finalUrls?: string[]; responsiveSearchAd?: { headlines?: { text?: string }[]; descriptions?: { text?: string }[] } } };
+  }>(
+    `SELECT ad_group.id, ad_group_ad.status, ad_group_ad.ad.type, ad_group_ad.ad.final_urls, ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.responsive_search_ad.descriptions FROM ad_group_ad WHERE campaign.id = ${id} AND ad_group_ad.status != 'REMOVED'`,
+  );
+  const texts = (v: { text?: string }[] | undefined) => (v ?? []).map((a) => String(a.text ?? '').trim()).filter(Boolean);
+  return {
+    adGroups: groups.map((g) => ({ id: String(g.adGroup?.id ?? ''), name: g.adGroup?.name ?? '', status: statusWord(g.adGroup?.status) })).filter((g) => g.id),
+    ads: rows.map((r) => ({
+      adGroupId: String(r.adGroup?.id ?? ''),
+      status: statusWord(r.adGroupAd?.status),
+      type: r.adGroupAd?.ad?.type ?? '',
+      headlines: texts(r.adGroupAd?.ad?.responsiveSearchAd?.headlines),
+      descriptions: texts(r.adGroupAd?.ad?.responsiveSearchAd?.descriptions),
+      finalUrls: r.adGroupAd?.ad?.finalUrls ?? [],
+    })),
+  };
 }

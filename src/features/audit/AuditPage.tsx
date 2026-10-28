@@ -19,12 +19,13 @@ import { bidLabel } from '@/ai/tools/write';
 import { statusLabel } from '@/ai/tools/context';
 import { change, derive, sumMetrics } from '@/bing/metrics';
 import type { DerivedMetrics } from '@/bing/types';
-import { fmtMoney, fmtNumber, fmtPercent, fmtRelative } from '@/lib/format';
+import { fmtMoney, fmtNumber, fmtPercent, fmtRelative, type DateRange } from '@/lib/format';
 import { cn, errorMessage } from '@/lib/utils';
 import { isAdmin, useAccount } from '@/stores/account';
 import { useCurrentAccount } from '@/stores/connection';
 import { connectGoogleAudit, disconnectGoogleAudit } from '@/workspace/shared';
 import { PERIOD_LABELS, changeAudit, refreshGoogle, useAuditUi, type AuditPeriod, type GoogleCampaign } from './data';
+import { DetailCompare, STEP_TAB, TAB_LABEL, tabsFor } from './DetailCompare';
 import { rankCandidates } from './match';
 import { useAuditModel, type AuditRow } from './model';
 import { AUDIT_STEPS, stepApplies, type AuditStep, type StepStatus } from './steps';
@@ -394,6 +395,8 @@ const SHOWN_ABOVE = new Set(['match', 'setup', 'budget', 'performance']);
 function StepRow({ step, index, row }: { step: AuditStep; index: number; row: AuditRow }) {
   const mark = row.audit?.steps[step.id];
   const applies = stepApplies(step, row.bing.type);
+  const stepTab = STEP_TAB[step.id];
+  const tab = stepTab && tabsFor(row.bing.type).includes(stepTab) ? stepTab : null;
   const set = (status: StepStatus | null) =>
     changeAudit({ type: 'step', bingId: row.bing.id, step: step.id, status }).catch((e: unknown) => toast.error('Kunne ikke gemme', { description: errorMessage(e) }));
   return (
@@ -419,6 +422,18 @@ function StepRow({ step, index, row }: { step: AuditStep; index: number; row: Au
           <span className={cn(mark?.status === 'na' && 'text-subtle line-through')}>{step.title}</span>
           {!applies && <Badge>Ikke relevant for {BING_TYPE[row.bing.type] ?? row.bing.type}</Badge>}
           {applies && SHOWN_ABOVE.has(step.id) && <Badge tone="brand">Data ovenfor</Badge>}
+          {applies && tab && (
+            <button
+              type="button"
+              onClick={() => {
+                useAuditUi.getState().setTab(tab);
+                document.getElementById('audit-compare')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+              className="rounded-full bg-brand-50 px-2 py-0.5 text-[11.5px] font-medium text-brand hover:bg-brand-50/70"
+            >
+              Se: {TAB_LABEL[tab]}
+            </button>
+          )}
         </p>
         <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">{step.what}</p>
         {mark && (
@@ -457,7 +472,7 @@ function CampaignNote({ row }: { row: AuditRow }) {
   );
 }
 
-function CampaignAuditView({ row, google, bingCurrency, googleCurrency, googleReady }: { row: AuditRow; google: GoogleCampaign[]; bingCurrency: string; googleCurrency: string; googleReady: boolean }) {
+function CampaignAuditView({ row, google, range, bingCurrency, googleCurrency, googleReady }: { row: AuditRow; google: GoogleCampaign[]; range: DateRange; bingCurrency: string; googleCurrency: string; googleReady: boolean }) {
   return (
     <div className="grid gap-6">
       <div className="grid gap-2">
@@ -473,6 +488,7 @@ function CampaignAuditView({ row, google, bingCurrency, googleCurrency, googleRe
         {googleReady ? <MatchPicker row={row} google={google} /> : <p className="text-[13px] text-muted">Forbind Google Ads for at vælge modparten.</p>}
       </div>
       <CompareTable row={row} bingCurrency={bingCurrency} googleCurrency={googleCurrency} />
+      <DetailCompare row={row} range={range} bingCurrency={bingCurrency} googleCurrency={googleCurrency} />
       <div className="grid gap-2">
         <h3 className="text-[14px] font-medium text-ink">Trin</h3>
         <ol className="overflow-hidden rounded-2xl border border-line bg-surface">
@@ -571,7 +587,7 @@ export function AuditPage() {
               <Loader2 className="size-3.5 animate-spin" /> Henter Microsoft-kampagner …
             </p>
           ) : row ? (
-            <CampaignAuditView row={row} google={google.data?.campaigns ?? []} bingCurrency={bingCurrency} googleCurrency={googleCurrency} googleReady={googleReady} />
+            <CampaignAuditView row={row} google={google.data?.campaigns ?? []} range={range} bingCurrency={bingCurrency} googleCurrency={googleCurrency} googleReady={googleReady} />
           ) : (
             <Overview rows={rows} bingCurrency={bingCurrency} googleCurrency={googleCurrency} googleReady={googleReady} />
           )}

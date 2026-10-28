@@ -31,6 +31,8 @@ import type {
   MutationResult,
   NegativeEntityType,
   NegativeKeyword,
+  NegativeKeywordList,
+  ProductTreeNode,
   NewAdGroup,
   NewCampaign,
   NewKeyword,
@@ -311,6 +313,71 @@ export class LiveBackend implements AdsBackend {
         matchType: (str(n.MatchType) || 'Phrase') as NegativeKeyword['matchType'],
       })),
     );
+  }
+
+  async listNegativeKeywordLists(accountId: string, campaignId: string): Promise<NegativeKeywordList[]> {
+    const assoc = await this.cm<Json>(accountId, 'SharedEntityAssociations/QueryByEntityIds', 'POST', {
+      EntityIds: [Number(campaignId)],
+      EntityType: 'Campaign',
+      SharedEntityType: 'NegativeKeywordList',
+    });
+    const ids = [...new Set(arr<Json>(assoc.Associations).map((a) => str(a.SharedEntityId)).filter(Boolean))];
+    if (!ids.length) return [];
+    const all = await this.cm<Json>(accountId, 'SharedEntities/Query', 'POST', { SharedEntityType: 'NegativeKeywordList' });
+    const names = new Map(arr<Json>(all.SharedEntities).map((e) => [str(e.Id), str(e.Name)]));
+    const lists: NegativeKeywordList[] = [];
+    for (const id of ids) {
+      const items = await this.cm<Json>(accountId, 'ListItems/QueryBySharedList', 'POST', { SharedList: { Type: 'NegativeKeywordList', Id: Number(id) } });
+      lists.push({
+        id,
+        name: names.get(id) ?? '',
+        keywords: arr<Json>(items.ListItems).map((n) => ({ id: str(n.Id) || undefined, text: str(n.Text), matchType: (str(n.MatchType) || 'Phrase') as NegativeKeyword['matchType'] })),
+      });
+    }
+    return lists;
+  }
+
+  async listProductPartitions(accountId: string, adGroupId: string, adGroupName: string): Promise<ProductTreeNode[]> {
+    // GetAdGroupCriterionsByIds with no ids: every product partition of the ad group.
+    const res = await this.cm<Json>(accountId, 'AdGroupCriterions/QueryByIds', 'POST', { AdGroupCriterionIds: null, AdGroupId: Number(adGroupId), CriterionType: 'ProductPartition' });
+    return arr<Json>(res.AdGroupCriterions).map((c) => {
+      const criterion = (c.Criterion ?? {}) as Json;
+      const condition = (criterion.Condition ?? {}) as Json;
+      const parent = str(criterion.ParentCriterionId);
+      return {
+        id: str(c.Id),
+        parentId: parent && parent !== '0' ? parent : null,
+        group: adGroupName,
+        unit: criterion.PartitionType ? str(criterion.PartitionType) === 'Unit' : null,
+        excluded: str(c.Type) === 'NegativeAdGroupCriterion',
+        operand: str(condition.Operand),
+        attribute: str(condition.Attribute),
+      };
+    });
+  }
+
+  async listAssetGroupListingGroups(accountId: string, campaignId: string): Promise<ProductTreeNode[]> {
+    const groups = await this.cm<Json>(accountId, 'AssetGroups/QueryByCampaignId', 'POST', { CampaignId: Number(campaignId) });
+    const out: ProductTreeNode[] = [];
+    for (const g of arr<Json>(groups.AssetGroups)) {
+      const gid = str(g.Id);
+      const res = await this.cm<Json>(accountId, 'AssetGroupListingGroups/QueryByIds', 'POST', { AssetGroupId: Number(gid), AssetGroupListingGroupIds: null });
+      for (const l of arr<Json>(res.AssetGroupListingGroups)) {
+        const dimension = (l.Dimension ?? {}) as Json;
+        const parent = str(l.ParentListingGroupId);
+        const type = str(l.ListingGroupType ?? l.GroupNodeListingType);
+        out.push({
+          id: `${gid}~${str(l.Id)}`,
+          parentId: parent && parent !== '0' ? `${gid}~${parent}` : null,
+          group: str(g.Name),
+          unit: type ? type === 'Unit' : null,
+          excluded: l.IsExcluded === true || str(l.IsExcluded).toLowerCase() === 'true',
+          operand: str(dimension.Operand),
+          attribute: str(dimension.Attribute),
+        });
+      }
+    }
+    return out;
   }
 
   /* ------------------------------- mutations ------------------------------- */
