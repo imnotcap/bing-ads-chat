@@ -24,6 +24,18 @@ export interface AuditRow {
 
 const isActive = (status: string) => status === 'Active';
 
+export type AuditGroup = 'started' | 'todo' | 'finished' | 'paused';
+
+/**
+ * The sidebar's groups: running campaigns by how far the audit is (I gang, Ikke startet,
+ * Færdige), and the paused ones on their own – whatever their progress.
+ */
+export function groupOf(row: AuditRow): AuditGroup {
+  if (!isActive(row.bing.status)) return 'paused';
+  if (row.finished) return 'finished';
+  return row.progress.done > 0 ? 'started' : 'todo';
+}
+
 export function useAuditModel() {
   const period = useAuditUi((s) => s.period);
   const range = auditRange(period, today());

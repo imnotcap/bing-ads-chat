@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyOp, parseOp } from '@/features/audit/ops';
 import { nameScore, suggestMatch } from '@/features/audit/match';
 import { AUDIT_STEPS, progressOf, type CampaignAudit } from '@/features/audit/steps';
+import { groupOf, type AuditRow } from '@/features/audit/model';
 import { changeAudit, readAudits, type AuditStorage } from '../../cloudflare/src/audit';
 
 function memoryStorage(): AuditStorage & { data: Map<string, unknown> } {
@@ -84,5 +85,18 @@ describe('suggested matches', () => {
 
   it('suggests nothing rather than a weak guess', () => {
     expect(suggestMatch({ name: 'Brand', type: 'Search' }, google)).toBeNull();
+  });
+});
+
+describe('the sidebar groups', () => {
+  const row = (status: string, done: number, total = 19) =>
+    ({ bing: { status }, progress: { done, total }, finished: total > 0 && done === total }) as unknown as AuditRow;
+
+  it('sorts running campaigns by progress and puts every paused one on its own', () => {
+    expect(groupOf(row('Active', 0))).toBe('todo');
+    expect(groupOf(row('Active', 3))).toBe('started');
+    expect(groupOf(row('Active', 19))).toBe('finished');
+    expect(groupOf(row('Paused', 19))).toBe('paused');
+    expect(groupOf(row('BudgetPaused', 2))).toBe('paused');
   });
 });
