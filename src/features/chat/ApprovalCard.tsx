@@ -3,7 +3,7 @@
  * spending rules apply, and Godkend/Afvis while it waits for the user.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { Ban, Check, CheckCircle2, Clock, Loader2, Pin, Plus, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from '@/components/icons';
+import { Ban, Check, CheckCircle2, ChevronDown, Clock, Loader2, Pin, Plus, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from '@/components/icons';
 import { useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { answerApproval } from '@/ai/approvals';
@@ -174,6 +174,8 @@ function AddRow({ label, span, existing, onAdd }: { label: string; span: number;
 /**
  * A plan with ChangePlan.pick: every row has a tick box, so the user chooses which of the
  * proposed items (e.g. negative keywords) are carried out, and can add their own at the end.
+ * With pick.group the rows fall into sections (e.g. per ad group) that fold in and out – with
+ * more than one section they start folded, so a long list stays short.
  */
 function PickTable({
   part,
@@ -193,21 +195,73 @@ function PickTable({
   const plan = part.plan!;
   const pick = plan.pick!;
   const waiting = part.status === 'awaiting_approval';
-  // Columns with nothing to say in any row (empty, or 0 everywhere) are left out.
-  const columns = pick.columns.filter((col) => plan.changes.some((c) => ![null, undefined, '', 0].includes(c.cells?.[col.key])));
+  // Columns with nothing to say in any row (empty, or 0 everywhere) are left out – and the group column, shown as sections.
+  const columns = pick.columns.filter((col) => col.key !== pick.group && plan.changes.some((c) => ![null, undefined, '', 0].includes(c.cells?.[col.key])));
   const total = plan.changes.length;
   const chosen = total - excluded.size;
   const span = (waiting ? 1 : 0) + 1 + (pick.tag ? 1 : 0) + columns.length;
+  const sections = pick.group
+    ? [...new Set(plan.changes.map((c) => String(c.cells?.[pick.group!] ?? '')))].map((name) => ({ name, rows: plan.changes.flatMap((c, i) => (String(c.cells?.[pick.group!] ?? '') === name ? [i] : [])) }))
+    : [{ name: null as string | null, rows: plan.changes.map((_, i) => i) }];
+  const [open, setOpen] = useState<Set<string>>(() => new Set(sections.length === 1 ? sections.map((x) => x.name ?? '') : []));
   const toggle = (i: number) => {
     const next = new Set(excluded);
     if (next.has(i)) next.delete(i);
     else next.add(i);
     setExcluded(next);
   };
+  const toggleSection = (rows: number[]) => {
+    const next = new Set(excluded);
+    const allOn = rows.every((i) => !next.has(i));
+    for (const i of rows) {
+      if (allOn) next.add(i);
+      else next.delete(i);
+    }
+    setExcluded(next);
+  };
   const value = (v: string | number | null | undefined, format?: 'money' | 'number') => {
     if (v === null || v === undefined || v === '') return <span className="text-subtle">–</span>;
     if (typeof v === 'number') return <span className="tabular">{format === 'money' ? fmtMoney(v, currency) : fmtNumber(v)}</span>;
     return v;
+  };
+
+  const row = (i: number) => {
+    const c = plan.changes[i]!;
+    // After approval the plan holds only the rows that were carried out.
+    const off = waiting && excluded.has(i);
+    const tag = pick.tag ? c.cells?.[pick.tag] : null;
+    const note = pick.note ? c.cells?.[pick.note] : null;
+    return (
+      <tr
+        key={i}
+        onClick={(e) => waiting && !(e.target as HTMLElement).closest('input') && toggle(i)}
+        className={cn('border-t border-line-2 transition-colors', waiting && 'cursor-pointer hover:bg-line-2/50', off && 'text-subtle')}
+      >
+        {waiting && (
+          <td className={cn('py-1.5', pick.group ? 'pl-7' : 'pl-3')}>
+            <input type="checkbox" checked={!off} onChange={() => toggle(i)} aria-label={`Medtag ${String(c.after ?? '')}`} className="size-4 accent-[var(--color-brand)]" />
+          </td>
+        )}
+        <td className="px-3 py-1.5">
+          <div className={cn('font-medium [overflow-wrap:anywhere]', off ? 'text-subtle line-through decoration-black/20' : 'text-ink')}>{String(c.after ?? '')}</div>
+          {note && <div className={cn('mt-0.5 text-[12px] leading-snug', off ? 'text-subtle' : 'text-muted')}>{note}</div>}
+        </td>
+        {pick.tag && <td className="px-2 py-1.5 text-center">{tag ? <Tag muted={off}>{tag}</Tag> : null}</td>}
+        {columns.map((col) => (
+          <td
+            key={col.key}
+            className={cn(
+              'px-3 py-1.5',
+              col.format ? 'whitespace-nowrap text-right' : 'min-w-[120px] max-w-[180px] text-[12.5px] leading-snug [overflow-wrap:anywhere]',
+              !off && col.key === 'target' && 'text-ink-2',
+            )}
+            title={typeof c.cells?.[col.key] === 'string' ? String(c.cells[col.key]) : undefined}
+          >
+            {value(c.cells?.[col.key], col.format)}
+          </td>
+        ))}
+      </tr>
+    );
   };
 
   return (
@@ -230,8 +284,8 @@ function PickTable({
                   />
                 </th>
               )}
-              <th className="w-full min-w-[200px] px-3 py-1.5">Negativt søgeord</th>
-              {pick.tag && <th className="px-2 py-1.5 text-center">Match</th>}
+              <th className="w-full min-w-[200px] px-3 py-1.5">{pick.itemLabel ?? 'Negativt søgeord'}</th>
+              {pick.tag && <th className="px-2 py-1.5 text-center">{pick.tagLabel ?? 'Match'}</th>}
               {columns.map((col) => (
                 <th key={col.key} className={cn('whitespace-nowrap px-3 py-1.5', col.format && 'text-right')}>
                   {col.label}
@@ -239,44 +293,53 @@ function PickTable({
               ))}
             </tr>
           </thead>
+          {sections.map((sec) => {
+            const isOpen = sec.name === null || open.has(sec.name);
+            const on = sec.rows.filter((i) => !excluded.has(i)).length;
+            return (
+              <tbody key={sec.name ?? 'all'}>
+                {sec.name !== null && (
+                  <tr className="border-t border-line bg-[#fafafb]">
+                    {waiting && (
+                      <td className="py-1.5 pl-3">
+                        <input
+                          type="checkbox"
+                          aria-label={`Vælg alle i ${sec.name}`}
+                          checked={on === sec.rows.length}
+                          ref={(el) => {
+                            if (el) el.indeterminate = on > 0 && on < sec.rows.length;
+                          }}
+                          onChange={() => toggleSection(sec.rows)}
+                          className="size-4 accent-[var(--color-brand)]"
+                        />
+                      </td>
+                    )}
+                    <td colSpan={span - (waiting ? 1 : 0)} className="p-0">
+                      <button
+                        type="button"
+                        aria-expanded={isOpen}
+                        onClick={() =>
+                          setOpen((o) => {
+                            const next = new Set(o);
+                            if (next.has(sec.name!)) next.delete(sec.name!);
+                            else next.add(sec.name!);
+                            return next;
+                          })
+                        }
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] font-semibold text-ink-2 hover:text-ink"
+                      >
+                        <ChevronDown className={cn('size-3.5 shrink-0 text-subtle transition-transform', !isOpen && '-rotate-90')} />
+                        <span className="min-w-0 flex-1 truncate">{sec.name || 'Uden gruppe'}</span>
+                        <span className="shrink-0 text-[11.5px] font-medium tabular text-muted">{waiting ? `${on} af ${sec.rows.length} valgt` : sec.rows.length}</span>
+                      </button>
+                    </td>
+                  </tr>
+                )}
+                {isOpen && sec.rows.map(row)}
+              </tbody>
+            );
+          })}
           <tbody>
-            {plan.changes.map((c, i) => {
-              // After approval the plan holds only the rows that were carried out.
-              const off = waiting && excluded.has(i);
-              const tag = pick.tag ? c.cells?.[pick.tag] : null;
-              const note = pick.note ? c.cells?.[pick.note] : null;
-              return (
-                <tr
-                  key={i}
-                  onClick={(e) => waiting && !(e.target as HTMLElement).closest('input') && toggle(i)}
-                  className={cn('border-t border-line-2 transition-colors', waiting && 'cursor-pointer hover:bg-line-2/50', off && 'text-subtle')}
-                >
-                  {waiting && (
-                    <td className="py-1.5 pl-3">
-                      <input type="checkbox" checked={!off} onChange={() => toggle(i)} aria-label={`Medtag ${String(c.after ?? '')}`} className="size-4 accent-[var(--color-brand)]" />
-                    </td>
-                  )}
-                  <td className="px-3 py-1.5">
-                    <div className={cn('font-medium [overflow-wrap:anywhere]', off ? 'text-subtle line-through decoration-black/20' : 'text-ink')}>{String(c.after ?? '')}</div>
-                    {note && <div className={cn('mt-0.5 text-[12px] leading-snug', off ? 'text-subtle' : 'text-muted')}>{note}</div>}
-                  </td>
-                  {pick.tag && <td className="px-2 py-1.5 text-center">{tag ? <Tag muted={off}>{tag}</Tag> : null}</td>}
-                  {columns.map((col) => (
-                    <td
-                      key={col.key}
-                      className={cn(
-                        'px-3 py-1.5',
-                        col.format ? 'whitespace-nowrap text-right' : 'min-w-[120px] max-w-[180px] text-[12.5px] leading-snug [overflow-wrap:anywhere]',
-                        !off && col.key === 'target' && 'text-ink-2',
-                      )}
-                      title={typeof c.cells?.[col.key] === 'string' ? String(c.cells[col.key]) : undefined}
-                    >
-                      {value(c.cells?.[col.key], col.format)}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
             {waiting &&
               manual.map((m, i) => (
                 <tr key={`manual-${m.text}`} className="border-t border-line-2 bg-brand-50/40">
@@ -321,6 +384,11 @@ function PickTable({
           <button type="button" className="hover:text-ink" onClick={() => setExcluded(new Set(plan.changes.map((_, i) => i)))}>
             Fravælg alle
           </button>
+          {sections.length > 1 && (
+            <button type="button" className="ml-auto hover:text-ink" onClick={() => setOpen(open.size ? new Set() : new Set(sections.map((x) => x.name ?? '')))}>
+              {open.size ? 'Fold alle sammen' : 'Fold alle ud'}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -342,7 +410,8 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
     const pin = plan.changes[Number(i)]?.pin;
     return pin?.path && v !== pin.value;
   });
-  const [excluded, setExcluded] = useState<Set<number>>(new Set());
+  // Rows a tool marks pickOff start unticked (e.g. removals the user must choose themselves).
+  const [excluded, setExcluded] = useState<Set<number>>(() => new Set(plan.pick ? plan.changes.flatMap((c, i) => (c.pickOff ? [i] : [])) : []));
   const [manual, setManual] = useState<ManualItem[]>([]);
   const chosen = plan.changes.length - excluded.size + manual.length;
   const editable = waiting && plan.changes.some((c) => c.edit);

@@ -521,7 +521,7 @@ export class Workspace extends DurableObject<Env> {
       if (!range) return fail('Ugyldig periode.', 400);
       const pmax = url.searchParams.get('pmax') === '1';
       const dated = part === 'structure' || part === 'searchterms';
-      const cacheKey = `gads:detail2:${conn.customerId}:${id}:${part}${pmax ? ':pmax' : ''}${dated ? `:${range.from}:${range.to}` : ''}`;
+      const cacheKey = `gads:detail3:${conn.customerId}:${id}:${part}${pmax ? ':pmax' : ''}${dated ? `:${range.from}:${range.to}` : ''}`;
       const cached = await this.ctx.storage.get<{ fetchedAt: number; data: unknown }>(cacheKey);
       const age = cached ? Date.now() - cached.fetchedAt : Infinity;
       const refresh = url.searchParams.get('refresh') === '1';

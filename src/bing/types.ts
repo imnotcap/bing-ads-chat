@@ -113,6 +113,26 @@ export interface NegativeKeyword {
 
 export type NegativeEntityType = 'Campaign' | 'AdGroup';
 
+/**
+ * One change to a Shopping ad group's product tree (ApplyProductPartitionActions). A new
+ * subdivision gets a negative `tempId` that its children use as `parentId`; an excluded
+ * unit is a NegativeAdGroupCriterion, everything else a BiddableAdGroupCriterion.
+ * `attribute: null` is the "everything else" node of a subdivision.
+ */
+export type PartitionAction =
+  | {
+      action: 'Add';
+      adGroupId: string;
+      tempId?: number;
+      parentId: string | number | null;
+      kind: 'subdivision' | 'unit';
+      operand: string;
+      attribute: string | null;
+      excluded: boolean;
+      bid?: number | null;
+    }
+  | { action: 'Delete'; adGroupId: string; id: string; excluded: boolean };
+
 /** A shared negative keyword list a campaign uses (GetSharedEntityAssociationsByEntityIds). */
 export interface NegativeKeywordList {
   id: string;
@@ -130,6 +150,9 @@ export interface ProductTreeNode {
   parentId: string | null;
   /** The ad group or asset group the tree belongs to. */
   group: string;
+  groupId?: string;
+  /** A biddable unit's CPC bid. */
+  bid?: number | null;
   /** Null when Microsoft did not say (worked out from the tree instead). */
   unit: boolean | null;
   excluded: boolean;
@@ -398,6 +421,11 @@ export interface AdsBackend {
   listNegativeKeywordLists?(accountId: string, campaignId: string): Promise<NegativeKeywordList[]>;
   /** A Shopping ad group's product partitions – which are bid on and which are excluded (live only). */
   listProductPartitions?(accountId: string, adGroupId: string, adGroupName: string): Promise<ProductTreeNode[]>;
+  /**
+   * Changes one Shopping ad group's product tree in a single call (all actions for the same
+   * ad group). Microsoft applies such a call as a whole: if one action fails, none is made.
+   */
+  applyProductPartitionActions?(accountId: string, actions: PartitionAction[]): Promise<MutationResult>;
   /** A Performance Max campaign's listing groups, for all its asset groups (live only). */
   listAssetGroupListingGroups?(accountId: string, campaignId: string): Promise<ProductTreeNode[]>;
 

@@ -8,7 +8,7 @@
  */
 import { motion } from 'motion/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, CircleCheck, FileUp, Loader2, Lock, RefreshCw, TriangleAlert } from '@/components/icons';
+import { Check, CircleCheck, FileUp, Loader2, Lock, MessageSquare, RefreshCw, TriangleAlert } from '@/components/icons';
 import { pageTransition } from '@/components/motion';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,9 @@ import { fmtMoney, fmtNumber, fmtPercent, fmtRelative, type DateRange } from '@/
 import { cn, errorMessage } from '@/lib/utils';
 import { isAdmin, useAccount } from '@/stores/account';
 import { useCurrentAccount } from '@/stores/connection';
+import { useUi } from '@/stores/ui';
 import { connectGoogleAudit, disconnectGoogleAudit } from '@/workspace/shared';
+import { startChat } from '../chat/startChat';
 import { SecretInput } from '../settings/forms';
 import { PERIOD_LABELS, changeAudit, refreshGoogle, useAuditUi, type AuditPeriod, type GoogleCampaign } from './data';
 import { DetailCompare, STEP_TAB, TAB_LABEL, tabsFor } from './DetailCompare';
@@ -539,6 +541,32 @@ function CampaignNote({ row }: { row: AuditRow }) {
   );
 }
 
+/** Hands the whole 1:1 comparison to the assistant: it reads both, and proposes Microsoft changes on cards. */
+function AskMatchup({ row, google }: { row: AuditRow; google: GoogleCampaign }) {
+  const go = useUi((s) => s.go);
+  const ask = () =>
+    [
+      `Lav en 1:1 matchup af Microsoft-kampagnen "${row.bing.name}" (id ${row.bing.id}) mod Google-kampagnen "${google.name}" (id ${google.id}).`,
+      'Brug compare_with_google og gå i detaljer: annoncegrupper, søgeord, negative søgeord, produktgrupper og varenumre, søgetermer og annoncer.',
+      'Fortæl kort, hvad der er forskelligt, og foreslå derefter rettelserne i Microsoft på godkendelseskort – én slags ad gangen.',
+      'Ændr ikke kampagneindstillinger som budstrategi, budget, mål, status, placeringer eller tidsplan – nævn kun forskellene. Google må aldrig ændres; den læses kun.',
+    ].join('\n');
+  return (
+    <div>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => {
+          go('chat');
+          startChat(ask());
+        }}
+      >
+        <MessageSquare /> Spørg assistenten om 1:1 matchup
+      </Button>
+    </div>
+  );
+}
+
 function CampaignAuditView({ row, google, range, bingCurrency, googleCurrency, googleReady }: { row: AuditRow; google: GoogleCampaign[]; range: DateRange; bingCurrency: string; googleCurrency: string; googleReady: boolean }) {
   return (
     <div className="grid gap-6">
@@ -553,6 +581,7 @@ function CampaignAuditView({ row, google, range, bingCurrency, googleCurrency, g
           </span>
         </div>
         {googleReady ? <MatchPicker row={row} google={google} /> : <p className="text-[13px] text-muted">Forbind Google Ads for at vælge modparten.</p>}
+        {googleReady && row.google && <AskMatchup row={row} google={row.google} />}
       </div>
       <CompareTable row={row} bingCurrency={bingCurrency} googleCurrency={googleCurrency} />
       <DetailCompare row={row} range={range} bingCurrency={bingCurrency} googleCurrency={googleCurrency} />

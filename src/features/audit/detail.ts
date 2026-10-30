@@ -66,6 +66,12 @@ export interface DListingNode {
   excluded: boolean;
   dim: string;
   value: string;
+  /** The value as the platform wrote it (an item id is copied to Microsoft exactly like this). */
+  raw?: string;
+  /** The ad group's own id (needed to change the tree). */
+  groupId?: string;
+  /** A unit's CPC bid, when the platform gave one. */
+  bid?: number | null;
 }
 
 export interface DSearchTerm extends DetailMetrics {

@@ -59,6 +59,23 @@ export function applyEdits(input: unknown, edits: ApprovalEdit[]): unknown {
 }
 
 /**
+ * ChangePlan.pick.skipPath: a copy of the tool input with the keys of the rows the user left
+ * unticked added to the array at `path` (the tool leaves those rows out when it plans again).
+ */
+export function applySkips(input: unknown, path: (string | number)[], keys: string[]): unknown {
+  const copy = structuredClone(input) as Record<string | number, unknown>;
+  let node: Record<string | number, unknown> = copy;
+  for (const key of path.slice(0, -1)) {
+    if (!node[key] || typeof node[key] !== 'object') node[key] = {};
+    node = node[key] as Record<string | number, unknown>;
+  }
+  const last = path[path.length - 1]!;
+  const before = Array.isArray(node[last]) ? (node[last] as unknown[]).map(String) : [];
+  node[last] = [...new Set([...before, ...keys])];
+  return copy;
+}
+
+/**
  * Returns a copy of a tool input without the rows the user ticked off and with the items
  * they added themselves (ChangePlan.pick).
  */

@@ -22,7 +22,7 @@ import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 import { useUsage } from '@/stores/usage';
 import { refreshBilling, reportUsage, usageBlocked } from '@/workspace/billing';
-import { applyEdits, applyPicks, requestApproval } from './approvals';
+import { applyEdits, applyPicks, applySkips, requestApproval } from './approvals';
 import { proofreadPlan } from './proofread';
 import { evaluateGuardrails, type SpendContext } from './guardrails';
 import { buildContextBlock, buildSystemPrompt } from './prompt';
@@ -761,7 +761,10 @@ async function executeTools(
       if (answer.edits?.length || excluded.length || added.length) {
         // The user corrected values, ticked rows off or added their own: apply, validate and re-plan.
         let edited = applyEdits(item.input, answer.edits ?? []);
-        if (pick && (excluded.length || added.length)) {
+        if (pick?.skipPath && excluded.length) {
+          const keys = excluded.map((i) => plan?.changes[i]?.pickKey).filter((k): k is string => !!k);
+          edited = applySkips(edited, pick.skipPath, keys);
+        } else if (pick?.path && (excluded.length || added.length)) {
           edited = applyPicks(edited, pick.path, excluded, added.map((a) => ({ ...pick.add?.base, ...a })));
         }
         const check = item.tool.schema.safeParse(edited);

@@ -510,9 +510,10 @@ interface CaseValue {
 const digitOf = (v: unknown) => /(\d)$/.exec(String(v ?? ''))?.[1] ?? '';
 
 /** Google's listing dimension → the shared one (detail.ts). No case value = the root. */
-export function googleDimension(cv: CaseValue | undefined): { dim: string; value: string } {
+export function googleDimension(cv: CaseValue | undefined): { dim: string; value: string; raw?: string } {
   if (!cv || !Object.keys(cv).length) return { dim: 'all', value: '' };
-  if (cv.productItemId) return { dim: 'id', value: lower(cv.productItemId.value) };
+  // Item ids keep their own spelling too: they are copied to Microsoft exactly as Google has them.
+  if (cv.productItemId) return { dim: 'id', value: lower(cv.productItemId.value), raw: String(cv.productItemId.value ?? '').trim() };
   if (cv.productBrand) return { dim: 'brand', value: lower(cv.productBrand.value) };
   if (cv.productType) return { dim: `type${digitOf(cv.productType.level) || '1'}`, value: lower(cv.productType.value) };
   if (cv.productCustomAttribute) return { dim: `label${String(Number(digitOf(cv.productCustomAttribute.index) || 0))}`, value: lower(cv.productCustomAttribute.value) };

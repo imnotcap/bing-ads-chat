@@ -32,8 +32,8 @@ async function adGroups(b: AdsBackend, accountId: string, campaignId: string) {
   return (await b.listAdGroups(accountId, campaignId)).filter((g) => g.status !== 'Deleted');
 }
 
-export async function bingStructure(accountId: string, campaignId: string): Promise<CampaignStructure> {
-  const b = await getBackend();
+export async function bingStructure(accountId: string, campaignId: string, backend?: AdsBackend): Promise<CampaignStructure> {
+  const b = backend ?? (await getBackend());
   const groups = await adGroups(b, accountId, campaignId);
   const keywords = (await pool(groups, 4, (g) => b.listKeywords(accountId, g.id))).flat();
   return {
@@ -42,8 +42,8 @@ export async function bingStructure(accountId: string, campaignId: string): Prom
   };
 }
 
-export async function bingNegatives(accountId: string, campaignId: string): Promise<NegativeDetail> {
-  const b = await getBackend();
+export async function bingNegatives(accountId: string, campaignId: string, backend?: AdsBackend): Promise<NegativeDetail> {
+  const b = backend ?? (await getBackend());
   const out: DNegative[] = [];
   for (const n of await b.listNegativeKeywords(accountId, 'Campaign', campaignId, campaignId)) out.push({ text: lower(n.text), matchType: kind(n.matchType), level: 'campaign' });
   const groups = await adGroups(b, accountId, campaignId);
@@ -68,13 +68,16 @@ export function toListingNodes(nodes: ProductTreeNode[]): DListingNode[] {
     excluded: n.excluded,
     dim: n.parentId ? bingDimension(n.operand) : 'all',
     value: lower(n.attribute),
+    raw: n.attribute,
+    groupId: n.groupId,
+    bid: n.bid ?? null,
   }));
 }
 
 export class NotAvailable extends Error {}
 
-export async function bingProducts(accountId: string, campaignId: string, pmax: boolean): Promise<DListingNode[]> {
-  const b = await getBackend();
+export async function bingProducts(accountId: string, campaignId: string, pmax: boolean, backend?: AdsBackend): Promise<DListingNode[]> {
+  const b = backend ?? (await getBackend());
   if (pmax) {
     if (!b.listAssetGroupListingGroups) throw new NotAvailable('Listinggrupper kan kun læses fra den rigtige konto (ikke demo).');
     return toListingNodes(await b.listAssetGroupListingGroups(accountId, campaignId));
@@ -84,8 +87,8 @@ export async function bingProducts(accountId: string, campaignId: string, pmax: 
   return toListingNodes((await pool(groups, 4, (g) => b.listProductPartitions!(accountId, g.id, g.name))).flat());
 }
 
-export async function bingSearchTerms(accountId: string, campaignId: string, range: DateRange): Promise<DSearchTerm[]> {
-  const b = await getBackend();
+export async function bingSearchTerms(accountId: string, campaignId: string, range: DateRange, backend?: AdsBackend): Promise<DSearchTerm[]> {
+  const b = backend ?? (await getBackend());
   const rows = await b.runReport(accountId, { kind: 'searchterm', range, aggregation: 'Summary', campaignIds: [campaignId] });
   const byTerm = new Map<string, DSearchTerm>();
   for (const r of rows) {
@@ -104,8 +107,8 @@ export async function bingSearchTerms(accountId: string, campaignId: string, ran
   return [...byTerm.values()].sort((a, b) => b.clicks - a.clicks);
 }
 
-export async function bingAds(accountId: string, campaignId: string): Promise<{ adGroups: DAdGroup[]; ads: DAd[] }> {
-  const b = await getBackend();
+export async function bingAds(accountId: string, campaignId: string, backend?: AdsBackend): Promise<{ adGroups: DAdGroup[]; ads: DAd[] }> {
+  const b = backend ?? (await getBackend());
   const groups = await adGroups(b, accountId, campaignId);
   const ads = (await pool(groups, 4, (g) => b.listAds(accountId, g.id))).flat();
   return {

@@ -36,8 +36,19 @@ export interface ChangePlan {
    * keyword candidates). Change i is item i of the array at `path` in the tool input.
    */
   pick?: {
-    path: (string | number)[];
+    /** Rows are the items of this array in the tool input (row i = item i). */
+    path?: (string | number)[];
+    /**
+     * Instead of `path`: the tool works the rows out itself (each has ChangeLine.pickKey), and
+     * the keys of the rows the user leaves unticked are added to this array in the input.
+     */
+    skipPath?: (string | number)[];
     columns: { key: string; label: string; format?: 'money' | 'number' }[];
+    /** A cell whose value groups the rows into sections that fold in and out (e.g. the ad group). */
+    group?: string;
+    /** The first column's heading (default "Negativt søgeord") and the tag column's (default "Match"). */
+    itemLabel?: string;
+    tagLabel?: string;
     /** A cell shown as a small tag next to the item itself (e.g. the match type). */
     tag?: string;
     /** A cell shown as a short line under the item (e.g. why it is proposed). */

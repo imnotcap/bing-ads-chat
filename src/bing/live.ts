@@ -32,6 +32,7 @@ import type {
   NegativeEntityType,
   NegativeKeyword,
   NegativeKeywordList,
+  PartitionAction,
   ProductTreeNode,
   NewAdGroup,
   NewCampaign,
@@ -113,6 +114,31 @@ function mapCampaign(c: Json): Campaign {
     experimentId: Number(c.ExperimentId) > 0 ? str(c.ExperimentId) : null,
     languages: arr<string>(c.Languages),
     timeZone: str(c.TimeZone) || undefined,
+  };
+}
+
+/** One product tree change as Microsoft's REST API takes it (AdGroupCriterionAction). */
+export function partitionActionJson(a: PartitionAction): Json {
+  if (a.action === 'Delete') {
+    return { Action: 'Delete', AdGroupCriterion: { Type: a.excluded ? 'NegativeAdGroupCriterion' : 'BiddableAdGroupCriterion', Id: Number(a.id), AdGroupId: Number(a.adGroupId) } };
+  }
+  const criterion = {
+    Type: 'ProductPartition',
+    Condition: { Operand: a.operand, Attribute: a.attribute },
+    ParentCriterionId: a.parentId === null ? null : Number(a.parentId),
+    PartitionType: a.kind === 'subdivision' ? 'Subdivision' : 'Unit',
+  };
+  const base: Json = { AdGroupId: Number(a.adGroupId), Criterion: criterion, ...(a.tempId !== undefined ? { Id: a.tempId } : {}) };
+  if (a.excluded) return { Action: 'Add', AdGroupCriterion: { Type: 'NegativeAdGroupCriterion', ...base } };
+  // A subdivision carries no bid; a biddable unit always does.
+  return {
+    Action: 'Add',
+    AdGroupCriterion: {
+      Type: 'BiddableAdGroupCriterion',
+      Status: 'Active',
+      ...base,
+      CriterionBid: a.kind === 'subdivision' ? null : { Type: 'FixedBid', Amount: a.bid ?? null },
+    },
   };
 }
 
@@ -348,12 +374,28 @@ export class LiveBackend implements AdsBackend {
         id: str(c.Id),
         parentId: parent && parent !== '0' ? parent : null,
         group: adGroupName,
+        groupId: adGroupId,
+        bid: amount(((c.CriterionBid ?? {}) as Json).Amount ?? null),
         unit: criterion.PartitionType ? str(criterion.PartitionType) === 'Unit' : null,
         excluded: str(c.Type) === 'NegativeAdGroupCriterion',
         operand: str(condition.Operand),
         attribute: str(condition.Attribute),
       };
     });
+  }
+
+  async applyProductPartitionActions(accountId: string, actions: PartitionAction[]): Promise<MutationResult> {
+    const groups = new Set(actions.map((a) => a.adGroupId));
+    if (groups.size !== 1) throw new Error('Ændringer af produktgrupper skal sendes én annoncegruppe ad gangen.');
+    if (actions.length > 5000) throw new Error('Højst 5.000 ændringer af produktgrupper pr. annoncegruppe ad gangen.');
+    const res = (await this.cm<Json>(accountId, 'ProductPartitionActions/Apply', 'POST', { CriterionActions: actions.map(partitionActionJson) })) ?? {};
+    const errors = arr<Json>(res.PartialErrors);
+    // Microsoft makes all of a call's actions or none of them.
+    if (errors.length) {
+      const messages = [...new Set(errors.flatMap((e) => extractErrorMessages(e)))];
+      throw new MsApiError(`Microsoft Advertising afviste ændringen af produktgrupperne – intet blev ændret: ${messages.slice(0, 3).join(' · ') || 'ukendt fejl'}`, 400, errors);
+    }
+    return { ids: arr<unknown>(res.AdGroupCriterionIds).map((v) => str(v)).filter(Boolean) };
   }
 
   async listAssetGroupListingGroups(accountId: string, campaignId: string): Promise<ProductTreeNode[]> {

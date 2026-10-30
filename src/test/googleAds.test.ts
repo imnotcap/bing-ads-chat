@@ -224,8 +224,8 @@ describe('reading one campaign’s insides', () => {
     expect(queries[0]).toContain("campaign.id = 77 AND ad_group_criterion.type = 'LISTING_GROUP'");
     expect(nodes).toEqual([
       { id: '5~1', parentId: null, group: 'Alle', unit: false, excluded: false, dim: 'all', value: '' },
-      { id: '5~2', parentId: '5~1', group: 'Alle', unit: true, excluded: true, dim: 'id', value: 'sku-100' },
-      { id: '5~3', parentId: '5~1', group: 'Alle', unit: true, excluded: false, dim: 'id', value: '' },
+      { id: '5~2', parentId: '5~1', group: 'Alle', unit: true, excluded: true, dim: 'id', value: 'sku-100', raw: 'SKU-100' },
+      { id: '5~3', parentId: '5~1', group: 'Alle', unit: true, excluded: false, dim: 'id', value: '', raw: '' },
     ]);
   });
 

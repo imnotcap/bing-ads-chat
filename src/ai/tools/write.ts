@@ -916,7 +916,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
   defineWrite({
     name: 'propose_negative_keywords',
     kind: 'write',
-    description: `Propose negative keywords for ONE campaign, found in its search terms, as a table the user ticks on/off (all ticked to start with) – they can also add their own. Use this – not add_negative_keywords – whenever you suggest negatives from search terms. Never mix campaigns in one table: if the user didn't name a campaign, ask which one (or suggest the one with the most wasted spend) before proposing. Get the candidates from get_search_terms (every term of the campaign or ad group at once) and put EVERY negative you find in this one call – up to 300; the user unticks what they want to keep, so never hold some back for a later round. Typical negatives: spend or clicks without conversions, irrelevant intent (jobs, free, used, DIY, competitors, other products than the ad group sells). Never propose a term that converts well or matches a product the business sells. Keep each candidate short: text, matchType, adGroupId and a 2–6 word reason – the app fills in the clicks, spend and conversions itself.`,
+    description: `Propose negative keywords for ONE campaign – found in its search terms, or the ones compare_with_google finds missing compared with Google (use the Microsoft ad group it names for each, or the campaign) – as a table the user ticks on/off (all ticked to start with) – they can also add their own. Use this – not add_negative_keywords – whenever you suggest negatives from search terms. Never mix campaigns in one table: if the user didn't name a campaign, ask which one (or suggest the one with the most wasted spend) before proposing. Get the candidates from get_search_terms (every term of the campaign or ad group at once) and put EVERY negative you find in this one call – up to 300; the user unticks what they want to keep, so never hold some back for a later round. Typical negatives: spend or clicks without conversions, irrelevant intent (jobs, free, used, DIY, competitors, other products than the ad group sells). Never propose a term that converts well or matches a product the business sells. Keep each candidate short: text, matchType, adGroupId and a 2–6 word reason – the app fills in the clicks, spend and conversions itself.`,
     schema: z.object({
       campaignId: z.string().describe('The one campaign all the negatives are for.'),
       candidates: z
@@ -993,6 +993,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
           notes,
           pick: {
             path: ['candidates'],
+            group: 'target',
             tag: 'matchType',
             note: 'why',
             columns: [
