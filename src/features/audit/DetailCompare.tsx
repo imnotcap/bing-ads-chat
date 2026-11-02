@@ -6,11 +6,11 @@
  * Fixes go to Microsoft only: through the assistant, which shows every change for approval
  * first – or, where it cannot change something yet (product groups), as a list to copy.
  */
-import { useMemo, useState, type ReactNode } from 'react';
-import { Copy, Loader2, MessageSquare, RefreshCw, TriangleAlert } from '@/components/icons';
+import { useMemo, useState } from 'react';
+import { Check, Copy, Loader2, Minus, MessageSquare, RefreshCw, TriangleAlert } from '@/components/icons';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
-import { Badge, Segmented } from '@/components/ui/controls';
+import { Segmented } from '@/components/ui/controls';
 import { copyText } from '@/components/ui/contextMenu';
 import { fmtMoney, fmtNumber, fmtRelative, type DateRange } from '@/lib/format';
 import { cn, errorMessage } from '@/lib/utils';
@@ -86,59 +86,6 @@ function Status({ google, bing }: { google: { isPending: boolean; error: unknown
   );
 }
 
-/** A heading line with the count, and the actions for the list under it. */
-function ListHead({ title, count, tone = 'neutral', copy, ask }: { title: string; count: number; tone?: 'negative' | 'neutral' | 'positive'; copy?: () => string; ask?: () => string }) {
-  const go = useUi((s) => s.go);
-  return (
-    <div className="flex flex-wrap items-center gap-2 px-4 pb-2 pt-4">
-      <h4 className="text-[13.5px] font-medium text-ink">{title}</h4>
-      <Badge tone={count === 0 ? 'positive' : tone}>{count}</Badge>
-      <span className="flex-1" />
-      {copy && count > 0 && (
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => {
-            copyText(copy());
-            toast.success('Listen er kopieret');
-          }}
-        >
-          <Copy /> Kopiér
-        </Button>
-      )}
-      {ask && count > 0 && (
-        <Button
-          variant="secondary"
-          size="xs"
-          onClick={() => {
-            go('chat');
-            startChat(ask(), [], { fresh: true });
-          }}
-        >
-          <MessageSquare /> Bed assistenten om forslag til Microsoft
-        </Button>
-      )}
-    </div>
-  );
-}
-
-/** A list that shows its first rows and the rest on request. */
-function Rows<T>({ items, render, first = 12, empty }: { items: T[]; render: (item: T, i: number) => ReactNode; first?: number; empty: string }) {
-  const [all, setAll] = useState(false);
-  if (!items.length) return <p className="px-4 pb-4 text-[12.5px] text-subtle">{empty}</p>;
-  const shown = all ? items : items.slice(0, first);
-  return (
-    <div className="pb-2">
-      <ul className="divide-y divide-line-2 border-y border-line-2">{shown.map((it, i) => render(it, i))}</ul>
-      {items.length > first && (
-        <button type="button" onClick={() => setAll((v) => !v)} className="px-4 py-2 text-[12.5px] font-medium text-brand hover:underline">
-          {all ? 'Vis færre' : `Vis alle ${items.length}`}
-        </button>
-      )}
-    </div>
-  );
-}
-
 /** Most lines one request to the assistant holds – and a line saying so, when there are more (never cut without a word). */
 const MAX_IN_ASK = 300;
 const capped = <T,>(items: T[], line: (item: T) => string): string[] => [
@@ -148,11 +95,171 @@ const capped = <T,>(items: T[], line: (item: T) => string): string[] => [
 
 const ads = (n: number) => `${n} ${n === 1 ? 'annonce' : 'annoncer'}`;
 
-const li = 'flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-2 text-[13px]';
-
 /** The opening line of every request to the assistant: which campaigns, and that Google is not to be touched. */
 const intro = (row: AuditRow) =>
   `Audit af Microsoft-kampagnen "${row.bing.name}" (id ${row.bing.id}) mod Google Ads-kampagnen "${row.google?.name ?? ''}". Google Ads er kun læst – der må ikke ændres noget i Google.`;
+
+/* ------------------------------ one table for every tab ------------------------------ */
+
+/** What one platform has: there (✓, with what) or not (–, with why). */
+interface Side {
+  has: boolean;
+  text: string;
+  sub?: string;
+}
+
+/** fix = Microsoft should change · check = look at it · none = nothing to do. */
+type Tone = 'fix' | 'check' | 'none';
+
+interface Line {
+  item: string;
+  /** Under the item: where (ad group) or its numbers. */
+  sub?: string;
+  google: Side;
+  microsoft: Side;
+  todo: string;
+}
+
+interface Section {
+  id: string;
+  /** The filter button: "Mangler i Microsoft". */
+  label: string;
+  tone: Tone;
+  lines: Line[];
+  /** The request to the assistant for this section's lines. */
+  ask?: () => string;
+}
+
+const TONE_CHIP: Record<Tone, string> = {
+  fix: 'bg-negative-bg text-negative',
+  check: 'bg-warning-bg text-warning',
+  none: 'bg-line-2 text-muted',
+};
+
+function SideCell({ side }: { side: Side }) {
+  return (
+    <td className="px-3 py-2 align-top">
+      <div className={cn('flex items-start gap-1.5', side.has ? 'text-ink' : 'text-subtle')}>
+        {side.has ? <Check className="mt-[3px] size-3 shrink-0 text-positive" /> : <Minus className="mt-[3px] size-3 shrink-0" />}
+        <span className="min-w-0 [overflow-wrap:anywhere]">{side.text}</span>
+      </div>
+      {side.sub && <div className="mt-0.5 pl-[18px] text-[11.5px] leading-snug text-subtle [overflow-wrap:anywhere]">{side.sub}</div>}
+    </td>
+  );
+}
+
+/**
+ * The comparison as one table: the item, what Google has, what Microsoft has, and what
+ * should happen – with a button per kind of difference that shows only those.
+ */
+function CompareTable({ sections, same, note }: { sections: Section[]; same?: string; note?: string }) {
+  const go = useUi((s) => s.go);
+  const withLines = sections.filter((s) => s.lines.length);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
+  const active = withLines.find((s) => s.id === picked) ?? null;
+  const shown = active ? [active] : withLines;
+  const lines = shown.flatMap((s) => s.lines.map((l) => ({ ...l, tone: s.tone })));
+  const FIRST = 15;
+  const visible = all ? lines : lines.slice(0, FIRST);
+  // Under "Alle": the request, when the sections with something to ask share one.
+  const asks = [...new Set(withLines.map((s) => s.ask).filter((a): a is () => string => !!a))];
+  const ask = active ? active.ask : asks.length === 1 ? asks[0] : undefined;
+
+  return (
+    <div className="pb-2">
+      <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3 pt-3.5">
+        {withLines.length > 1 && (
+          <button
+            type="button"
+            onClick={() => setPicked(null)}
+            className={cn('h-7 rounded-full px-3 text-[12px] font-medium transition-colors', !active ? 'bg-ink text-white' : 'bg-line-2 text-ink-2 hover:bg-black/10')}
+          >
+            Alle <span className="tabular opacity-80">{withLines.reduce((n, s) => n + s.lines.length, 0)}</span>
+          </button>
+        )}
+        {withLines.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => setPicked(s.id === picked ? null : s.id)}
+            className={cn(
+              'inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium transition-colors',
+              active?.id === s.id ? 'bg-ink text-white' : cn(TONE_CHIP[s.tone], 'hover:brightness-95'),
+            )}
+          >
+            {s.label} <span className="tabular opacity-80">{s.lines.length}</span>
+          </button>
+        ))}
+        {same && <span className="px-1 text-[12px] text-subtle">{same}</span>}
+        <span className="flex-1" />
+        {lines.length > 0 && (
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => {
+              copyText(lines.map((l) => [l.item, l.google.has ? l.google.text : '–', l.microsoft.has ? l.microsoft.text : '–', l.todo].join('\t')).join('\n'));
+              toast.success('Listen er kopieret');
+            }}
+          >
+            <Copy /> Kopiér
+          </Button>
+        )}
+        {ask && (
+          <Button
+            variant="secondary"
+            size="xs"
+            onClick={() => {
+              go('chat');
+              startChat(ask(), [], { fresh: true });
+            }}
+          >
+            <MessageSquare /> Bed assistenten rette Microsoft
+          </Button>
+        )}
+      </div>
+      {!lines.length ? (
+        <p className="flex items-center gap-2 px-4 pb-3 text-[13px] text-ink-2">
+          <Check className="size-3.5 text-positive" /> Ingen forskelle.
+        </p>
+      ) : (
+        <div className="overflow-x-auto border-y border-line-2">
+          <table className="w-full min-w-[720px] text-[13px]" data-selectable>
+            <thead>
+              <tr className="bg-[#fafafb] text-left text-[11.5px] font-semibold text-muted">
+                <th className="w-[32%] px-4 py-1.5" />
+                <th className="w-[22%] px-3 py-1.5">Google</th>
+                <th className="w-[22%] px-3 py-1.5">Microsoft</th>
+                <th className="px-3 py-1.5">Hvad skal ske</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((l, i) => (
+                <tr key={i} className="border-t border-line-2">
+                  <td className="px-4 py-2 align-top">
+                    <div className="font-medium text-ink [overflow-wrap:anywhere]">{l.item}</div>
+                    {l.sub && <div className="mt-0.5 text-[11.5px] leading-snug text-subtle [overflow-wrap:anywhere]">{l.sub}</div>}
+                  </td>
+                  <SideCell side={l.google} />
+                  <SideCell side={l.microsoft} />
+                  <td className="px-3 py-2 align-top">
+                    <span className={cn('inline-block rounded-md px-1.5 py-0.5 text-[12px] font-medium leading-snug', TONE_CHIP[l.tone])}>{l.todo}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {lines.length > FIRST && (
+        <button type="button" onClick={() => setAll((v) => !v)} className="px-4 py-2 text-[12.5px] font-medium text-brand hover:underline">
+          {all ? 'Vis færre' : `Vis alle ${lines.length}`}
+        </button>
+      )}
+      {note && <p className="px-4 pb-2 pt-2 text-[11.5px] leading-relaxed text-subtle">{note}</p>}
+    </div>
+  );
+}
 
 /* ---------------------------------- products ---------------------------------- */
 
@@ -163,86 +270,55 @@ function ProductsTab({ row, range }: { row: AuditRow; range: DateRange }) {
   // Item ids Microsoft has not shown in the campaign: excluding them changes nothing.
   const split = useMemo(() => (r && shown.data ? byShown(r.missingInBing, shown.data) : null), [r, shown.data]);
   const missing = split?.matter ?? r?.missingInBing ?? [];
+  const where = (groups: string[]) => (groups.length ? groups.join(', ') : undefined);
   return (
     <>
       <Status google={google} bing={bing} />
+      {shown.isPending && <p className="px-4 pt-3 text-[12px] text-subtle">Tjekker, hvilke produkter Microsoft har vist …</p>}
+      {shown.error && <p className="px-4 pt-3 text-[12px] text-subtle">Kunne ikke tjekke, hvilke produkter Microsoft har vist – alle manglende er talt med.</p>}
       {r && (
-        <>
-          <p className="px-4 pt-3 text-[13px] text-ink-2">
-            Google udelukker <b>{r.googleTotal}</b> {r.googleTotal === 1 ? 'produktgruppe' : 'produktgrupper'} i kampagnen. <b>{r.covered}</b> er også udelukket i Microsoft
-            {missing.length ? (
-              <>
-                {' '}
-                – <b className="text-negative">{missing.length} mangler</b>.
-              </>
-            ) : (
-              '.'
-            )}
-            {split && split.unshown.length > 0 && (
-              <>
-                {' '}
-                {split.unshown.length} {split.unshown.length === 1 ? 'varenummer' : 'varenumre'} mere er udelukket i Google, men er slet ikke vist i Microsoft de seneste {SHOWN_DAYS} dage – dem behøver
-                Microsoft ikke at udelukke.
-              </>
-            )}
-          </p>
-          {shown.isPending && <p className="px-4 pt-1 text-[12px] text-subtle">Tjekker, hvilke produkter Microsoft har vist …</p>}
-          {shown.error && (
-            <p className="px-4 pt-1 text-[12px] text-subtle">Kunne ikke tjekke, hvilke produkter Microsoft har vist ({errorMessage(shown.error)}) – alle manglende er talt med.</p>
-          )}
-          <ListHead
-            title="Udelukket i Google, ikke i Microsoft"
-            count={missing.length}
-            tone="negative"
-            copy={() => missing.map((g) => `${pathText(g.path)}\t${g.groups.join(', ')}`).join('\n')}
-          />
-          <Rows
-            items={missing}
-            empty={split?.unshown.length ? 'Alt, Google udelukker, og som Microsoft viser, er også udelukket i Microsoft.' : 'Alt, Google udelukker, er også udelukket i Microsoft.'}
-            render={(g, i) => (
-              <li key={i} className={li}>
-                <span className="font-medium text-ink">{pathText(g.path)}</span>
-                <span className="text-[12px] text-subtle">Google: {g.groups.join(', ') || '–'}</span>
-                {!g.comparable && <Badge tone="warning">Tjek selv – Google angiver kategorier med nummer</Badge>}
-              </li>
-            )}
-          />
-          {split && split.unshown.length > 0 && (
-            <>
-              <ListHead
-                title={`Vises ikke i Microsoft – behøver ikke udelukkes (${SHOWN_DAYS} dage)`}
-                count={split.unshown.length}
-                copy={() => split.unshown.map((g) => pathText(g.path)).join('\n')}
-              />
-              <Rows
-                items={split.unshown}
-                first={6}
-                empty=""
-                render={(g, i) => (
-                  <li key={i} className={li}>
-                    <span className="text-ink-2">{pathText(g.path)}</span>
-                    <span className="text-[12px] text-subtle">Google: {g.groups.join(', ') || '–'}</span>
-                  </li>
-                )}
-              />
-            </>
-          )}
-          <ListHead title="Kun udelukket i Microsoft" count={r.onlyInBing.length} copy={() => r.onlyInBing.map((g) => pathText(g.path)).join('\n')} />
-          <Rows
-            items={r.onlyInBing}
-            first={6}
-            empty="Microsoft udelukker ikke noget, Google ikke også udelukker."
-            render={(g, i) => (
-              <li key={i} className={li}>
-                <span className="text-ink-2">{pathText(g.path)}</span>
-                <span className="text-[12px] text-subtle">Microsoft: {g.groups.join(', ')}</span>
-              </li>
-            )}
-          />
-          <p className="px-4 pb-4 text-[12px] text-subtle">
-            Sammenlignet på tværs af annoncegrupper. I Shopping-kampagner kan assistenten rette produktgrupperne efter Google (Spørg assistenten om 1:1 matchup); Performance Max rettes i Microsoft Advertising.
-          </p>
-        </>
+        <CompareTable
+          same={r.covered ? `${r.covered} er ens` : undefined}
+          sections={[
+            {
+              id: 'missing',
+              label: 'Mangler i Microsoft',
+              tone: 'fix',
+              lines: missing.map((g) => ({
+                item: pathText(g.path),
+                sub: where(g.groups),
+                google: { has: true, text: 'Udelukket' },
+                microsoft: { has: false, text: 'Ikke udelukket' },
+                todo: 'Udeluk i Microsoft',
+              })),
+            },
+            {
+              id: 'unshown',
+              label: `Vises ikke i Microsoft`,
+              tone: 'none',
+              lines: (split?.unshown ?? []).map((g) => ({
+                item: pathText(g.path),
+                sub: where(g.groups),
+                google: { has: true, text: 'Udelukket' },
+                microsoft: { has: false, text: 'Ikke udelukket', sub: `Ikke vist de seneste ${SHOWN_DAYS} dage` },
+                todo: 'Intet – vises ikke',
+              })),
+            },
+            {
+              id: 'only',
+              label: 'Kun udelukket i Microsoft',
+              tone: 'check',
+              lines: r.onlyInBing.map((g) => ({
+                item: pathText(g.path),
+                sub: where(g.groups),
+                google: { has: false, text: 'Ikke udelukket' },
+                microsoft: { has: true, text: 'Udelukket' },
+                todo: 'Tjek – bør den vises?',
+              })),
+            },
+          ]}
+          note="Sammenlignet på tværs af annoncegrupper. Shopping: assistenten retter produktgrupperne via Spørg assistenten om 1:1 matchup. Performance Max rettes i Microsoft Advertising."
+        />
       )}
     </>
   );
@@ -261,65 +337,41 @@ function NegativesTab({ row, range }: { row: AuditRow; range: DateRange }) {
     <>
       <Status google={google} bing={bing} />
       {r && (
-        <>
-          <p className="px-4 pt-3 text-[13px] text-ink-2">
-            Google har <b>{r.googleTotal}</b> forskellige negative søgeord (på kampagnen, på annoncegrupperne og i delte lister). <b>{r.covered}</b> dækkes allerede i Microsoft
-            {r.missingInBing.length ? (
-              <>
-                {' '}
-                – <b className="text-negative">{r.missingInBing.length} mangler</b>.
-              </>
-            ) : (
-              '.'
-            )}
-            {r.weaker > 0 && <span className="text-muted"> {r.weaker} af de dækkede er svagere i Microsoft (Google: bred, Microsoft: sætning).</span>}
-          </p>
-          <ListHead
-            title="I Google, mangler i Microsoft"
-            count={r.missingInBing.length}
-            tone="negative"
-            copy={() => r.missingInBing.map((n) => `${n.text}\t${MATCH[n.suggested]}\t${targetText(n.target)}`).join('\n')}
-            ask={() =>
-              [
-                intro(row),
-                `Disse ${r.missingInBing.length} negative søgeord findes i Google, men mangler i Microsoft-kampagnen. Hvert er med den matchtype og den placering i Microsoft, det skal have – brug præcis dem, og flyt ikke søgeord til en anden annoncegruppe:`,
-                ...capped(r.missingInBing, (n) => `- "${n.text}" – ${MATCH[n.suggested].toLowerCase()} på ${targetText(n.target)} (Google: ${MATCH[n.matchType].toLowerCase()}, ${n.sources.join(', ')})`),
-                'Findes en placering ikke i Microsoft ("ingen tilsvarende annoncegruppe"), så spørg mig, hvor den skal være, i stedet for at gætte. Tjek, at de ikke blokerer søgetermer, der konverterer i Microsoft. Vis ændringerne til godkendelse, før noget sker.',
-              ].join('\n')
-            }
-          />
-          <Rows
-            items={r.missingInBing}
-            empty="Alle Googles negative søgeord dækkes også i Microsoft."
-            render={(n, i) => (
-              <li key={i} className={li}>
-                <span className="font-medium text-ink">{n.text}</span>
-                <span className="text-[12px] text-muted">
-                  Google: {MATCH[n.matchType]} → Microsoft: {MATCH[n.suggested]} på {targetText(n.target)}
-                </span>
-                <span className="text-[12px] text-subtle">{n.sources.join(' · ')}</span>
-              </li>
-            )}
-          />
-          <ListHead title="Kun i Microsoft" count={r.onlyInBing.length} copy={() => r.onlyInBing.map((n) => n.text).join('\n')} />
-          <Rows
-            items={r.onlyInBing}
-            first={6}
-            empty="Microsoft har ingen negative søgeord, Google ikke også har."
-            render={(n, i) => (
-              <li key={i} className={li}>
-                <span className="text-ink-2">{n.text}</span>
-                <span className="text-[12px] text-subtle">
-                  {MATCH[n.matchType]} · {n.sources.join(' · ')}
-                </span>
-              </li>
-            )}
-          />
-          <p className="px-4 pb-4 text-[12px] text-subtle">
-            Et negativt søgeord på en annoncegruppe regnes som dækket, når Microsoft har det på en annoncegruppe med samme eller næsten samme navn som Googles. Microsoft har ikke
-            brede negative søgeord – Googles brede foreslås som sætning, der kun stopper ordene i samme rækkefølge.
-          </p>
-        </>
+        <CompareTable
+          same={`${r.covered} er ens${r.weaker ? ` (${r.weaker} som sætning i Microsoft, bred i Google)` : ''}`}
+          sections={[
+            {
+              id: 'missing',
+              label: 'Mangler i Microsoft',
+              tone: 'fix',
+              lines: r.missingInBing.map((n) => ({
+                item: n.text,
+                google: { has: true, text: MATCH[n.matchType], sub: n.sources.join(' · ') },
+                microsoft: { has: false, text: 'Mangler' },
+                todo: n.target.kind === 'adgroup' && !n.target.group ? 'Spørg: ingen tilsvarende gruppe' : `Tilføj som ${MATCH[n.suggested].toLowerCase()} på ${targetText(n.target)}`,
+              })),
+              ask: () =>
+                [
+                  intro(row),
+                  `Disse ${r.missingInBing.length} negative søgeord findes i Google, men mangler i Microsoft-kampagnen. Hvert er med den matchtype og den placering i Microsoft, det skal have – brug præcis dem, og flyt ikke søgeord til en anden annoncegruppe:`,
+                  ...capped(r.missingInBing, (n) => `- "${n.text}" – ${MATCH[n.suggested].toLowerCase()} på ${targetText(n.target)} (Google: ${MATCH[n.matchType].toLowerCase()}, ${n.sources.join(', ')})`),
+                  'Findes en placering ikke i Microsoft ("ingen tilsvarende annoncegruppe"), så spørg mig, hvor den skal være, i stedet for at gætte. Tjek, at de ikke blokerer søgetermer, der konverterer i Microsoft. Vis ændringerne til godkendelse, før noget sker.',
+                ].join('\n'),
+            },
+            {
+              id: 'only',
+              label: 'Kun i Microsoft',
+              tone: 'none',
+              lines: r.onlyInBing.map((n) => ({
+                item: n.text,
+                google: { has: false, text: 'Mangler' },
+                microsoft: { has: true, text: MATCH[n.matchType], sub: n.sources.join(' · ') },
+                todo: 'Intet – Microsoft udelukker mere',
+              })),
+            },
+          ]}
+          note="Et negativt søgeord på en annoncegruppe er ens, når Microsoft har det på en gruppe med samme eller næsten samme navn. Microsoft har ikke brede negative søgeord – Googles brede foreslås som sætning."
+        />
       )}
     </>
   );
@@ -331,114 +383,83 @@ function NegativesTab({ row, range }: { row: AuditRow; range: DateRange }) {
 function KeywordsTab({ row, range, currency }: { row: AuditRow; range: DateRange; currency: string }) {
   const { google, bing } = useBoth(row, 'structure', range, true);
   const r = useMemo(() => (google.data && bing.data ? compareKeywords(google.data.data, bing.data) : null), [google.data, bing.data]);
-  const groupsOnlyGoogle = r?.pairs.filter((p) => p.google && !p.bing) ?? [];
-  const groupsOnlyBing = r?.pairs.filter((p) => !p.google && p.bing) ?? [];
-  const where = (k: { bingGroup: string | null }) => (k.bingGroup ? ` → ${k.bingGroup}` : ' → ingen tilsvarende gruppe i Microsoft');
   const status = (s: string) => (s === 'active' ? 'aktivt' : s === 'paused' ? 'pauset' : s);
+  const numbers = (m: { clicks: number; conversions: number; spend: number } | null | undefined) =>
+    m && (m.clicks > 0 || m.conversions > 0) ? `${fmtNumber(m.clicks)} klik · ${fmtNumber(m.conversions, 1)} konv. · ${fmtMoney(m.spend, currency)}` : undefined;
   return (
     <>
       <Status google={google} bing={bing} />
       {r && (
-        <>
-          <p className="px-4 pt-3 text-[13px] text-ink-2">
-            <b>{r.pairs.filter((p) => p.google && p.bing).length}</b> annoncegrupper er parret med en gruppe med samme eller næsten samme navn.{' '}
-            {groupsOnlyGoogle.length > 0 && <b className="text-negative">{groupsOnlyGoogle.length} i Google har ingen tilsvarende i Microsoft. </b>}
-            {groupsOnlyBing.length > 0 && <span>{groupsOnlyBing.length} i Microsoft har ingen tilsvarende i Google.</span>}
-          </p>
-          {groupsOnlyGoogle.length > 0 && (
-            <>
-              <ListHead title="Annoncegrupper i Google uden tilsvarende i Microsoft" count={groupsOnlyGoogle.length} tone="negative" copy={() => groupsOnlyGoogle.map((p) => p.google!.name).join('\n')} />
-              <Rows items={groupsOnlyGoogle} first={6} empty="" render={(p, i) => <li key={i} className={li}>{p.google!.name}</li>} />
-            </>
-          )}
-          <ListHead
-            title="Aktive søgeord i Google, ikke i Microsoft-kampagnen"
-            count={r.missingInBing.length}
-            tone="negative"
-            copy={() => r.missingInBing.map((k) => `${k.text}\t${MATCH[k.matchType]}\t${k.googleGroup}`).join('\n')}
-            ask={() =>
-              [
-                intro(row),
-                `Disse ${r.missingInBing.length} aktive søgeord findes i Google, men er ikke i Microsoft-kampagnen i nogen annoncegruppe (mest konverterende først):`,
-                ...capped(
-                  r.missingInBing,
-                  (k) =>
-                    `- "${k.text}" (${MATCH[k.matchType].toLowerCase()}) – Google-gruppe "${k.googleGroup}"${k.bingGroup ? `, læg den i Microsoft-gruppen "${k.bingGroup}"` : ', ingen tilsvarende gruppe i Microsoft'}${k.metrics ? ` – ${fmtNumber(k.metrics.clicks)} klik, ${fmtNumber(k.metrics.conversions, 1)} konv. i Google` : ''}`,
-                ),
-                'Foreslå hvilke der skal tilføjes i Microsoft og med hvilket bud – begrund ud fra Google-tallene og Microsofts egne søgetal. Brug den angivne Microsoft-gruppe; findes den ikke, så spørg mig. Vis ændringerne til godkendelse, før noget sker.',
-              ].join('\n')
-            }
-          />
-          <Rows
-            items={r.missingInBing}
-            empty="Alle Googles aktive søgeord findes i Microsoft-kampagnen."
-            render={(k, i) => (
-              <li key={i} className={li}>
-                <span className="font-medium text-ink">{k.text}</span>
-                <span className="text-[12px] text-muted">{MATCH[k.matchType]}</span>
-                <span className="text-[12px] text-subtle">
-                  {k.googleGroup}
-                  {where(k)}
-                </span>
-                {k.metrics && (k.metrics.clicks > 0 || k.metrics.conversions > 0) && (
-                  <span className="ml-auto text-[12px] tabular text-ink-2">
-                    {fmtNumber(k.metrics.clicks)} klik · {fmtNumber(k.metrics.conversions, 1)} konv. · {fmtMoney(k.metrics.spend, currency)}
-                  </span>
-                )}
-              </li>
-            )}
-          />
-          <ListHead
-            title="Aktive i Google, i Microsoft i en anden gruppe eller pauset"
-            count={r.elsewhereInBing.length}
-            copy={() => r.elsewhereInBing.map((k) => `${k.text}\t${k.googleGroup}\t${k.found.map((f) => `${f.group} (${status(f.status)})`).join(', ')}`).join('\n')}
-          />
-          <Rows
-            items={r.elsewhereInBing}
-            first={8}
-            empty="Ingen."
-            render={(k, i) => (
-              <li key={i} className={li}>
-                <span className="font-medium text-ink">{k.text}</span>
-                <span className="text-[12px] text-muted">Google: {k.googleGroup}</span>
-                <span className="text-[12px] text-subtle">Microsoft: {k.found.map((f) => `${f.group} (${status(f.status)})`).join(', ')}</span>
-              </li>
-            )}
-          />
-          <ListHead title="Samme søgeord, anden matchtype" count={r.matchTypeDiffs.length} copy={() => r.matchTypeDiffs.map((d) => `${d.text}\tGoogle: ${d.google.map((m) => MATCH[m]).join('/')}\tMicrosoft: ${d.bing.map((m) => MATCH[m]).join('/')}`).join('\n')} />
-          <Rows
-            items={r.matchTypeDiffs}
-            first={8}
-            empty="Matchtyperne er de samme."
-            render={(d, i) => (
-              <li key={i} className={li}>
-                <span className="font-medium text-ink">{d.text}</span>
-                <span className="text-[12px] text-muted">
-                  Google: {d.google.map((m) => MATCH[m]).join(', ')} · Microsoft: {d.bing.map((m) => MATCH[m]).join(', ')}
-                </span>
-                <span className="text-[12px] text-subtle">{d.bingGroup}</span>
-              </li>
-            )}
-          />
-          <ListHead title="Aktive søgeord kun i Microsoft" count={r.onlyInBing.length} copy={() => r.onlyInBing.map((k) => `${k.text}\t${MATCH[k.matchType]}\t${k.bingGroup}`).join('\n')} />
-          <Rows
-            items={r.onlyInBing}
-            first={6}
-            empty="Microsoft har ingen aktive søgeord, Google ikke også har."
-            render={(k, i) => (
-              <li key={i} className={li}>
-                <span className="text-ink-2">{k.text}</span>
-                <span className="text-[12px] text-subtle">
-                  {MATCH[k.matchType]} · {k.bingGroup}
-                </span>
-              </li>
-            )}
-          />
-          <p className="px-4 pb-4 text-[12px] text-subtle">
-            Kun aktive søgeord sammenlignes. Søgeordenes tal er Googles for perioden. Grupper parres efter navn, så en gruppe, der er omdøbt, kan stå som uden modpart, selvom søgeordene
-            findes i en anden gruppe – de står så under "i en anden gruppe".
-          </p>
-        </>
+        <CompareTable
+          same={`${r.pairs.filter((p) => p.google && p.bing).length} annoncegrupper parret`}
+          sections={[
+            {
+              id: 'groups',
+              label: 'Annoncegruppe mangler',
+              tone: 'fix',
+              lines: r.pairs
+                .filter((p) => p.google && !p.bing)
+                .map((p) => ({ item: p.google!.name, google: { has: true, text: 'Annoncegruppe' }, microsoft: { has: false, text: 'Mangler' }, todo: 'Opret i Microsoft' })),
+            },
+            {
+              id: 'missing',
+              label: 'Søgeord mangler',
+              tone: 'fix',
+              lines: r.missingInBing.map((k) => ({
+                item: k.text,
+                sub: numbers(k.metrics) && `Google: ${numbers(k.metrics)}`,
+                google: { has: true, text: MATCH[k.matchType], sub: k.googleGroup },
+                microsoft: { has: false, text: 'Mangler' },
+                todo: k.bingGroup ? `Tilføj i "${k.bingGroup}"` : 'Spørg: ingen tilsvarende gruppe',
+              })),
+              ask: () =>
+                [
+                  intro(row),
+                  `Disse ${r.missingInBing.length} aktive søgeord findes i Google, men er ikke i Microsoft-kampagnen i nogen annoncegruppe (mest konverterende først):`,
+                  ...capped(
+                    r.missingInBing,
+                    (k) =>
+                      `- "${k.text}" (${MATCH[k.matchType].toLowerCase()}) – Google-gruppe "${k.googleGroup}"${k.bingGroup ? `, læg den i Microsoft-gruppen "${k.bingGroup}"` : ', ingen tilsvarende gruppe i Microsoft'}${k.metrics ? ` – ${fmtNumber(k.metrics.clicks)} klik, ${fmtNumber(k.metrics.conversions, 1)} konv. i Google` : ''}`,
+                  ),
+                  'Foreslå hvilke der skal tilføjes i Microsoft og med hvilket bud – begrund ud fra Google-tallene og Microsofts egne søgetal. Brug den angivne Microsoft-gruppe; findes den ikke, så spørg mig. Vis ændringerne til godkendelse, før noget sker.',
+                ].join('\n'),
+            },
+            {
+              id: 'elsewhere',
+              label: 'Anden gruppe eller pauset',
+              tone: 'check',
+              lines: r.elsewhereInBing.map((k) => ({
+                item: k.text,
+                google: { has: true, text: 'Aktivt', sub: k.googleGroup },
+                microsoft: { has: true, text: k.found.map((f) => `${f.group} (${status(f.status)})`).join(', ') },
+                todo: k.found.every((f) => f.status === 'paused') ? 'Aktivér i Microsoft' : 'Tjek gruppen',
+              })),
+            },
+            {
+              id: 'match',
+              label: 'Anden matchtype',
+              tone: 'check',
+              lines: r.matchTypeDiffs.map((d) => ({
+                item: d.text,
+                google: { has: true, text: d.google.map((m) => MATCH[m]).join(', ') },
+                microsoft: { has: true, text: d.bing.map((m) => MATCH[m]).join(', '), sub: d.bingGroup },
+                todo: 'Tjek matchtypen',
+              })),
+            },
+            {
+              id: 'only',
+              label: 'Kun i Microsoft',
+              tone: 'none',
+              lines: [
+                ...r.pairs
+                  .filter((p) => !p.google && p.bing)
+                  .map((p) => ({ item: p.bing!.name, google: { has: false, text: 'Mangler' }, microsoft: { has: true, text: 'Annoncegruppe' }, todo: 'Intet' })),
+                ...r.onlyInBing.map((k) => ({ item: k.text, google: { has: false, text: 'Mangler' }, microsoft: { has: true, text: MATCH[k.matchType], sub: k.bingGroup }, todo: 'Intet' })),
+              ],
+            },
+          ]}
+          note="Kun aktive søgeord. Tallene er Googles for perioden. Grupper parres efter navn – en omdøbt gruppe står som manglende, og dens søgeord under Anden gruppe."
+        />
       )}
     </>
   );
@@ -460,66 +481,47 @@ function SearchTermsTab({ row, range, bingCurrency, googleCurrency }: { row: Aud
       <Status google={terms.google} bing={terms.bing} />
       <Status google={negatives.google} bing={negatives.bing} />
       {r && (
-        <>
-          <ListHead
-            title="Betalt i Microsoft, men udelukket i Google"
-            count={r.excludedInGoogleOnly.length}
-            tone="negative"
-            copy={() => r.excludedInGoogleOnly.map((t) => `${t.term}\t${fmtMoney(t.spend, currency)}\t${t.negative.text}`).join('\n')}
-            ask={() =>
-              [
-                intro(row),
-                `Disse søgetermer har kostet penge i Microsoft i perioden ${range.from} – ${range.to}, men Google udelukker dem med et negativt søgeord, som Microsoft ikke har:`,
-                ...capped(r.excludedInGoogleOnly, (t) => `- "${t.term}": ${fmtMoney(t.spend, currency)}, ${fmtNumber(t.clicks)} klik, ${fmtNumber(t.conversions, 1)} konv. – Google-negativ "${t.negative.text}" (${MATCH[t.negative.matchType].toLowerCase()})`),
-                'Foreslå de negative søgeord, Microsoft-kampagnen skal have for at stoppe dem – men ikke for termer, der konverterer i Microsoft. Vis ændringerne til godkendelse, før noget sker.',
-              ].join('\n')
-            }
-          />
-          <Rows
-            items={r.excludedInGoogleOnly}
-            empty="Microsoft betaler ikke for søgetermer, Google udelukker."
-            render={(t, i) => (
-              <li key={i} className={li}>
-                <span className="font-medium text-ink">{t.term}</span>
-                <span className="text-[12px] text-subtle">
-                  Google udelukker med "{t.negative.text}" ({MATCH[t.negative.matchType].toLowerCase()})
-                </span>
-                <span className="ml-auto text-[12px] tabular text-ink-2">
-                  {fmtMoney(t.spend, currency)} · {fmtNumber(t.clicks)} klik · {fmtNumber(t.conversions, 1)} konv.
-                </span>
-              </li>
-            )}
-          />
-          <ListHead
-            title="Konverterer i Google, men står ikke i Microsofts søgetermsrapport"
-            count={r.convertingOnlyInGoogle.length}
-            tone="neutral"
-            copy={() => r.convertingOnlyInGoogle.map((t) => `${t.term}\t${fmtNumber(t.conversions, 1)}\t${fmtMoney(t.revenue, googleCurrency)}`).join('\n')}
-            ask={() =>
-              [
-                intro(row),
-                `Disse søgetermer gav konverteringer i Google i perioden ${range.from} – ${range.to}, men står ikke i Microsofts søgetermsrapport for kampagnen. Det betyder ikke nødvendigvis, at annoncerne ikke blev vist – Microsoft skjuler søgetermer med meget lav volumen, og Google gør det samme:`,
-                ...capped(r.convertingOnlyInGoogle, (t) => `- "${t.term}": ${fmtNumber(t.conversions, 1)} konv., ${fmtMoney(t.revenue, googleCurrency)} i værdi, ${fmtNumber(t.clicks)} klik i Google`),
-                'Vurdér hvilke der bør blive søgeord i Microsoft (matchtype og annoncegruppe), og tjek Microsofts søgetal for dem. Vis ændringerne til godkendelse, før noget sker.',
-              ].join('\n')
-            }
-          />
-          <Rows
-            items={r.convertingOnlyInGoogle}
-            empty="Alle søgetermer, der konverterer i Google, står også i Microsofts søgetermsrapport."
-            render={(t, i) => (
-              <li key={i} className={li}>
-                <span className="font-medium text-ink">{t.term}</span>
-                <span className="ml-auto text-[12px] tabular text-ink-2">
-                  {fmtNumber(t.conversions, 1)} konv. · {fmtMoney(t.revenue, googleCurrency)} · {fmtNumber(t.clicks)} klik i Google
-                </span>
-              </li>
-            )}
-          />
-          <p className="px-4 pb-4 text-[12px] text-subtle">
-            Perioden {range.from} – {range.to}. Microsoft og Google skjuler begge søgetermer med meget lav volumen, så en term, der ikke står i den ene rapport, har ikke nødvendigvis manglet annoncer. Kun negative søgeord på kampagnen og i delte lister regnes med (en søgeterm hører ikke til én annoncegruppe).
-          </p>
-        </>
+        <CompareTable
+          sections={[
+            {
+              id: 'paid',
+              label: 'Betalt i Microsoft, udelukket i Google',
+              tone: 'fix',
+              lines: r.excludedInGoogleOnly.map((t) => ({
+                item: t.term,
+                google: { has: true, text: 'Udelukket', sub: `"${t.negative.text}" (${MATCH[t.negative.matchType].toLowerCase()})` },
+                microsoft: { has: true, text: fmtMoney(t.spend, currency), sub: `${fmtNumber(t.clicks)} klik · ${fmtNumber(t.conversions, 1)} konv.` },
+                todo: t.conversions > 0 ? 'Tjek – konverterer i Microsoft' : 'Udeluk i Microsoft',
+              })),
+              ask: () =>
+                [
+                  intro(row),
+                  `Disse søgetermer har kostet penge i Microsoft i perioden ${range.from} – ${range.to}, men Google udelukker dem med et negativt søgeord, som Microsoft ikke har:`,
+                  ...capped(r.excludedInGoogleOnly, (t) => `- "${t.term}": ${fmtMoney(t.spend, currency)}, ${fmtNumber(t.clicks)} klik, ${fmtNumber(t.conversions, 1)} konv. – Google-negativ "${t.negative.text}" (${MATCH[t.negative.matchType].toLowerCase()})`),
+                  'Foreslå de negative søgeord, Microsoft-kampagnen skal have for at stoppe dem – men ikke for termer, der konverterer i Microsoft. Vis ændringerne til godkendelse, før noget sker.',
+                ].join('\n'),
+            },
+            {
+              id: 'converting',
+              label: 'Konverterer kun i Google',
+              tone: 'check',
+              lines: r.convertingOnlyInGoogle.map((t) => ({
+                item: t.term,
+                google: { has: true, text: `${fmtNumber(t.conversions, 1)} konv.`, sub: `${fmtMoney(t.revenue, googleCurrency)} · ${fmtNumber(t.clicks)} klik` },
+                microsoft: { has: false, text: 'Ikke i rapporten' },
+                todo: 'Overvej som søgeord',
+              })),
+              ask: () =>
+                [
+                  intro(row),
+                  `Disse søgetermer gav konverteringer i Google i perioden ${range.from} – ${range.to}, men står ikke i Microsofts søgetermsrapport for kampagnen. Det betyder ikke nødvendigvis, at annoncerne ikke blev vist – Microsoft skjuler søgetermer med meget lav volumen, og Google gør det samme:`,
+                  ...capped(r.convertingOnlyInGoogle, (t) => `- "${t.term}": ${fmtNumber(t.conversions, 1)} konv., ${fmtMoney(t.revenue, googleCurrency)} i værdi, ${fmtNumber(t.clicks)} klik i Google`),
+                  'Vurdér hvilke der bør blive søgeord i Microsoft (matchtype og annoncegruppe), og tjek Microsofts søgetal for dem. Vis ændringerne til godkendelse, før noget sker.',
+                ].join('\n'),
+            },
+          ]}
+          note={`Perioden ${range.from} – ${range.to}. Begge platforme skjuler søgetermer med meget lav volumen – "ikke i rapporten" betyder ikke, at annoncerne ikke blev vist.`}
+        />
       )}
     </>
   );
@@ -531,55 +533,64 @@ function AdsTab({ row, range }: { row: AuditRow; range: DateRange }) {
   const { google, bing } = useBoth(row, 'ads', range, true);
   const diffs = useMemo(() => (google.data && bing.data ? compareAds(google.data.data, bing.data) : null), [google.data, bing.data]);
   const worth = diffs?.filter((d) => !d.bingGroup || d.missingHeadlines.length || d.missingDescriptions.length || d.urlsOnlyGoogle.length || d.urlsOnlyBing.length) ?? [];
+  const ask = () =>
+    [
+      intro(row),
+      'Forskelle i annoncerne pr. annoncegruppe (kun aktive annoncer):',
+      ...capped(worth, (d) =>
+        [
+          `- Google "${d.googleGroup ?? '–'}" / Microsoft "${d.bingGroup ?? 'mangler'}": ${ads(d.googleAds)} i Google, ${ads(d.bingAds)} i Microsoft.`,
+          d.missingHeadlines.length ? `  Overskrifter kun i Google: ${d.missingHeadlines.map((h) => `"${h}"`).join(', ')}` : '',
+          d.missingDescriptions.length ? `  Beskrivelser kun i Google: ${d.missingDescriptions.map((h) => `"${h}"`).join(', ')}` : '',
+          d.urlsOnlyGoogle.length ? `  Landingssider kun i Google: ${d.urlsOnlyGoogle.join(', ')}` : '',
+          d.urlsOnlyBing.length ? `  Landingssider kun i Microsoft: ${d.urlsOnlyBing.join(', ')}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      ),
+      'Foreslå hvordan Microsoft-annoncerne skal opdateres (overskrifter, beskrivelser, landingssider) – Microsofts tegngrænser gælder. Vis ændringerne til godkendelse, før noget sker.',
+    ].join('\n');
+  const group = (d: (typeof worth)[number]) => d.bingGroup ?? d.googleGroup ?? '';
   return (
     <>
       <Status google={google} bing={bing} />
       {diffs && (
-        <>
-          <ListHead
-            title="Annoncegrupper med forskelle"
-            count={worth.length}
-            tone="negative"
-            ask={() =>
-              [
-                intro(row),
-                'Forskelle i annoncerne pr. annoncegruppe (kun aktive annoncer):',
-                ...capped(worth, (d) =>
-                  [
-                    `- Google "${d.googleGroup ?? '–'}" / Microsoft "${d.bingGroup ?? 'mangler'}": ${ads(d.googleAds)} i Google, ${ads(d.bingAds)} i Microsoft.`,
-                    d.missingHeadlines.length ? `  Overskrifter kun i Google: ${d.missingHeadlines.map((h) => `"${h}"`).join(', ')}` : '',
-                    d.missingDescriptions.length ? `  Beskrivelser kun i Google: ${d.missingDescriptions.map((h) => `"${h}"`).join(', ')}` : '',
-                    d.urlsOnlyGoogle.length ? `  Landingssider kun i Google: ${d.urlsOnlyGoogle.join(', ')}` : '',
-                    d.urlsOnlyBing.length ? `  Landingssider kun i Microsoft: ${d.urlsOnlyBing.join(', ')}` : '',
-                  ]
-                    .filter(Boolean)
-                    .join('\n'),
-                ),
-                'Foreslå hvordan Microsoft-annoncerne skal opdateres (overskrifter, beskrivelser, landingssider) – Microsofts tegngrænser gælder. Vis ændringerne til godkendelse, før noget sker.',
-              ].join('\n')
-            }
-          />
-          <Rows
-            items={worth}
-            first={8}
-            empty="Annoncerne bruger de samme tekster og landingssider."
-            render={(d, i) => (
-              <li key={i} className="grid gap-1 px-4 py-2.5 text-[13px]">
-                <span className="flex flex-wrap items-baseline gap-x-3">
-                  <span className="font-medium text-ink">{d.googleGroup ?? d.bingGroup}</span>
-                  <span className="text-[12px] text-subtle">
-                    {d.bingGroup ? `${ads(d.googleAds)} i Google · ${ads(d.bingAds)} i Microsoft` : 'Ingen annoncegruppe med samme eller næsten samme navn i Microsoft'}
-                  </span>
-                </span>
-                {d.missingHeadlines.length > 0 && <span className="text-[12.5px] text-ink-2">Overskrifter kun i Google: {d.missingHeadlines.map((h) => `"${h}"`).join(', ')}</span>}
-                {d.missingDescriptions.length > 0 && <span className="text-[12.5px] text-ink-2">Beskrivelser kun i Google: {d.missingDescriptions.map((h) => `"${h}"`).join(', ')}</span>}
-                {d.urlsOnlyGoogle.length > 0 && <span className="text-[12.5px] text-ink-2">Landingssider kun i Google: {d.urlsOnlyGoogle.join(', ')}</span>}
-                {d.urlsOnlyBing.length > 0 && <span className="text-[12.5px] text-muted">Landingssider kun i Microsoft: {d.urlsOnlyBing.join(', ')}</span>}
-              </li>
-            )}
-          />
-          <p className="px-4 pb-4 text-[12px] text-subtle">Kun aktive annoncer. Landingssider sammenlignes uden sporingsparametre.</p>
-        </>
+        <CompareTable
+          sections={[
+            {
+              id: 'groups',
+              label: 'Annoncegruppe mangler',
+              tone: 'fix',
+              lines: worth
+                .filter((d) => !d.bingGroup)
+                .map((d) => ({ item: d.googleGroup ?? '', google: { has: true, text: ads(d.googleAds) }, microsoft: { has: false, text: 'Ingen gruppe' }, todo: 'Opret annoncegruppen' })),
+              ask,
+            },
+            {
+              id: 'texts',
+              label: 'Tekster kun i Google',
+              tone: 'fix',
+              lines: worth
+                .filter((d) => d.bingGroup)
+                .flatMap((d) => [
+                  ...d.missingHeadlines.map((h) => ({ item: h, sub: group(d), google: { has: true, text: 'Overskrift' }, microsoft: { has: false, text: 'Mangler' }, todo: 'Tilføj overskrift' })),
+                  ...d.missingDescriptions.map((h) => ({ item: h, sub: group(d), google: { has: true, text: 'Beskrivelse' }, microsoft: { has: false, text: 'Mangler' }, todo: 'Tilføj beskrivelse' })),
+                ]),
+              ask,
+            },
+            {
+              id: 'urls',
+              label: 'Anden landingsside',
+              tone: 'check',
+              lines: worth.flatMap((d) => [
+                ...d.urlsOnlyGoogle.map((u) => ({ item: u, sub: group(d), google: { has: true, text: 'Landingsside' }, microsoft: { has: false, text: 'Bruges ikke' }, todo: 'Brug samme side?' })),
+                ...d.urlsOnlyBing.map((u) => ({ item: u, sub: group(d), google: { has: false, text: 'Bruges ikke' }, microsoft: { has: true, text: 'Landingsside' }, todo: 'Tjek siden' })),
+              ]),
+              ask,
+            },
+          ]}
+          note="Kun aktive annoncer. Landingssider sammenlignes uden sporingsparametre."
+        />
       )}
     </>
   );

@@ -106,6 +106,10 @@ describe('compare_with_google', () => {
     // Shopping: product groups only – no negative keywords or search terms.
     expect(r.negativeKeywords).toBeUndefined();
     expect(r.rules).toMatch(/never suggest changing it/);
+    // The setup on both sides, as facts the assistant judges from.
+    const setup = (out.result as { setup: { facts: string[]; assess: string } }).setup;
+    expect(setup.facts[0]).toMatch(/budstrategi/);
+    expect(setup.assess).toMatch(/Change nothing until the user says yes/);
     // Reading never writes anything to Microsoft either.
     expect(calls).toEqual([]);
   });

@@ -120,6 +120,11 @@ function PeriodPicker({ period, granularity, onGranularity, onStep }: { period: 
           <ChevronRight className="size-3.5" />
         </button>
       </div>
+      {period.untilToday && (
+        <Tooltip content="Dagens tal kommer stadig ind, så i dag ser lavere ud end den samme dag i perioden før, indtil dagen er slut.">
+          <span className="text-[12px] text-muted">Til og med i dag – dagen er ikke slut</span>
+        </Tooltip>
+      )}
     </>
   );
 }
@@ -488,8 +493,10 @@ export function DashboardPage() {
       currency,
       granularity,
       current: period.current,
+      onlyToday: period.untilToday && period.range.from === period.range.to,
+      untilToday: period.untilToday,
     });
-  }, [t, campaigns.data, previousCampaigns.data, period.range, period.current, currency, granularity]);
+  }, [t, campaigns.data, previousCampaigns.data, period.range, period.current, period.untilToday, currency, granularity]);
 
   const ask = (prompt: string) => {
     go('chat');

@@ -8,17 +8,18 @@
  * settings (bid strategy, budget, targets) unless the user asks for that themselves.
  */
 import { z } from 'zod';
-import { fmtMoney } from '@/lib/format';
+import { daysBetween, fmtMoney } from '@/lib/format';
 import type { AdGroup, Campaign } from '@/bing/types';
 import { bingAds, bingNegatives, bingProducts, bingSearchTerms, bingShownItems, bingStructure, toListingNodes } from '@/features/audit/bingDetail';
 import { byShown, compareAds, compareExclusions, compareKeywords, compareNegatives, compareSearchTerms } from '@/features/audit/compare';
 import type { GoogleCampaign } from '@/features/audit/data';
 import { SHOWN_DAYS, type DetailPart, type ShownItems } from '@/features/audit/detail';
 import { rankCandidates, suggestMatch } from '@/features/audit/match';
+import { settingsFacts } from '@/features/audit/settings';
 import { buildActions, planMirror, shapeOf, verifyMirror, type MirrorAction, type MirrorGroup } from '@/features/audit/productMirror';
 import type { ChangeLine } from '@/stores/activity';
 import { auditGoogleMatch, googleCampaigns, googleDetail, requireGoogle } from '../googleSource';
-import { PERIOD_DESCRIPTION, defineRead, defineWrite, getAdGroups, getCampaign, memo, resolvePeriod, type ToolContext } from './context';
+import { PERIOD_DESCRIPTION, defineRead, defineWrite, getAdGroups, getCampaign, getReport, memo, resolvePeriod, type ToolContext } from './context';
 
 /* ------------------------------ finding the counterpart ------------------------------ */
 
@@ -84,6 +85,28 @@ async function shownItems(ctx: ToolContext, campaignId: string, skip: boolean): 
   }
 }
 
+/**
+ * The campaign's overall setup on both sides – strategy, target, budget, what it delivers
+ * and (Microsoft) the share of impressions it loses to budget and to rank – as plain facts.
+ */
+async function settingsOf(ctx: ToolContext, c: Campaign, g: GoogleCampaign, range: { from: string; to: string }) {
+  const days = daysBetween(range.from, range.to);
+  const rows = await getReport(ctx, { kind: 'impressionshare', range, aggregation: 'Summary', campaignIds: [c.id] }).catch(() => getReport(ctx, { kind: 'campaign', range, aggregation: 'Summary', campaignIds: [c.id] }));
+  const r = rows.find((x) => x.campaignId === c.id) ?? rows[0];
+  const metrics = { impressions: r?.impressions ?? 0, clicks: r?.clicks ?? 0, spend: r?.spend ?? 0, conversions: r?.conversions ?? 0, revenue: r?.revenue ?? 0 };
+  return {
+    period: range,
+    facts: settingsFacts({
+      currency: ctx.currency,
+      days,
+      microsoft: { bidStrategy: c.bidStrategy, dailyBudget: c.dailyBudget, metrics, impressionShare: r?.impressionShare ?? null, lostToBudget: r?.lostToBudget ?? null, lostToRank: r?.lostToRank ?? null },
+      google: { bidStrategy: g.bidStrategy, targetRoas: g.targetRoas, targetCpa: g.targetCpa, dailyBudget: g.dailyBudget, metrics: g.metrics },
+    }),
+    assess:
+      'Judge the setup from these facts and give ONE short recommendation each for bid strategy/target, budget and bids: keep, or change to what and why (with the number behind it). Microsoft has less data than Google – copying Google\'s target is not automatically right. Change nothing until the user says yes; then use update_campaigns (strategy, target, budget) or update_ad_groups/update_keywords (bids, never under the lowest CPC bid).',
+  };
+}
+
 /* ------------------------------------ tools ------------------------------------ */
 
 const TAG: Record<MirrorAction, string> = {
@@ -103,7 +126,7 @@ export const googleTools = [
     name: 'compare_with_google',
     kind: 'read',
     description:
-      'Compare a Microsoft Advertising campaign 1:1 with its Google Ads counterpart (read only – nothing in Google can ever be changed). Reads both campaigns in full and returns every difference: ad groups paired by name, keywords missing in Microsoft (with Google\'s numbers), in another ad group or paused, match type differences; negative keywords missing (with the Microsoft ad group or campaign each belongs on); product groups per ad group (item ids bid on or excluded in Google but not in Microsoft, and "everything else"); search terms Microsoft pays for that Google excludes, and ones converting in Google only; ads (headlines, descriptions, landing pages Google uses and Microsoft does not). The Google campaign is the one matched on the Audit page, else the one with the same name – or pass googleCampaignId. Then fix Microsoft with: match_product_groups_to_google (item ids), propose_negative_keywords (negatives, with the ad group given here), add_keywords, review_ad_copy + create_responsive_search_ad / update_ads. A matchup changes the campaign\'s contents only – never bid strategy, budget, targets or status unless the user asks.',
+      'Compare a Microsoft Advertising campaign 1:1 with its Google Ads counterpart (read only – nothing in Google can ever be changed). Reads both campaigns in full and returns every difference: ad groups paired by name, keywords missing in Microsoft (with Google\'s numbers), in another ad group or paused, match type differences; negative keywords missing (with the Microsoft ad group or campaign each belongs on); product groups per ad group (item ids bid on or excluded in Google but not in Microsoft, and "everything else"); search terms Microsoft pays for that Google excludes, and ones converting in Google only; ads (headlines, descriptions, landing pages Google uses and Microsoft does not). The Google campaign is the one matched on the Audit page, else the one with the same name – or pass googleCampaignId. Then fix Microsoft with: match_product_groups_to_google (item ids), propose_negative_keywords (negatives, with the ad group given here), add_keywords, review_ad_copy + create_responsive_search_ad / update_ads. It also returns the setup on both sides (strategy, target, budget, delivery, impression share lost to budget/rank) as facts – give a recommendation on it, but change the setup only when the user says yes.',
     schema: z.object({
       campaignId: z.string().describe('The Microsoft campaign.'),
       googleCampaignId: z.string().optional().describe('The Google campaign, if not the one matched on the Audit page.'),
@@ -119,6 +142,7 @@ export const googleTools = [
       const parts = partsFor(c.type).filter((p) => !input.parts || input.parts.includes(p));
       const out: Record<string, unknown> = {};
       const errors: Record<string, string> = {};
+      const setup = settingsOf(ctx, c, google, period).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
       const negatives = parts.includes('negatives') || parts.includes('searchterms')
         ? Promise.all([googleDetail(google.id, 'negatives', period, pmax), bingNegatives(ctx.accountId, c.id, ctx.backend)])
         : null;
@@ -220,9 +244,10 @@ export const googleTools = [
           microsoft: { id: c.id, name: c.name, type: c.type, status: c.status, dailyBudget: c.dailyBudget, bidStrategy: c.bidStrategy.type },
           google: { id: google.id, name: google.name, channel: google.channel, status: google.status, dailyBudget: google.dailyBudget, bidStrategy: google.bidStrategy, howMatched: how },
           period,
+          setup: await setup,
           ...out,
           ...(Object.keys(errors).length ? { couldNotCompare: errors } : {}),
-          rules: 'Google is read only – never suggest changing it. Fix Microsoft through approval cards. In a 1:1 matchup do not change bid strategy, budget, targets or status unless the user asks; the settings above are for context.',
+          rules: 'Google is read only – never suggest changing it. Fix Microsoft through approval cards. Recommend on the setup (setup.assess), but change bid strategy, budget, targets or status only when the user says yes.',
         },
         summary: `Sammenlignet med "${google.name}" (Google, kun læsning)`,
       };

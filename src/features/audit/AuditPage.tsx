@@ -30,6 +30,7 @@ import { SecretInput } from '../settings/forms';
 import { PERIOD_LABELS, changeAudit, refreshGoogle, useAuditUi, type AuditPeriod, type AuditSort, type GoogleCampaign } from './data';
 import { DetailCompare, STEP_TAB, TAB_LABEL, tabsFor } from './DetailCompare';
 import { rankCandidates } from './match';
+import { GOOGLE_BID } from './settings';
 import { byProgress, useAuditModel, type AuditRow } from './model';
 import { AUDIT_STEPS, stepApplies, type AuditStep, type StepStatus } from './steps';
 
@@ -46,19 +47,6 @@ const GOOGLE_CHANNEL: Record<string, string> = {
   MULTI_CHANNEL: 'App',
 };
 const GOOGLE_STATUS: Record<string, string> = { ENABLED: 'Aktiv', PAUSED: 'Pauset' };
-const GOOGLE_BID: Record<string, string> = {
-  MANUAL_CPC: 'Manuel CPC',
-  ENHANCED_CPC: 'Forbedret CPC',
-  TARGET_SPEND: 'Maksimér klik',
-  MAXIMIZE_CONVERSIONS: 'Maksimér konverteringer',
-  MAXIMIZE_CONVERSION_VALUE: 'Maksimér konverteringsværdi',
-  TARGET_CPA: 'Mål-CPA',
-  TARGET_ROAS: 'Mål-ROAS',
-  TARGET_IMPRESSION_SHARE: 'Mål for visningsandel',
-  MANUAL_CPM: 'Manuel CPM',
-  MANUAL_CPV: 'Manuel CPV',
-};
-
 function googleBid(g: GoogleCampaign, currency: string): string {
   const base = GOOGLE_BID[g.bidStrategy] ?? g.bidStrategy;
   // The same unit as Microsoft's side (bidLabel): ROAS as a ratio, 4,5 = 450 %.
@@ -568,7 +556,7 @@ function AskMatchup({ row, google }: { row: AuditRow; google: GoogleCampaign }) 
       `Lav en 1:1 matchup af Microsoft-kampagnen "${row.bing.name}" (id ${row.bing.id}) mod Google-kampagnen "${google.name}" (id ${google.id}).`,
       'Brug compare_with_google og gå i detaljer: annoncegrupper, søgeord, negative søgeord, produktgrupper og varenumre, søgetermer og annoncer.',
       'Fortæl kort, hvad der er forskelligt, og foreslå derefter rettelserne i Microsoft på godkendelseskort – én slags ad gangen.',
-      'Ændr ikke kampagneindstillinger som budstrategi, budget, mål, status, placeringer eller tidsplan – nævn kun forskellene. Google må aldrig ændres; den læses kun.',
+      'Vurdér også kampagnens opsætning: budstrategi, mål, budget og bud – er den rigtig for Microsoft, og bør noget hæves eller ændres? Giv en kort anbefaling, men ændr først opsætningen, når jeg siger ja. Google må aldrig ændres; den læses kun.',
     ].join('\n');
   return (
     <div>

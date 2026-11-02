@@ -36,6 +36,8 @@ export function buildInsights({
   currency,
   granularity,
   current,
+  onlyToday = false,
+  untilToday = false,
 }: {
   totals: DerivedMetrics;
   previous: DerivedMetrics;
@@ -47,9 +49,13 @@ export function buildInsights({
   granularity: Granularity;
   /** The running week/month ("denne uge") or one stepped back to ("i ugen"). */
   current: boolean;
+  /** The period so far is only today (Monday, the 1st): say "i dag", not "denne uge". */
+  onlyToday?: boolean;
+  /** The period ends today, which is not over – its numbers are still coming in. */
+  untilToday?: boolean;
 }): InsightPage[] {
-  const period = granularity === 'week' ? (current ? 'denne uge' : 'i ugen') : current ? 'denne måned' : 'i måneden';
-  const before = granularity === 'week' ? 'ugen før' : 'måneden før';
+  const period = onlyToday ? 'i dag indtil nu' : granularity === 'week' ? (current ? 'denne uge' : 'i ugen') : current ? 'denne måned' : 'i måneden';
+  const before = onlyToday ? (granularity === 'week' ? 'samme dag ugen før' : 'samme dag måneden før') : granularity === 'week' ? 'ugen før' : 'måneden før';
   const pages: InsightPage[] = [];
 
   // Who moved the most, in money.
@@ -80,6 +86,8 @@ export function buildInsights({
     const d = parseIso(best.date);
     parts.push(granularity === 'week' ? `${WEEKDAYS[d.getDay()]!.replace(/^./, (c) => c.toUpperCase())} var ugens stærkeste dag.` : `Den ${d.getDate()}. var månedens stærkeste dag.`);
   }
+  // Today's numbers are still coming in – say so, rather than let a half day read as a drop.
+  if (untilToday) parts.push(`I dag er ikke slut endnu, så tallene stiger stadig.`);
   const chips: InsightChip[] = [];
   if (up) chips.push({ label: up.c.name, detail: up.rel !== null ? `+${pct(up.rel)} konv.værdi` : `+${fmtMoney(up.delta, currency, 0)}`, tone: 'up' });
   if (down) chips.push({ label: down.c.name, detail: down.rel !== null ? `−${pct(down.rel)} konv.værdi` : `−${fmtMoney(-down.delta, currency, 0)}`, tone: 'down' });
