@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseServiceAccountKey, assertReadOnly } from '../../cloudflare/src/googleAds';
-import { appendNotes, assertSheetCall, danishNow, findHeader, parseSheetUrl, pickWord, readSheet, sheetRows, type NoteSheet } from '../../cloudflare/src/notesheet';
+import { appendNotes, assertSheetCall, danishNow, findHeader, parseSheetUrl, pickWord, readSheet, sheetRows, sheetsError, type NoteSheet } from '../../cloudflare/src/notesheet';
 import { noteRows } from '@/ai/notes';
 
 const ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789';
@@ -99,10 +99,24 @@ describe('the notes sheet – only reading its layout and adding rows', () => {
     expect(g.calls.filter((c) => c.url.includes('sheets.googleapis.com') && c.method !== 'GET')).toHaveLength(1);
   });
 
+  it('tells a Sheets API that is turned off apart from a sheet that is not shared', () => {
+    const disabled = JSON.stringify({
+      error: {
+        code: 403,
+        message: 'Google Sheets API has not been used in project 123456789012 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=123456789012 then retry.',
+        status: 'PERMISSION_DENIED',
+        details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'SERVICE_DISABLED', metadata: { consumer: 'projects/123456789012', service: 'sheets.googleapis.com' } }],
+      },
+    });
+    expect(sheetsError(403, disabled, 'gsc-chat@x').message).toMatch(/Google Sheets API er ikke slået til.*\(123456789012\).*sheets\.googleapis\.com\?project=123456789012/);
+    const denied = JSON.stringify({ error: { code: 403, message: 'The caller does not have permission', status: 'PERMISSION_DENIED' } });
+    expect(sheetsError(403, denied, 'gsc-chat@x').message).toMatch(/Del arket med gsc-chat@x som redaktør.*The caller does not have permission/);
+  });
+
   it('says what to do when the sheet is not shared with the service account', async () => {
     const key = await makeKey();
     const fetchFn = async (url: string) =>
-      url.startsWith('https://oauth2') ? new Response(JSON.stringify({ access_token: 't', expires_in: 3600 })) : new Response('{"error":{"message":"denied"}}', { status: 403 });
+      url.startsWith('https://oauth2') ? new Response(JSON.stringify({ access_token: 't', expires_in: 3600 })) : new Response('{"error":{"message":"The caller does not have permission","status":"PERMISSION_DENIED"}}', { status: 403 });
     await expect(readSheet(fetchFn, key, `https://docs.google.com/spreadsheets/d/${ID}/edit`, Date.now(), 'C')).rejects.toThrow(/Del arket med gsc-chat@search-console-mcp-505407/);
   });
 });

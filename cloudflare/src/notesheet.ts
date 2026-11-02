@@ -91,20 +91,39 @@ export async function sheetsToken(fetchFn: FetchLike, key: ServiceAccountKey, no
   return { value: body.access_token, expiresAt: nowMs + (body.expires_in ?? 3600) * 1000 };
 }
 
+/**
+ * What Google's refusal means, in words that say what to do. A 403 is either the Sheets API
+ * not being turned on in the service account's Cloud project, or the sheet not shared with it.
+ */
+export function sheetsError(status: number, text: string, who: string): SheetError {
+  let message = text.slice(0, 300);
+  let reason = '';
+  let project = '';
+  try {
+    const e = (JSON.parse(text) as { error?: { message?: string; status?: string; details?: { reason?: string; metadata?: { consumer?: string; containerInfo?: string } }[] } }).error;
+    message = e?.message ?? message;
+    const info = e?.details?.find((d) => d.reason);
+    reason = info?.reason ?? e?.status ?? '';
+    project = (info?.metadata?.containerInfo ?? info?.metadata?.consumer ?? '').replace(/^projects\//, '');
+  } catch {
+    /* the raw text */
+  }
+  if (reason === 'SERVICE_DISABLED' || /has not been used in project|is disabled|API has not been enabled/i.test(message)) {
+    const id = project || /project[s]?[ /](\d+|[a-z][a-z0-9-]+)/i.exec(message)?.[1] || '';
+    return new SheetError(
+      `Google Sheets API er ikke slået til i service-kontoens Google Cloud-projekt${id ? ` (${id})` : ''}. Slå den til på https://console.cloud.google.com/apis/library/sheets.googleapis.com${id ? `?project=${id}` : ''}, vent et par minutter, og prøv igen.`,
+      'access',
+    );
+  }
+  if (status === 403 || status === 404)
+    return new SheetError(`Service-kontoen har ikke adgang til arket. Del arket med ${who || 'service-kontoen'} som redaktør, og prøv igen. (Google: ${message})`, 'access');
+  return new SheetError(`Google Sheets svarede ${status}: ${message}`, 'api');
+}
+
 async function call<T>(fetchFn: FetchLike, token: string, url: string, init: RequestInit = {}, who = ''): Promise<T> {
   const res = await fetchFn(url, { ...init, headers: { ...(init.headers ?? {}), Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
   const text = await res.text();
-  if (!res.ok) {
-    if (res.status === 403 || res.status === 404)
-      throw new SheetError(`Service-kontoen har ikke adgang til arket. Del arket med ${who || 'service-kontoen'} som redaktør, og prøv igen.`, 'access');
-    let why = text.slice(0, 200);
-    try {
-      why = (JSON.parse(text) as { error?: { message?: string } }).error?.message ?? why;
-    } catch {
-      /* the raw text */
-    }
-    throw new SheetError(`Google Sheets svarede ${res.status}: ${why}`, 'api');
-  }
+  if (!res.ok) throw sheetsError(res.status, text, who);
   return JSON.parse(text || '{}') as T;
 }
 
