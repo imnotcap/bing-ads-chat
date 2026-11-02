@@ -15,13 +15,14 @@ const part: ToolPart = {
   label: '',
   input: {},
   status: 'done',
+  activityId: 'act-1',
   startedAt: 0,
   plan: { kind: 'update', title: 'Produktgrupper', changes: [], dailyBudgetDelta: 0, increasesSpend: false, campaignIds: ['1'] },
 };
 
 describe('the notes sheet preview on the card', () => {
   it('shows the row first, lets the user correct it, and writes only on the button', async () => {
-    useNoteDrafts.getState().set('call-1', { status: 'draft', rows: [{ campaign: 'Shopping | Lager', adGroup: 'Pallestativer', topics: ['Produkter'], comment: 'Tilføjede c073283018 m. bud på 10,05 kr.' }] });
+    useNoteDrafts.getState().set('act-1', { status: 'draft', source: 'assistant', title: 't', at: 0, rows: [{ campaign: 'Shopping | Lager', adGroup: 'Pallestativer', topics: ['Produkter'], comment: 'Tilføjede c073283018 m. bud på 10,05 kr.' }] });
     render(<ApprovalCard currency="DKK" part={part} />);
     expect(sent).toEqual([]);
     const comment = screen.getByLabelText('Kommentar') as HTMLTextAreaElement;
@@ -36,8 +37,8 @@ describe('the notes sheet preview on the card', () => {
 
   it('writes nothing when skipped', () => {
     sent.length = 0;
-    useNoteDrafts.getState().set('call-2', { status: 'draft', rows: [{ campaign: 'K', adGroup: 'G', topics: ['Produkter'], comment: 'Ekskluderede 1' }] });
-    render(<ApprovalCard currency="DKK" part={{ ...part, id: 'call-2' }} />);
+    useNoteDrafts.getState().set('act-2', { status: 'draft', source: 'assistant', title: 't', at: 0, rows: [{ campaign: 'K', adGroup: 'G', topics: ['Produkter'], comment: 'Ekskluderede 1' }] });
+    render(<ApprovalCard currency="DKK" part={{ ...part, id: 'call-2', activityId: 'act-2' }} />);
     fireEvent.click(screen.getByRole('button', { name: 'Spring over' }));
     expect(screen.getByText('Ikke skrevet')).toBeTruthy();
     expect(sent).toEqual([]);

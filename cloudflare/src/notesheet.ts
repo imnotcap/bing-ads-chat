@@ -38,6 +38,8 @@ export interface NoteSheet {
   columns: Partial<Record<NoteField, number>>;
   /** The words already used in the dropdown columns – a new row uses the same ones. */
   known: { emne: string[]; status: string[]; etiket: string[]; at: number };
+  /** The sheet's locale (e.g. da_DK): how a typed date is read. Missing on sheets connected before it was stored. */
+  locale?: string;
   connectedBy: string;
   connectedAt: number;
   lastWrite?: { at: number; rows: number } | null;
@@ -166,10 +168,10 @@ export async function readSheet(fetchFn: FetchLike, key: ServiceAccountKey, url:
   const { id, gid } = parseSheetUrl(url);
   const f = sheetFetch(fetchFn, id);
   const token = (await sheetsToken(f, key, nowMs)).value;
-  const meta = await call<{ properties?: { title?: string }; sheets?: { properties?: { sheetId?: number; title?: string } }[] }>(
+  const meta = await call<{ properties?: { title?: string; locale?: string }; sheets?: { properties?: { sheetId?: number; title?: string } }[] }>(
     f,
     token,
-    `${API}${id}?fields=properties.title,sheets.properties(sheetId,title)`,
+    `${API}${id}?fields=properties(title,locale),sheets.properties(sheetId,title)`,
     {},
     key.clientEmail,
   );
@@ -184,6 +186,7 @@ export async function readSheet(fetchFn: FetchLike, key: ServiceAccountKey, url:
     sheetId: tab.sheetId ?? 0,
     title: tab.title,
     name: meta.properties?.title ?? '',
+    locale: meta.properties?.locale,
     ...header,
     known: { emne: [], status: [], etiket: [], at: 0 },
     connectedBy: by,
@@ -226,10 +229,24 @@ const safe = (v: string) => (/^[=+\-@]/.test(v) ? `'${v}` : v);
 
 const timeParts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Copenhagen', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
-/** Date (ISO – Sheets reads it as a date in every locale) and time in Denmark. */
+/** Today's date (ISO) and time in Denmark. */
 export function danishNow(nowMs: number): { date: string; time: string } {
   const p = Object.fromEntries(timeParts.formatToParts(new Date(nowMs)).map((x) => [x.type, x.value]));
   return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` };
+}
+
+/** Locales where Sheets reads "2-11-2026" as February 11th. */
+const MONTH_FIRST = /^(en_US|en_PH|en_CA|es_US|fil|en_FM|en_MH|en_PW)/;
+
+/**
+ * The date as the team types it – "2-11-2026" – which Sheets reads as a date and shows the
+ * same way. In a month-first locale that would be read as February, so there it stays ISO
+ * (still the right date).
+ */
+export function sheetDate(iso: string, locale?: string): string {
+  if (locale && MONTH_FIRST.test(locale)) return iso;
+  const [y, m, d] = iso.split('-');
+  return `${Number(d)}-${Number(m)}-${y}`;
 }
 
 /** The rows as the sheet's columns want them. */
@@ -242,7 +259,7 @@ export function sheetRows(s: NoteSheet, notes: NoteInput[], who: string, nowMs: 
     const put = (f: NoteField, v: string) => {
       if (s.columns[f] !== undefined) row[s.columns[f]!] = safe(v);
     };
-    put('Dato', date);
+    put('Dato', sheetDate(date, s.locale));
     put('Tid', time);
     put('Kampagne', n.campaign.slice(0, 300));
     put('Annoncegruppe', n.adGroup.slice(0, 300));

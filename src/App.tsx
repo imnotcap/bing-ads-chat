@@ -40,6 +40,10 @@ import { navigate, useNavigationHistory } from '@/hooks/useNavigationHistory';
 import { queryClient } from '@/lib/queryClient';
 import { ensureFrameless } from '@/lib/window';
 import { useAccount } from '@/stores/account';
+import { useConnection } from '@/stores/connection';
+import { getBackend } from '@/bing/backend';
+import { startNoteDrafts } from '@/ai/notes';
+import { NoteTray } from '@/features/notes/NotePreview';
 import { deleteOldConversations } from '@/stores/chat';
 import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
@@ -93,6 +97,22 @@ function Shell() {
   useNoDefaultContextMenu();
   useShortcuts();
   useEffect(ensureFrameless, []);
+  // Every change the app makes gets rows for the team's notes sheet, shown before they are written.
+  useEffect(
+    () =>
+      startNoteDrafts(
+        async (accountId, campaignId) => {
+          const b = await getBackend();
+          const list = b.listCampaignsCached ? await b.listCampaignsCached(accountId) : await b.listCampaigns(accountId);
+          return list.find((c) => c.id === campaignId)?.name ?? '';
+        },
+        () => {
+          const c = useConnection.getState();
+          return c.accounts.find((a) => a.id === c.accountId)?.currency ?? 'DKK';
+        },
+      ),
+    [],
+  );
   // Conversations are deleted 14 days after their last message (checked every hour).
   useEffect(() => {
     deleteOldConversations();
@@ -206,6 +226,7 @@ export function App() {
           </ClickSpark>
           {/* Cards are drawn by components/notifications/toast.tsx. */}
           <Toaster position="top-right" offset={{ top: 52, right: 16 }} gap={8} toastOptions={{ unstyled: true }} />
+          <NoteTray />
         </TooltipProvider>
       </MotionConfig>
     </QueryClientProvider>

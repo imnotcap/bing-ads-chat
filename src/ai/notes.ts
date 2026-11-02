@@ -6,7 +6,8 @@
  */
 import { create } from 'zustand';
 import { fmtMoney } from '@/lib/format';
-import type { ChangeLine } from '@/stores/activity';
+import { useActivity, type ActivityEntry, type ChangeLine } from '@/stores/activity';
+import { useAccount } from '@/stores/account';
 
 export interface NoteRow {
   campaign: string;
@@ -72,19 +73,20 @@ function commentOf(lines: ChangeLine[], currency: string): string {
 }
 
 /**
- * One row per campaign and ad group. `campaignName`: the campaign the plan is about
- * (most changes are to one campaign).
+ * One row per campaign and ad group. `campaignName`: the campaign the change is about (most
+ * changes are to one campaign) – a campaign line names its own ("Navn · dagsbudget").
  */
 export function noteRows(lines: ChangeLine[], campaignName: string, currency: string): NoteRow[] {
   const groups = new Map<string, ChangeLine[]>();
   for (const c of lines) {
-    const key = `${adGroupOf(c)}\u0000${c.entity}`;
+    const campaign = c.entity === 'Kampagne' && c.field.includes(' · ') ? c.field.split(' · ')[0]! : campaignName;
+    const key = [campaign, adGroupOf(c), c.entity].join('\u0000');
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
   return [...groups.entries()]
     .map(([key, ls]) => {
-      const [adGroup = '', entity = ''] = key.split('\u0000');
-      return { campaign: campaignName, adGroup, topics: TOPICS[entity] ?? [entity], comment: commentOf(ls, currency) };
+      const [campaign = '', adGroup = '', entity = ''] = key.split('\u0000');
+      return { campaign, adGroup, topics: TOPICS[entity] ?? [entity], comment: commentOf(ls, currency) };
     })
     .filter((r) => r.comment);
 }
@@ -97,6 +99,11 @@ export interface NoteDraft {
   rows: NoteRow[];
   status: NoteDraftStatus;
   error?: string;
+  /** Who made the change: the assistant's show on its card, the rest in the tray (NoteTray). */
+  source: 'assistant' | 'user' | 'budgetvagt' | 'test';
+  /** What it was, for the tray ("Nødstop: 4 kampagner sat på pause"). */
+  title: string;
+  at: number;
 }
 
 /**
@@ -112,3 +119,41 @@ export const useNoteDrafts = create<{
   set: (id, draft) => set((s) => ({ drafts: { ...s.drafts, [id]: draft } })),
   patch: (id, patch) => set((s) => (s.drafts[id] ? { drafts: { ...s.drafts, [id]: { ...s.drafts[id]!, ...patch } } } : s)),
 }));
+
+/* ------------------------------ from every change in the app ------------------------------ */
+
+/** Tools whose changes are notes themselves – no note about a note. */
+const NO_NOTE = new Set(['add_note_to_sheet', 'train_playbook', 'schedule_follow_up', 'create_file']);
+
+/**
+ * Every change the app makes on a live account – the assistant's, the user's own (campaign
+ * pages, emergency stop, undo) and the budget guard's – gets rows for the notes sheet, shown
+ * for the user to correct and send. Started once by the app (App.tsx).
+ */
+export function startNoteDrafts(campaignName: (accountId: string, campaignId: string) => Promise<string>, currency: () => string) {
+  let seen = new Set(useActivity.getState().entries.map((e) => e.id));
+  return useActivity.subscribe((state) => {
+    const fresh = state.entries.filter((e) => !seen.has(e.id));
+    seen = new Set(state.entries.map((e) => e.id));
+    for (const e of fresh) void draftFor(e, campaignName, currency());
+  });
+}
+
+async function draftFor(e: ActivityEntry, campaignName: (accountId: string, campaignId: string) => Promise<string>, currency: string) {
+  if (e.status !== 'success' || e.mode !== 'live' || NO_NOTE.has(e.tool) || !e.changes.length) return;
+  if (!useAccount.getState().workspace?.notesheet?.connected) return;
+  const name = e.campaignIds?.[0] ? await campaignName(e.accountId, e.campaignIds[0]).catch(() => '') : '';
+  const rows = noteRows(e.changes, name, currency);
+  if (rows.length) useNoteDrafts.getState().set(e.id, { rows, status: 'draft', source: e.source, title: e.summary, at: e.ts });
+}
+
+/** A row to test the connection with – written only when the user sends it. */
+export function draftTestNote(who: string) {
+  useNoteDrafts.getState().set(`test_${Date.now()}`, {
+    rows: [{ campaign: '', adGroup: '', topics: ['Kampagne'], comment: `Test fra XavierOS (${who}) – kan slettes` }],
+    status: 'draft',
+    source: 'test',
+    title: 'Testrække',
+    at: Date.now(),
+  });
+}

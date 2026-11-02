@@ -43,6 +43,8 @@ export interface ActivityEntry {
   status: 'success' | 'failed' | 'rejected' | 'blocked';
   error?: string;
   conversationId?: string;
+  /** The campaigns the change is about (for the notes sheet's Kampagne column). */
+  campaignIds?: string[];
   undo?: UndoSpec;
   undone?: boolean;
 }

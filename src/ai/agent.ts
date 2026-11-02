@@ -16,9 +16,7 @@ import { DATE_PRESET_LABELS, presetRange } from '@/lib/format';
 import { sharedKey } from '@/workspace/shared';
 import { queryClient } from '@/lib/queryClient';
 import { abortable, errorMessage, uid } from '@/lib/utils';
-import { useActivity, type ChangeLine } from '@/stores/activity';
-import { useAccount } from '@/stores/account';
-import type { Campaign } from '@/bing/types';
+import { useActivity } from '@/stores/activity';
 import { useChat, type ApiMessage, type AssistantItem, type Conversation, type Part, type ToolPart } from '@/stores/chat';
 import { useConnection } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
@@ -26,8 +24,7 @@ import { useUsage } from '@/stores/usage';
 import { refreshBilling, reportUsage, usageBlocked } from '@/workspace/billing';
 import { applyEdits, applyPicks, applySkips, requestApproval } from './approvals';
 import { proofreadPlan } from './proofread';
-import { evaluateGuardrails, type ChangePlan, type SpendContext } from './guardrails';
-import { noteRows, useNoteDrafts } from './notes';
+import { evaluateGuardrails, type SpendContext } from './guardrails';
 import { buildContextBlock, buildSystemPrompt } from './prompt';
 import { playbookFor } from '@/workspace/playbooks';
 import { allLimits } from '@/workspace/limits';
@@ -36,7 +33,7 @@ import { TERMINAL_TOOLS, getTool, toolDefinitions, type PlannedChange, type Tool
 import { connectorContext, enabledTools, isConnectorOn } from './connectors';
 import { GeminiError, geminiTokenUsage, streamGemini, toGeminiContents } from './gemini';
 import { contextTokens, modelInfo } from './models';
-import { getCampaigns, type WriteTool } from './tools/context';
+import type { WriteTool } from './tools/context';
 import { totalActiveDailyBudget } from './tools/write';
 
 type ToolUse = Anthropic.Beta.BetaToolUseBlock;
@@ -807,10 +804,10 @@ async function executeTools(
           changes: exec.changes?.length ? exec.changes : plan.changes,
           status: 'success',
           conversationId: convId,
+          campaignIds: plan.campaignIds,
           undo: exec.undo ?? plan.undo,
         }).id;
         afterChange();
-        void draftNotes(ctx, item.id, plan, exec.changes?.length ? exec.changes : plan.changes);
       }
       updateTool(convId, itemId, item.id, { status: 'done', summary: exec.summary, activityId, endedAt: Date.now() });
     } catch (e) {
@@ -834,18 +831,6 @@ async function executeTools(
   }
 
   return uses.map((u) => results.get(u.id) ?? err(u.id, 'No result'));
-}
-
-/**
- * After a change Microsoft confirmed: the rows for the team's notes sheet, when one is
- * connected (live accounts only). They wait on the card for the user to correct and send.
- */
-async function draftNotes(ctx: ToolContext, toolCallId: string, plan: ChangePlan, lines: ChangeLine[]) {
-  if (ctx.backend.mode !== 'live' || !useAccount.getState().workspace?.notesheet?.connected || !lines.length) return;
-  const campaigns = await getCampaigns(ctx).catch(() => [] as Campaign[]);
-  const name = campaigns.find((c) => c.id === plan.campaignIds[0])?.name ?? '';
-  const rows = noteRows(lines, name, ctx.currency);
-  if (rows.length) useNoteDrafts.getState().set(toolCallId, { rows, status: 'draft' });
 }
 
 /**

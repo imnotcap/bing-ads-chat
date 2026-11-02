@@ -1,5 +1,5 @@
 /** Forms shared by the settings page and onboarding. */
-import { AlertTriangle, CheckCircle2, ChevronDown, Copy, ExternalLink, Eye, EyeOff, FileUp, KeyRound, Loader2, LogIn, PlugZap, ShieldCheck, Unplug, Users } from '@/components/icons';
+import { AlertTriangle, CheckCircle2, ChevronDown, Copy, ExternalLink, Eye, EyeOff, FileSpreadsheet, FileUp, KeyRound, Loader2, LogIn, PlugZap, ShieldCheck, Unplug, Users } from '@/components/icons';
 import { useRef, useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { useConnection } from '@/stores/connection';
 import { connectInventarland, connectNotesheet, disconnectInventarland, disconnectNotesheet, disconnectSharedAds, goDemo, goLive, saveSharedAds } from '@/workspace/shared';
 import { INVENTARLAND_URL, type SharedKeyInfo } from '@/workspace/types';
 import { removeAnthropicKey, saveAnthropicKey, testAnthropicKey } from './connection';
+import { draftTestNote } from '@/ai/notes';
 
 export function SecretInput({ value, onChange, placeholder, id }: { value: string; onChange: (v: string) => void; placeholder?: string; id?: string }) {
   const [show, setShow] = useState(false);
@@ -487,7 +488,16 @@ export function NotesheetForm() {
             </>
           ) : (
             <>
-              <Button variant="secondary" onClick={() => setEditing(true)}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  draftTestNote(useAccount.getState().user?.name ?? '');
+                  toast('Testrækken står nederst til højre', { description: 'Ret den, hvis du vil, og tryk "Skriv i notatark". Slet rækken i arket bagefter.' });
+                }}
+              >
+                <FileSpreadsheet /> Skriv testrække
+              </Button>
+              <Button variant="ghost" onClick={() => setEditing(true)}>
                 Skift ark
               </Button>
               <Button

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseServiceAccountKey, assertReadOnly } from '../../cloudflare/src/googleAds';
-import { appendNotes, assertSheetCall, danishNow, findHeader, parseSheetUrl, pickWord, readSheet, sheetRows, sheetsError, type NoteSheet } from '../../cloudflare/src/notesheet';
+import { appendNotes, assertSheetCall, danishNow, findHeader, parseSheetUrl, pickWord, readSheet, sheetDate, sheetRows, sheetsError, type NoteSheet } from '../../cloudflare/src/notesheet';
 import { noteRows } from '@/ai/notes';
 
 const ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789';
@@ -34,7 +34,7 @@ function fakeGoogle() {
     if (url.includes(':append?')) return ok({ updates: { updatedRows: 1 } });
     if (url.includes('values:batchGet')) return ok({ valueRanges: [{ values: [['Produkter'], ['Produkter'], ['Kampagne']] }, { values: [['Færdig'], ['Opfølgning']] }, { values: [['Casper']] }] });
     if (url.includes('/values/')) return ok({ values: [[], ['Dato', 'Tid', 'Kampagne', 'Annoncegruppe', 'Emne', 'Status', 'Etiket', 'Kommentar']] });
-    return ok({ properties: { title: 'Notatark til Google og Bing' }, sheets: [{ properties: { sheetId: 0, title: 'Ark1' } }, { properties: { sheetId: 77, title: 'Andet' } }] });
+    return ok({ properties: { title: 'Notatark til Google og Bing', locale: 'da_DK' }, sheets: [{ properties: { sheetId: 0, title: 'Ark1' } }, { properties: { sheetId: 77, title: 'Andet' } }] });
   };
   return { calls, fetchFn };
 }
@@ -78,16 +78,22 @@ describe('the notes sheet – only reading its layout and adding rows', () => {
     const now = Date.UTC(2026, 10, 2, 12, 36); // 13:36 in Copenhagen
     expect(danishNow(now)).toEqual({ date: '2026-11-02', time: '13:36' });
     const [row] = sheetRows(SHEET, [{ campaign: 'Shopping | Lager', adGroup: 'Pallestativer', topics: ['Produkter'], comment: 'Tilføjede c073283018 m. bud på 10,05 kr.' }], 'Casper Hansen', now);
-    expect(row).toEqual(['2026-11-02', '13:36', 'Shopping | Lager', 'Pallestativer', 'Produkter', 'Færdig', 'Casper', 'Tilføjede c073283018 m. bud på 10,05 kr.']);
+    expect(row).toEqual(['2-11-2026', '13:36', 'Shopping | Lager', 'Pallestativer', 'Produkter', 'Færdig', 'Casper', 'Tilføjede c073283018 m. bud på 10,05 kr.']);
     // A comment that would be read as a formula stays text.
     expect(sheetRows(SHEET, [{ campaign: '', adGroup: '', topics: [], comment: '=HYPERLINK("x")' }], 'C', now)[0]![7]).toBe('\'=HYPERLINK("x")');
+  });
+
+  it('writes the date day-month-year like the team – but never so it reads as another date', () => {
+    expect(sheetDate('2026-11-02', 'da_DK')).toBe('2-11-2026');
+    expect(sheetDate('2026-10-29', undefined)).toBe('29-10-2026');
+    expect(sheetDate('2026-11-02', 'en_US')).toBe('2026-11-02');
   });
 
   it('reads the layout of the linked tab, then appends below the table', async () => {
     const key = await makeKey();
     const g = fakeGoogle();
     const sheet = await readSheet(g.fetchFn, key, `https://docs.google.com/spreadsheets/d/${ID}/edit#gid=0`, Date.now(), 'Casper');
-    expect(sheet).toMatchObject({ title: 'Ark1', headerRow: 2, name: 'Notatark til Google og Bing' });
+    expect(sheet).toMatchObject({ title: 'Ark1', headerRow: 2, name: 'Notatark til Google og Bing', locale: 'da_DK' });
     expect(sheet.known.emne[0]).toBe('Produkter');
     const after = await appendNotes(g.fetchFn, key, sheet, [{ campaign: 'K', adGroup: 'G', topics: ['Produkter'], comment: 'Ekskluderede 1' }], 'Casper', Date.now());
     const append = g.calls.find((c) => c.url.includes(':append?'))!;
