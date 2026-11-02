@@ -65,3 +65,20 @@ describe('evaluateGuardrails', () => {
     expect(evaluateGuardrails(plan({ kind: 'raw' }), rules({}), ctx).verdict).toBe('approve');
   });
 });
+
+describe('the lowest CPC bid', () => {
+  it('flags bids under it on the card and says what to raise them to', () => {
+    const d = evaluateGuardrails(plan({ newBids: [8, 12] }), rules({ minCpcBid: 10.05 }), ctx);
+    expect(d.verdict).toBe('approve');
+    expect(d.reasons.join(' ')).toMatch(/Et bud er under mindstebuddet på 10,05\s?kr\. – ret det til 10,05\s?kr\./);
+  });
+
+  it('says nothing when every bid is at or above it', () => {
+    const d = evaluateGuardrails(plan({ newBids: [10.05, 12] }), rules({ minCpcBid: 10.05 }), ctx);
+    expect(d.reasons.join(' ')).not.toMatch(/mindstebuddet/);
+  });
+
+  it('is 10,05 kr. unless the team sets another', () => {
+    expect(DEFAULT_SPEND_RULES.minCpcBid).toBe(10.05);
+  });
+});

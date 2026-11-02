@@ -58,6 +58,11 @@ export interface ChangePlan {
      * in the rest of the item. Only for inputs whose items take { text, matchType }.
      */
     add?: { label: string; base: Record<string, unknown>; note: string; cells?: Record<string, string> };
+    /**
+     * A bid per section, editable in its header: `idCell` holds the section's id (sent as
+     * path + [id]), `valueCell` its current bid (also shown in the rows).
+     */
+    groupBid?: { idCell: string; valueCell: string; path: (string | number)[]; label: string };
     /** The approve button, "{n}" = number of rows ticked. */
     approveLabel: string;
   };
@@ -104,7 +109,11 @@ export function evaluateGuardrails(plan: ChangePlan, rules: SpendRules, ctx: Spe
 
   if (plan.kind === 'raw') approve.push('Direkte API-ændringer kræver altid godkendelse.');
   approve.push(...(plan.approvalReasons ?? []));
-  if (plan.kind === 'update' && plan.changes.some((c) => c.edit && c.before !== undefined)) approve.push('Nye navne skal tjekkes af dig, før de gemmes.');
+  if (plan.kind === 'update' && plan.changes.some((c) => c.edit && c.edit.kind !== 'money' && c.before !== undefined)) approve.push('Nye navne skal tjekkes af dig, før de gemmes.');
+  if (rules.minCpcBid !== null && rules.minCpcBid !== undefined) {
+    const under = (plan.newBids ?? []).filter((b) => b < rules.minCpcBid!);
+    if (under.length) approve.push(`${under.length === 1 ? 'Et bud' : `${under.length} bud`} er under mindstebuddet på ${money(rules.minCpcBid)} – ret ${under.length === 1 ? 'det' : 'dem'} til ${money(rules.minCpcBid)}.`);
+  }
   if (plan.kind === 'delete') approve.push('Sletning kan ikke fortrydes i Microsoft Advertising.');
   else if (plan.increasesSpend) approve.push('Ændringen kan øge forbruget.');
   if (rules.maxBudgetIncreasePct !== null && (plan.maxBudgetIncrease ?? 0) * 100 > rules.maxBudgetIncreasePct) {

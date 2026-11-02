@@ -483,7 +483,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
         { entity: 'Annoncegruppe', field: 'kampagne', after: c.name },
         { entity: 'Annoncegruppe', field: 'Navn', after: input.name, edit: { path: ['name'], maxLength: 256 } },
         { entity: 'Annoncegruppe', field: 'status', after: statusLabel(status) },
-        ...(input.cpcBid ? [{ entity: 'Annoncegruppe', field: 'CPC-bud', after: input.cpcBid }] : []),
+        ...(input.cpcBid ? [{ entity: 'Annoncegruppe', field: 'CPC-bud', after: input.cpcBid, edit: { path: ['cpcBid'], kind: 'money' as const } }] : []),
       ];
       return {
         plan: {
@@ -561,7 +561,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
           if (ch.status === 'Active') increases = true;
         }
         if (ch.cpcBid !== undefined && !near(ch.cpcBid, g.cpcBid)) {
-          const line: ChangeLine = { entity: 'Annoncegruppe', entityId: g.id, field: `${g.name} · CPC-bud`, before: g.cpcBid, after: ch.cpcBid };
+          const line: ChangeLine = { entity: 'Annoncegruppe', entityId: g.id, field: `${g.name} · CPC-bud`, before: g.cpcBid, after: ch.cpcBid, edit: { path: ['changes', index, 'cpcBid'], kind: 'money' } };
           lines.push(line);
           checks.push({ line, index, verify: (s) => (near(find(s)?.cpcBid, ch.cpcBid) ? null : money(find(s)?.cpcBid, ctx.currency)) });
           if (g.cpcBid) inv.cpcBid = g.cpcBid;
@@ -763,7 +763,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
         }
         if (ch.bid !== undefined && !near(ch.bid, k.bid ?? g.cpcBid)) {
           const prev = k.bid ?? g.cpcBid;
-          const line: ChangeLine = { entity: 'Søgeord', entityId: k.id, field: `${label} · bud`, before: prev, after: ch.bid };
+          const line: ChangeLine = { entity: 'Søgeord', entityId: k.id, field: `${label} · bud`, before: prev, after: ch.bid, edit: { path: ['changes', index, 'bid'], kind: 'money' } };
           lines.push(line);
           checks.push({ line, index, verify: (s) => (near(find(s)?.bid, ch.bid) ? null : money(find(s)?.bid ?? null, ctx.currency)) });
           if (prev) inv.bid = prev;

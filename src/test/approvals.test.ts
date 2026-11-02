@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { applyEdits } from '@/ai/approvals';
+import { applyEdits, parseAmount } from '@/ai/approvals';
 import { evaluateGuardrails } from '@/ai/guardrails';
 import { getTool, type ToolContext } from '@/ai/tools';
 import { DemoBackend } from '@/bing/demo/backend';
@@ -40,5 +40,23 @@ describe('editable approvals', () => {
       ctx(),
     );
     expect(out.visual?.type).toBe('suggestions');
+  });
+});
+
+describe('bids corrected on the card', () => {
+  it('reads Danish and English amounts', () => {
+    expect(parseAmount('10,05')).toBe(10.05);
+    expect(parseAmount('10.05')).toBe(10.05);
+    expect(parseAmount(' 12 kr. ')).toBe(12);
+    expect(parseAmount('1.234,5')).toBe(1234.5);
+    expect(parseAmount('ti kroner')).toBeNaN();
+    expect(parseAmount('')).toBeNaN();
+  });
+
+  it('stores an edited bid as a number, and a non-number as text for the tool to refuse', () => {
+    const input = { changes: [{ keywordId: '1', bid: 8 }] };
+    expect(applyEdits(input, [{ path: ['changes', 0, 'bid'], value: '10,05', kind: 'money' }])).toEqual({ changes: [{ keywordId: '1', bid: 10.05 }] });
+    expect(applyEdits(input, [{ path: ['changes', 0, 'bid'], value: 'abc', kind: 'money' }])).toEqual({ changes: [{ keywordId: '1', bid: 'abc' }] });
+    expect(applyEdits({}, [{ path: ['bids', '1040'], value: '12,5', kind: 'money' }])).toEqual({ bids: { '1040': 12.5 } });
   });
 });

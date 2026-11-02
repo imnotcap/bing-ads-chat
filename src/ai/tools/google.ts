@@ -8,6 +8,7 @@
  * settings (bid strategy, budget, targets) unless the user asks for that themselves.
  */
 import { z } from 'zod';
+import { fmtMoney } from '@/lib/format';
 import type { AdGroup, Campaign } from '@/bing/types';
 import { bingAds, bingNegatives, bingProducts, bingSearchTerms, bingShownItems, bingStructure, toListingNodes } from '@/features/audit/bingDetail';
 import { byShown, compareAds, compareExclusions, compareKeywords, compareNegatives, compareSearchTerms } from '@/features/audit/compare';
@@ -269,6 +270,10 @@ export const googleTools = [
       googleCampaignId: z.string().optional().describe('The Google campaign, if not the one matched on the Audit page.'),
       adGroupIds: z.array(z.string()).max(200).optional().describe('Only these Microsoft ad groups (default: all).'),
       includeUnshown: z.boolean().optional().describe('Also exclude item ids Microsoft has not shown in the ad group (default false – only if the user asks).'),
+      bids: z
+        .record(z.string(), z.number().positive().max(1000))
+        .optional()
+        .describe('Leave out – the user sets a bid per ad group (Microsoft ad group id → bid) on the card.'),
       bid: z.number().positive().max(1000).optional().describe('CPC bid in the account currency for every item id this call starts bidding on (new, or switched from excluded) and a new "everything else" – only when the user names a bid. Default: the bid the ad group\'s units already use most. Existing units keep their bids.'),
       skip: z.array(z.string()).max(20_000).optional().describe('Leave out – filled in from what the user ticks off on the card.'),
       reason: z.string().describe('Why, in Danish – shown on the approval card.'),
@@ -285,7 +290,8 @@ export const googleTools = [
       const only = input.adGroupIds?.length ? new Set(input.adGroupIds.map(String)) : null;
       const groups = plan.filter((g) => !only || (g.bingAdGroupId && only.has(g.bingAdGroupId)));
       const skip = new Set(input.skip ?? []);
-      const working = groups.filter((g) => g.status === 'changes').map((g) => (input.bid ? { ...g, bid: input.bid } : g));
+      const chosenBid = (g: MirrorGroup) => (g.bingAdGroupId && input.bids?.[g.bingAdGroupId]) || input.bid || g.bid;
+      const working = groups.filter((g) => g.status === 'changes').map((g) => ({ ...g, bid: chosenBid(g) }));
       const BIDS: MirrorAction[] = ['add_bid', 'to_bid', 'else_bid', 'all', 'collapse'];
       const bids = working.filter((g) => g.rows.some((r) => BIDS.includes(r.action) && !skip.has(r.key)));
       const lines: ChangeLine[] = working.flatMap((g) =>
@@ -298,6 +304,7 @@ export const googleTools = [
             after: r.itemId || (r.action === 'all' || r.action === 'collapse' ? 'Alle produkter' : 'Alt andet'),
             cells: {
               group: g.bingGroup,
+              groupId: g.bingAdGroupId,
               kind: TAG[r.action],
               why: r.label,
               bid: BIDS.includes(r.action) ? g.bid : null,
@@ -317,7 +324,7 @@ export const googleTools = [
         ...working.filter((g) => g.convert).map((g) => `"${g.bingGroup}": Microsofts "Alle produkter" opdeles efter varenummer, ligesom i Google.`),
         ...bids.map((g) =>
           g.bid
-            ? `"${g.bingGroup}": varenumre, der begynder at blive budt på, får ${g.bid} kr. pr. klik (${input.bid ? 'det bud, der blev bedt om' : 'det bud, gruppens produkter oftest har'}). Andre varenumre beholder deres bud.`
+            ? `"${g.bingGroup}": nye bud ${fmtMoney(g.bid, ctx.currency)} (${input.bids?.[g.bingAdGroupId!] ? 'rettet på kortet' : input.bid ? 'det bud, der blev bedt om' : 'gruppens mest brugte bud'}). Andre varenumre beholder deres bud.`
             : `"${g.bingGroup}": har intet bud at gå ud fra – angiv et bud.`,
         ),
         ...groups
@@ -347,6 +354,7 @@ export const googleTools = [
             tagLabel: 'Handling',
             note: 'why',
             columns: [{ key: 'bid', label: 'Bud', format: 'money' }],
+            groupBid: { idCell: 'groupId', valueCell: 'bid', path: ['bids'], label: 'Bud' },
             approveLabel: 'Udfør {n} ændringer i Microsoft',
           },
         },

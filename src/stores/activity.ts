@@ -9,7 +9,7 @@ export interface ChangeLine {
   before?: string | number | null;
   after?: string | number | null;
   /** The value can be corrected by the user on the approval card. */
-  edit?: { path: (string | number)[]; maxLength?: number };
+  edit?: { path: (string | number)[]; maxLength?: number; kind?: 'money' };
   /**
    * A position the text is pinned to (responsive search ads), changeable on the card:
    * "" = any position. `locked`: shown but fixed, with the reason.

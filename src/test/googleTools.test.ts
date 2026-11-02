@@ -197,10 +197,21 @@ describe('match_product_groups_to_google', () => {
     const { plan: p, execute } = await tool.plan(tool.schema.parse({ campaignId: '104', reason: 'x', bid: 10.05 }), ctx());
     const plan = p!;
     expect(plan.newBids).toEqual([10.05]);
-    expect(plan.notes!.join(' ')).toMatch(/10\.05 kr\. pr\. klik \(det bud, der blev bedt om\)/);
+    expect(plan.notes!.join(' ')).toMatch(/nye bud 10,05\s?kr\. \(det bud, der blev bedt om\)/);
     await execute();
     expect(tree.find((n) => n.attribute === 'SKU-1')!.bid).toBe(10.05);
     expect(tree.find((n) => n.attribute === 'SKU-2')!.excluded).toBe(true);
+  });
+
+  it('takes a bid per ad group from the card', async () => {
+    const tool = write('match_product_groups_to_google');
+    const first = (await tool.plan(tool.schema.parse({ campaignId: '104', reason: 'x' }), ctx())).plan!;
+    expect(first.pick?.groupBid).toMatchObject({ idCell: 'groupId', path: ['bids'] });
+    expect(first.changes[0]!.cells?.groupId).toBe('1040');
+    const { plan, execute } = await tool.plan(tool.schema.parse({ campaignId: '104', reason: 'x', bids: { '1040': 12.5 } }), ctx());
+    expect(plan!.newBids).toEqual([12.5]);
+    await execute();
+    expect(tree.find((n) => n.attribute === 'SKU-1')!.bid).toBe(12.5);
   });
 
   it('has nothing to do when Microsoft already matches', async () => {
