@@ -170,19 +170,27 @@ export function auditRange(period: AuditPeriod, today: string): DateRange {
 
 export type CompareTab = 'products' | 'negatives' | 'keywords' | 'searchterms' | 'ads';
 
+/** "Alle kampagner": running campaigns by spend (as in the sidebar), or the most finished first. */
+export type AuditSort = 'spend' | 'progress';
+
 export const useAuditUi = create<{
   selected: string | null;
   period: AuditPeriod;
   /** The comparison open on the campaign page. */
   tab: CompareTab | null;
+  /** How "Alle kampagner" is ordered. */
+  sort: AuditSort;
   select: (id: string | null) => void;
+  setSort: (s: AuditSort) => void;
   setPeriod: (p: AuditPeriod) => void;
   setTab: (t: CompareTab | null) => void;
 }>((set) => ({
   selected: null,
   period: '30',
   tab: null,
+  sort: 'spend',
   select: (selected) => set({ selected }),
+  setSort: (sort) => set({ sort }),
   setPeriod: (period) => set({ period }),
   setTab: (tab) => set({ tab }),
 }));

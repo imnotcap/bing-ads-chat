@@ -149,7 +149,7 @@ export function ProductsPage() {
   };
   const ask = (prompt: string) => {
     go('chat');
-    startChat(prompt);
+    startChat(prompt, [], { fresh: true });
   };
   const sortBy = (id: string) => {
     // Numbers start with the largest first, text from A.

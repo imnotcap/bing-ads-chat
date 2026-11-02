@@ -493,7 +493,7 @@ export function DashboardPage() {
 
   const ask = (prompt: string) => {
     go('chat');
-    startChat(prompt);
+    startChat(prompt, [], { fresh: true });
   };
   const exportSummary = async () => {
     if (!kpis || !campaigns.data) return;

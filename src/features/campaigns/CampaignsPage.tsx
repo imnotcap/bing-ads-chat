@@ -89,7 +89,7 @@ export function CampaignsPage() {
 
   const ask = (prompt: string) => {
     go('chat');
-    startChat(prompt);
+    startChat(prompt, [], { fresh: true });
   };
 
   return (

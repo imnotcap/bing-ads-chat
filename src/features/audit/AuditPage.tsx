@@ -7,7 +7,7 @@
  * With one: the match, the two side by side for the period, and the checklist.
  */
 import { motion } from 'motion/react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, CircleCheck, FileUp, Loader2, Lock, MessageSquare, RefreshCw, TriangleAlert } from '@/components/icons';
 import { pageTransition } from '@/components/motion';
 import { toast } from '@/components/notifications/toast';
@@ -27,10 +27,10 @@ import { useUi } from '@/stores/ui';
 import { connectGoogleAudit, disconnectGoogleAudit } from '@/workspace/shared';
 import { startChat } from '../chat/startChat';
 import { SecretInput } from '../settings/forms';
-import { PERIOD_LABELS, changeAudit, refreshGoogle, useAuditUi, type AuditPeriod, type GoogleCampaign } from './data';
+import { PERIOD_LABELS, changeAudit, refreshGoogle, useAuditUi, type AuditPeriod, type AuditSort, type GoogleCampaign } from './data';
 import { DetailCompare, STEP_TAB, TAB_LABEL, tabsFor } from './DetailCompare';
 import { rankCandidates } from './match';
-import { useAuditModel, type AuditRow } from './model';
+import { byProgress, useAuditModel, type AuditRow } from './model';
 import { AUDIT_STEPS, stepApplies, type AuditStep, type StepStatus } from './steps';
 
 /* ---------------------------------- labels ---------------------------------- */
@@ -274,61 +274,79 @@ function MatchCell({ row, googleReady }: { row: AuditRow; googleReady: boolean }
   return <span className="text-subtle">{googleReady ? 'Ikke valgt' : '–'}</span>;
 }
 
-function Overview({ rows, bingCurrency, googleCurrency, googleReady }: { rows: AuditRow[]; bingCurrency: string; googleCurrency: string; googleReady: boolean }) {
+function Overview({ rows: all, bingCurrency, googleCurrency, googleReady }: { rows: AuditRow[]; bingCurrency: string; googleCurrency: string; googleReady: boolean }) {
   const select = useAuditUi((s) => s.select);
+  const sort = useAuditUi((s) => s.sort);
+  const setSort = useAuditUi((s) => s.setSort);
+  const rows = useMemo(() => (sort === 'progress' ? byProgress(all) : all), [all, sort]);
   const head = 'border-b border-line px-3 py-2.5 text-[12px] font-medium text-muted';
   const cell = 'border-b border-line-2 px-3 py-2.5';
   return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-surface">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[880px] border-separate border-spacing-0 text-[13px]">
-          <thead>
-            <tr className="text-left">
-              <th className={cn(head, 'pl-4')}>Microsoft-kampagne</th>
-              <th className={head}>Google-modpart</th>
-              <th className={cn(head, 'w-[140px]')}>Fremskridt</th>
-              <th className={cn(head, 'text-right')}>Omk. Microsoft</th>
-              <th className={cn(head, 'text-right')}>Omk. Google</th>
-              <th className={cn(head, 'text-right')}>ROAS Microsoft</th>
-              <th className={cn(head, 'pr-4 text-right')}>ROAS Google</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const b = bingMetrics(r);
-              const g = googleMetrics(r.google);
-              const pct = r.progress.total ? Math.round((r.progress.done / r.progress.total) * 100) : 0;
-              return (
-                <tr key={r.bing.id} onClick={() => select(r.bing.id)} className="cursor-pointer transition-colors hover:bg-brand-50/30">
-                  <td className={cn(cell, 'pl-4')}>
-                    <span className="flex items-center gap-2">
-                      {r.finished && <CircleCheck className="size-3.5 shrink-0 text-positive" />}
-                      <span className={cn('font-medium', r.bing.status === 'Active' ? 'text-ink' : 'text-subtle')}>{r.bing.name}</span>
-                      <span className="text-[11.5px] text-subtle">{BING_TYPE[r.bing.type] ?? r.bing.type}</span>
-                    </span>
-                  </td>
-                  <td className={cn(cell, 'max-w-[280px]')}>
-                    <MatchCell row={r} googleReady={googleReady} />
-                  </td>
-                  <td className={cell}>
-                    <span className="flex items-center gap-2">
-                      <span className="block h-1.5 flex-1 overflow-hidden rounded-full bg-line-2">
-                        <span className={cn('block h-full rounded-full', pct === 100 ? 'bg-positive' : 'bg-brand')} style={{ width: `${pct}%` }} />
+    <div className="grid gap-3">
+      <div className="flex items-center justify-end gap-2 text-[12.5px] text-muted">
+        Sortér efter
+        <Segmented
+          layoutId="audit-sort"
+          size="sm"
+          value={sort}
+          onChange={(v: AuditSort) => setSort(v)}
+          options={[
+            { value: 'spend', label: 'Forbrug' },
+            { value: 'progress', label: 'Fremskridt (færdige øverst)' },
+          ]}
+        />
+      </div>
+      <div className="overflow-hidden rounded-2xl border border-line bg-surface">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[880px] border-separate border-spacing-0 text-[13px]">
+            <thead>
+              <tr className="text-left">
+                <th className={cn(head, 'pl-4')}>Microsoft-kampagne</th>
+                <th className={head}>Google-modpart</th>
+                <th className={cn(head, 'w-[140px]')}>Fremskridt</th>
+                <th className={cn(head, 'text-right')}>Omk. Microsoft</th>
+                <th className={cn(head, 'text-right')}>Omk. Google</th>
+                <th className={cn(head, 'text-right')}>ROAS Microsoft</th>
+                <th className={cn(head, 'pr-4 text-right')}>ROAS Google</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const b = bingMetrics(r);
+                const g = googleMetrics(r.google);
+                const pct = r.progress.total ? Math.round((r.progress.done / r.progress.total) * 100) : 0;
+                return (
+                  <tr key={r.bing.id} onClick={() => select(r.bing.id)} className="cursor-pointer transition-colors hover:bg-brand-50/30">
+                    <td className={cn(cell, 'pl-4')}>
+                      <span className="flex items-center gap-2">
+                        {r.finished && <CircleCheck className="size-3.5 shrink-0 text-positive" />}
+                        <span className={cn('font-medium', r.bing.status === 'Active' ? 'text-ink' : 'text-subtle')}>{r.bing.name}</span>
+                        <span className="text-[11.5px] text-subtle">{BING_TYPE[r.bing.type] ?? r.bing.type}</span>
                       </span>
-                      <span className="w-9 text-right text-[11.5px] tabular text-muted">
-                        {r.progress.done}/{r.progress.total}
+                    </td>
+                    <td className={cn(cell, 'max-w-[280px]')}>
+                      <MatchCell row={r} googleReady={googleReady} />
+                    </td>
+                    <td className={cell}>
+                      <span className="flex items-center gap-2">
+                        <span className="block h-1.5 flex-1 overflow-hidden rounded-full bg-line-2">
+                          <span className={cn('block h-full rounded-full', pct === 100 ? 'bg-positive' : 'bg-brand')} style={{ width: `${pct}%` }} />
+                        </span>
+                        <span className="w-9 text-right text-[11.5px] tabular text-muted">
+                          {r.progress.done}/{r.progress.total}
+                        </span>
                       </span>
-                    </span>
-                  </td>
-                  <td className={cn(cell, 'text-right tabular text-ink-2')}>{b ? fmtMoney(b.spend, bingCurrency) : '–'}</td>
-                  <td className={cn(cell, 'text-right tabular text-ink-2')}>{g ? fmtMoney(g.spend, googleCurrency) : '–'}</td>
-                  <td className={cn(cell, 'text-right tabular text-ink-2')}>{b?.roas != null ? fmtNumber(b.roas, 2) : '–'}</td>
-                  <td className={cn(cell, 'pr-4 text-right tabular text-ink-2')}>{g?.roas != null ? fmtNumber(g.roas, 2) : '–'}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    </td>
+                    <td className={cn(cell, 'text-right tabular text-ink-2')}>{b ? fmtMoney(b.spend, bingCurrency) : '–'}</td>
+                    <td className={cn(cell, 'text-right tabular text-ink-2')}>{g ? fmtMoney(g.spend, googleCurrency) : '–'}</td>
+                    <td className={cn(cell, 'text-right tabular text-ink-2')}>{b?.roas != null ? fmtNumber(b.roas, 2) : '–'}</td>
+                    <td className={cn(cell, 'pr-4 text-right tabular text-ink-2')}>{g?.roas != null ? fmtNumber(g.roas, 2) : '–'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -558,7 +576,7 @@ function AskMatchup({ row, google }: { row: AuditRow; google: GoogleCampaign }) 
         size="sm"
         onClick={() => {
           go('chat');
-          startChat(ask());
+          startChat(ask(), [], { fresh: true });
         }}
       >
         <MessageSquare /> Spørg assistenten om 1:1 matchup
@@ -588,12 +606,39 @@ function CampaignAuditView({ row, google, range, bingCurrency, googleCurrency, g
       <div className="grid gap-2">
         <h3 className="text-[14px] font-medium text-ink">Trin</h3>
         <ol className="overflow-hidden rounded-2xl border border-line bg-surface">
-          {AUDIT_STEPS.map((s, i) => (
+          {/* Steps that are not for this kind of campaign are left out, unless someone ticked one. */}
+          {AUDIT_STEPS.filter((s) => stepApplies(s, row.bing.type) || row.audit?.steps[s.id]).map((s, i) => (
             <StepRow key={s.id} step={s} index={i} row={row} />
           ))}
         </ol>
       </div>
       <CampaignNote row={row} />
+      <FinishCampaign row={row} />
+    </div>
+  );
+}
+
+/** "Færdig": ticks every open step of the campaign at once, which makes it finished. */
+function FinishCampaign({ row }: { row: AuditRow }) {
+  const open = AUDIT_STEPS.filter((s) => stepApplies(s, row.bing.type) && !row.audit?.steps[s.id]);
+  const finish = () =>
+    changeAudit({ type: 'finish', bingId: row.bing.id, steps: open.map((s) => s.id) })
+      .then(() => toast.success(`"${row.bing.name}" er færdig`))
+      .catch((e: unknown) => toast.error('Kunne ikke gemme', { description: errorMessage(e) }));
+  return (
+    <div className="flex items-center justify-end gap-3 border-t border-line-2 pt-4">
+      {row.finished ? (
+        <p className="flex items-center gap-1.5 text-[13px] font-medium text-positive">
+          <CircleCheck className="size-4" /> Kampagnen er færdig
+        </p>
+      ) : (
+        <>
+          <p className="text-[12.5px] text-muted">Markerer de {open.length} åbne trin som gjort.</p>
+          <Button onClick={() => void finish()} disabled={!open.length}>
+            <Check /> Færdig
+          </Button>
+        </>
+      )}
     </div>
   );
 }

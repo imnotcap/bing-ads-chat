@@ -37,6 +37,8 @@ export interface AuditStep {
   what: string;
   /** Campaign kinds (Microsoft's CampaignType) the step is for; none = every campaign. */
   only?: string[];
+  /** Campaign kinds the step is not for. */
+  except?: string[];
 }
 
 export const AUDIT_STEPS: AuditStep[] = [
@@ -50,8 +52,8 @@ export const AUDIT_STEPS: AuditStep[] = [
   { id: 'audiences', title: 'Målgrupper', what: 'Tilknyttede målgrupper (remarketing, in-market, kundelister) og om de observerer eller målretter.' },
   { id: 'adgroups', title: 'Match annoncegrupper', what: 'Find hver annoncegruppes modstykke i Google. Mangler der grupper i Microsoft – eller omvendt?' },
   { id: 'keywords', title: 'Søgeord og matchtyper', what: 'Søgeord og matchtyper pr. annoncegruppe. Mangler de søgeord, der giver resultater i Google?', only: ['Search'] },
-  { id: 'searchterms', title: 'Søgetermer', what: 'Hvilke søgetermer udløser annoncerne? Spild skal udelukkes, gode termer kan blive søgeord.' },
-  { id: 'negatives', title: 'Negative søgeord', what: 'Negative søgeord og lister på kampagne- og gruppeniveau. Alt, Google udelukker, bør også være udelukket her.' },
+  { id: 'searchterms', title: 'Søgetermer', what: 'Hvilke søgetermer udløser annoncerne? Spild skal udelukkes, gode termer kan blive søgeord.', except: ['Shopping'] },
+  { id: 'negatives', title: 'Negative søgeord', what: 'Negative søgeord og lister på kampagne- og gruppeniveau. Alt, Google udelukker, bør også være udelukket her.', except: ['Shopping'] },
   { id: 'ads', title: 'Annoncer og aktiver', what: 'Annoncetekster, udvidelser/aktiver (sitelinks, billeder, info). Samme budskaber og lige så komplette?' },
   { id: 'landing', title: 'Landingssider', what: 'Endelige URL’er og sporingsparametre. Peger annoncerne samme sted hen som i Google, og virker siderne?' },
   { id: 'shopping', title: 'Shopping og produkter', what: 'Produktgrupper, bud og udelukkede varer. Varer, der er udelukket i Google, skal også være udelukket her.', only: ['Shopping', 'PerformanceMax'] },
@@ -67,7 +69,8 @@ export const STEP_IDS = new Set<string>(AUDIT_STEPS.map((s) => s.id));
 
 /** Whether a step is for this kind of campaign (Search, Shopping, PerformanceMax …). */
 export function stepApplies(step: AuditStep, campaignType: string | null | undefined): boolean {
-  return !step.only || !campaignType || step.only.includes(campaignType);
+  if (!campaignType) return true;
+  return (!step.only || step.only.includes(campaignType)) && !step.except?.includes(campaignType);
 }
 
 /** A step is done, or marked as not relevant for the campaign; anything else is open. */

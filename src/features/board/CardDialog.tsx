@@ -597,6 +597,8 @@ export function CardDialog({ cardId, onClose }: { cardId: string | null; onClose
                           `Hjælp mig med denne opgave fra planlægningstavlen:\n\n**${card.title}**${card.description ? `\n${card.description}` : ''}${
                             card.checklist.length ? `\n\nTjekliste:\n${card.checklist.map((i) => `- [${i.done ? 'x' : ' '}] ${i.text}`).join('\n')}` : ''
                           }`,
+                          [],
+                          { fresh: true },
                         );
                       }}
                     >

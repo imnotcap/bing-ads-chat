@@ -9,7 +9,9 @@ export type AuditOp =
   | { type: 'match'; bingId: string; googleId: string | null }
   | { type: 'unmatch'; bingId: string }
   | { type: 'step'; bingId: string; step: StepId; status: StepStatus | null }
-  | { type: 'note'; bingId: string; text: string };
+  | { type: 'note'; bingId: string; text: string }
+  /** "Færdig": every listed step not yet marked becomes done – the ones marked "not relevant" stay so. */
+  | { type: 'finish'; bingId: string; steps: StepId[] };
 
 const ID = /^\d{1,20}$/;
 export const MAX_NOTE = 4000;
@@ -40,6 +42,12 @@ export function parseOp(raw: unknown): AuditOp | string {
       if (o.text.length > MAX_NOTE) return `Kommentaren må højst være ${MAX_NOTE} tegn.`;
       return { type: 'note', bingId, text: o.text };
     }
+    case 'finish': {
+      if (!Array.isArray(o.steps) || !o.steps.length || o.steps.length > STEP_IDS.size) return 'Trinene mangler.';
+      const steps = [...new Set(o.steps.map(String))];
+      if (steps.some((s) => !STEP_IDS.has(s))) return 'Ukendt trin.';
+      return { type: 'finish', bingId, steps: steps as StepId[] };
+    }
     default:
       return 'Ukendt ændring.';
   }
@@ -65,6 +73,9 @@ export function applyOp(current: CampaignAudit | undefined, op: AuditOp, by: str
     case 'step':
       if (op.status) next.steps[op.step] = { status: op.status, by, at };
       else delete next.steps[op.step];
+      break;
+    case 'finish':
+      for (const step of op.steps) next.steps[step] ??= { status: 'done', by, at };
       break;
     case 'note': {
       const text = op.text.trim();

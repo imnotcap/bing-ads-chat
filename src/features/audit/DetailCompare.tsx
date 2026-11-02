@@ -35,7 +35,7 @@ export const TAB_LABEL: Record<CompareTab, string> = {
 
 /** The comparisons that make sense for a kind of campaign. */
 export function tabsFor(type: string): CompareTab[] {
-  if (type === 'Shopping') return ['products', 'negatives', 'searchterms'];
+  if (type === 'Shopping') return ['products'];
   if (type === 'PerformanceMax') return ['products', 'negatives'];
   if (type === 'Search') return ['negatives', 'keywords', 'searchterms', 'ads'];
   return [];
@@ -112,7 +112,7 @@ function ListHead({ title, count, tone = 'neutral', copy, ask }: { title: string
           size="xs"
           onClick={() => {
             go('chat');
-            startChat(ask());
+            startChat(ask(), [], { fresh: true });
           }}
         >
           <MessageSquare /> Bed assistenten om forslag til Microsoft

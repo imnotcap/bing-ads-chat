@@ -15,7 +15,7 @@ export function campaignMenuItems(c: CampaignRow, all: CampaignRow[], { openList
       icon: <Sparkles />,
       onSelect: () => {
         useUi.getState().go('chat');
-        startChat(`Analysér kampagnen "${c.name}" (id ${c.id}) i den valgte periode: hvad går godt, hvad bør forbedres, og hvilke konkrete ændringer foreslår du?`);
+        startChat(`Analysér kampagnen "${c.name}" (id ${c.id}) i den valgte periode: hvad går godt, hvad bør forbedres, og hvilke konkrete ændringer foreslår du?`, [], { fresh: true });
       },
     },
     openList && { label: 'Åbn i Kampagner', icon: <LayoutGrid />, onSelect: () => useUi.getState().go('campaigns') },

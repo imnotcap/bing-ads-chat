@@ -24,6 +24,12 @@ export interface AuditRow {
 
 const isActive = (status: string) => status === 'Active';
 
+/** The most finished first: finished campaigns, then by share of steps done; ties keep their order (spend). */
+export function byProgress(rows: AuditRow[]): AuditRow[] {
+  const share = (r: AuditRow) => (r.progress.total ? r.progress.done / r.progress.total : 0);
+  return [...rows].sort((a, b) => Number(b.finished) - Number(a.finished) || share(b) - share(a));
+}
+
 export type AuditGroup = 'started' | 'todo' | 'finished' | 'paused';
 
 /**

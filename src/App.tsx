@@ -162,8 +162,9 @@ function Shell() {
               <span className="ml-auto shrink-0 font-semibold underline">Åbn forbindelser</span>
             </button>
           )}
-          {/* Centred on the page itself – in the chat, not under the session rail. */}
-          <AsciiArc className="transition-[right] duration-300" style={{ right: view === 'chat' && insights ? RAIL_WIDTH : 0 }} />
+          {/* Centred on the page itself – in the chat, not under the session rail. Not behind the
+              audit: a long work list over a moving WebGL layer made every tick of the checklist slow. */}
+          {view !== 'audit' && <AsciiArc className="transition-[right] duration-300" style={{ right: view === 'chat' && insights ? RAIL_WIDTH : 0 }} />}
           <div className="relative z-[1] flex min-h-0 flex-1">
             <AnimatePresence mode="wait" initial={false}>
               {view === 'chat' && (

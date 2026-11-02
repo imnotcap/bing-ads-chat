@@ -47,7 +47,7 @@ async function counterpart(ctx: ToolContext, bing: Campaign, given: string | und
 /** What can be compared for a kind of campaign. */
 function partsFor(type: string): DetailPart[] {
   if (type === 'Search') return ['structure', 'negatives', 'searchterms', 'ads'];
-  if (type === 'Shopping') return ['products', 'negatives', 'searchterms'];
+  if (type === 'Shopping') return ['products'];
   if (type === 'PerformanceMax') return ['products', 'negatives'];
   return ['negatives'];
 }

@@ -95,11 +95,12 @@ describe('compare_with_google', () => {
   it('reads the matched Google campaign and lists what Microsoft lacks', async () => {
     const tool = read('compare_with_google');
     const out = await tool.run(tool.schema.parse({ campaignId: '104' }), ctx());
-    const r = out.result as { google: { id: string; howMatched: string }; productGroups: { adGroups: { status: string; splitsMicrosoftAllProducts: boolean }[] }; negativeKeywords: { missingInMicrosoft: { items: { text: string }[] } }; rules: string };
+    const r = out.result as { google: { id: string; howMatched: string }; productGroups: { adGroups: { status: string; splitsMicrosoftAllProducts: boolean }[] }; negativeKeywords?: unknown; rules: string };
     expect(r.google.id).toBe('9001');
     expect(r.google.howMatched).toMatch(/Audit/);
     expect(r.productGroups.adGroups[0]).toMatchObject({ status: 'changes', splitsMicrosoftAllProducts: true });
-    expect(r.negativeKeywords.missingInMicrosoft.items.map((n) => n.text)).toEqual(['gratis']);
+    // Shopping: product groups only – no negative keywords or search terms.
+    expect(r.negativeKeywords).toBeUndefined();
     expect(r.rules).toMatch(/never suggest changing it/);
     // Reading never writes anything to Microsoft either.
     expect(calls).toEqual([]);

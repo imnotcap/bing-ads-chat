@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { applyOp, parseOp } from '@/features/audit/ops';
 import { nameScore, suggestMatch } from '@/features/audit/match';
-import { AUDIT_STEPS, progressOf, type CampaignAudit } from '@/features/audit/steps';
-import { groupOf, type AuditRow } from '@/features/audit/model';
+import { AUDIT_STEPS, progressOf, stepApplies, type CampaignAudit } from '@/features/audit/steps';
+import { byProgress, groupOf, type AuditRow } from '@/features/audit/model';
 import { changeAudit, readAudits, type AuditStorage } from '../../cloudflare/src/audit';
 
 function memoryStorage(): AuditStorage & { data: Map<string, unknown> } {
@@ -24,9 +24,9 @@ describe('the audit checklist', () => {
   });
 
   it('counts only the steps that apply to the kind of campaign', () => {
-    // Search: no Shopping and no PMax step. Shopping: no keywords and no PMax.
+    // Search: no Shopping and no PMax step. Shopping: no keywords, search terms, negatives or PMax.
     expect(progressOf(undefined, 'Search')).toEqual({ done: 0, total: 19 });
-    expect(progressOf(undefined, 'Shopping')).toEqual({ done: 0, total: 19 });
+    expect(progressOf(undefined, 'Shopping')).toEqual({ done: 0, total: 17 });
     expect(progressOf(undefined, 'PerformanceMax')).toEqual({ done: 0, total: 20 });
     const audit: CampaignAudit = { bingId: '1', steps: { match: { status: 'done', by: 'A', at: 1 }, devices: { status: 'na', by: 'A', at: 1 } } };
     expect(progressOf(audit, 'Search')).toEqual({ done: 2, total: 19 });
@@ -98,5 +98,42 @@ describe('the sidebar groups', () => {
     expect(groupOf(row('Active', 19))).toBe('finished');
     expect(groupOf(row('Paused', 19))).toBe('paused');
     expect(groupOf(row('BudgetPaused', 2))).toBe('paused');
+  });
+});
+
+describe('Shopping, "Færdig" and sorting by progress', () => {
+  const step = (id: string) => AUDIT_STEPS.find((s) => s.id === id)!;
+
+  it('has no negative keywords or search terms step for Shopping', () => {
+    expect(stepApplies(step('negatives'), 'Shopping')).toBe(false);
+    expect(stepApplies(step('searchterms'), 'Shopping')).toBe(false);
+    expect(stepApplies(step('negatives'), 'Search')).toBe(true);
+    expect(stepApplies(step('shopping'), 'Shopping')).toBe(true);
+    const ids = AUDIT_STEPS.filter((s) => stepApplies(s, 'Shopping')).map((s) => s.id);
+    expect(progressOf({ bingId: '1', steps: {} }, 'Shopping').total).toBe(ids.length);
+  });
+
+  it('"Færdig" ticks every open step, keeps "not relevant", and makes the campaign finished', () => {
+    const before: CampaignAudit = { bingId: '7', steps: { budget: { status: 'na', by: 'A', at: 1 }, role: { status: 'done', by: 'A', at: 1 } } };
+    const open = AUDIT_STEPS.filter((s) => stepApplies(s, 'Shopping') && !before.steps[s.id]).map((s) => s.id);
+    const op = parseOp({ type: 'finish', bingId: '7', steps: open });
+    expect(typeof op).toBe('object');
+    const after = applyOp(before, op as Exclude<typeof op, string>, 'B', 2);
+    expect(after.steps.budget).toEqual({ status: 'na', by: 'A', at: 1 });
+    expect(after.steps.role).toEqual({ status: 'done', by: 'A', at: 1 });
+    expect(after.steps.shopping).toEqual({ status: 'done', by: 'B', at: 2 });
+    const p = progressOf(after, 'Shopping');
+    expect(p.done).toBe(p.total);
+  });
+
+  it('refuses a "Færdig" without steps or with unknown ones', () => {
+    expect(parseOp({ type: 'finish', bingId: '7', steps: [] })).toBe('Trinene mangler.');
+    expect(parseOp({ type: 'finish', bingId: '7', steps: ['nope'] })).toBe('Ukendt trin.');
+  });
+
+  it('puts finished campaigns first, then the furthest along, keeping spend order for ties', () => {
+    const r = (id: string, done: number, total = 10) => ({ bing: { id, status: 'Active' }, progress: { done, total }, finished: done === total }) as unknown as AuditRow;
+    const sorted = byProgress([r('a', 2), r('b', 10), r('c', 5), r('d', 2), r('e', 10)]);
+    expect(sorted.map((x) => x.bing.id)).toEqual(['b', 'e', 'c', 'a', 'd']);
   });
 });
