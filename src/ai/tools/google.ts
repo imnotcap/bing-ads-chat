@@ -228,6 +228,37 @@ export const googleTools = [
     },
   }),
 
+  defineRead({
+    name: 'list_product_groups',
+    kind: 'read',
+    description:
+      'Read a Microsoft Shopping campaign\'s product groups (product partitions) per ad group: whether the tree is "Alle produkter", split by item id (each item id with its bid or excluded, and "everything else"), or split some other way. Use this – never microsoft_ads_api – to read product groups. Change them with match_product_groups_to_google.',
+    schema: z.object({
+      campaignId: z.string().describe('The Microsoft Shopping campaign.'),
+      adGroupId: z.string().optional().describe('Only this ad group.'),
+    }),
+    label: () => 'Læser produktgrupper',
+    async run(input, ctx) {
+      const c = await getCampaign(ctx, input.campaignId);
+      if (c.type !== 'Shopping') throw new Error(`"${c.name}" er en ${c.type}-kampagne – produktgrupper findes kun i Shopping-kampagner.`);
+      if (!ctx.backend.listProductPartitions) throw new Error('Produktgrupper kan kun læses fra den rigtige Microsoft-konto (ikke demo).');
+      const groups = (await getAdGroups(ctx, c.id)).filter((g) => g.status !== 'Deleted' && (!input.adGroupId || g.id === String(input.adGroupId)));
+      const MAX = 400;
+      const adGroups = await Promise.all(
+        groups.map(async (g) => {
+          const shape = shapeOf(toListingNodes(await ctx.backend.listProductPartitions!(ctx.accountId, g.id, g.name)));
+          const unit = (n: { excluded: boolean; bid?: number | null }) => (n.excluded ? 'excluded' : { bid: n.bid ?? null });
+          if (shape.kind === 'none') return { adGroup: g.name, id: g.id, tree: 'none' };
+          if (shape.kind === 'other') return { adGroup: g.name, id: g.id, tree: 'other', why: shape.why };
+          if (shape.kind === 'all') return { adGroup: g.name, id: g.id, tree: 'all products', allProducts: unit(shape.root) };
+          const items = [...shape.items.values()].map((n) => ({ itemId: n.raw || n.value, ...(n.excluded ? { excluded: true } : { bid: n.bid ?? null }) }));
+          return { adGroup: g.name, id: g.id, tree: 'by item id', everythingElse: unit(shape.other), itemCount: items.length, items: items.slice(0, MAX), ...(items.length > MAX ? { more: items.length - MAX } : {}) };
+        }),
+      );
+      return { result: { campaign: c.name, adGroups }, summary: `${adGroups.length} ${adGroups.length === 1 ? 'annoncegruppe' : 'annoncegrupper'} læst` };
+    },
+  }),
+
   defineWrite({
     name: 'match_product_groups_to_google',
     kind: 'write',
@@ -238,6 +269,7 @@ export const googleTools = [
       googleCampaignId: z.string().optional().describe('The Google campaign, if not the one matched on the Audit page.'),
       adGroupIds: z.array(z.string()).max(200).optional().describe('Only these Microsoft ad groups (default: all).'),
       includeUnshown: z.boolean().optional().describe('Also exclude item ids Microsoft has not shown in the ad group (default false – only if the user asks).'),
+      bid: z.number().positive().max(1000).optional().describe('CPC bid in the account currency for every item id this call starts bidding on (new, or switched from excluded) and a new "everything else" – only when the user names a bid. Default: the bid the ad group\'s units already use most. Existing units keep their bids.'),
       skip: z.array(z.string()).max(20_000).optional().describe('Leave out – filled in from what the user ticks off on the card.'),
       reason: z.string().describe('Why, in Danish – shown on the approval card.'),
     }),
@@ -253,7 +285,9 @@ export const googleTools = [
       const only = input.adGroupIds?.length ? new Set(input.adGroupIds.map(String)) : null;
       const groups = plan.filter((g) => !only || (g.bingAdGroupId && only.has(g.bingAdGroupId)));
       const skip = new Set(input.skip ?? []);
-      const working = groups.filter((g) => g.status === 'changes');
+      const working = groups.filter((g) => g.status === 'changes').map((g) => (input.bid ? { ...g, bid: input.bid } : g));
+      const BIDS: MirrorAction[] = ['add_bid', 'to_bid', 'else_bid', 'all', 'collapse'];
+      const bids = working.filter((g) => g.rows.some((r) => BIDS.includes(r.action) && !skip.has(r.key)));
       const lines: ChangeLine[] = working.flatMap((g) =>
         g.rows
           .filter((r) => !skip.has(r.key))
@@ -266,7 +300,7 @@ export const googleTools = [
               group: g.bingGroup,
               kind: TAG[r.action],
               why: r.label,
-              bid: ['add_bid', 'to_bid', 'else_bid', 'all', 'collapse'].includes(r.action) ? g.bid : null,
+              bid: BIDS.includes(r.action) ? g.bid : null,
             },
             pickKey: r.key,
             pickOff: r.defaultOff,
@@ -281,7 +315,11 @@ export const googleTools = [
       const notes = [
         `Google-kampagnen "${google.name}" er ${how}. Google ændres ikke – det læses kun.`,
         ...working.filter((g) => g.convert).map((g) => `"${g.bingGroup}": Microsofts "Alle produkter" opdeles efter varenummer, ligesom i Google.`),
-        ...working.filter((g) => g.bid).map((g) => `"${g.bingGroup}": nye varenumre, der bydes på, får ${g.bid} kr. pr. klik (det bud, gruppens produkter oftest har).`),
+        ...bids.map((g) =>
+          g.bid
+            ? `"${g.bingGroup}": varenumre, der begynder at blive budt på, får ${g.bid} kr. pr. klik (${input.bid ? 'det bud, der blev bedt om' : 'det bud, gruppens produkter oftest har'}). Andre varenumre beholder deres bud.`
+            : `"${g.bingGroup}": har intet bud at gå ud fra – angiv et bud.`,
+        ),
         ...groups
           .filter((g) => g.unshown.length)
           .map((g) => `"${g.bingGroup}": ${g.unshown.length} ${g.unshown.length === 1 ? 'varenummer' : 'varenumre'}, som Google udelukker, er ikke med – Microsoft har ikke vist ${g.unshown.length === 1 ? 'det' : 'dem'} i gruppen de seneste ${SHOWN_DAYS} dage, så en udelukkelse ændrer intet.`),
@@ -298,6 +336,7 @@ export const googleTools = [
           changes: lines,
           dailyBudgetDelta: 0,
           increasesSpend: increases,
+          newBids: [...new Set(bids.map((g) => g.bid).filter((b): b is number => !!b))],
           campaignIds: [c.id],
           notes,
           pick: {

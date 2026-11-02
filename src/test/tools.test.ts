@@ -71,7 +71,7 @@ describe('tools', () => {
   it('treats raw API query calls as read-only', async () => {
     const tool = getTool('microsoft_ads_api')!;
     if (tool.kind !== 'write') throw new Error('unexpected');
-    const read = await tool.plan(tool.schema.parse({ service: 'campaign', path: 'AdExtensions/QueryByIds', method: 'POST', body: {}, reason: 'x' }), ctx());
+    const read = await tool.plan(tool.schema.parse({ service: 'campaign', path: 'AdExtensions/QueryByIds', method: 'POST', body: { AccountId: 1, AdExtensionIds: [2], AdExtensionType: 'SitelinkAdExtension' }, reason: 'x' }), ctx());
     expect(read.plan).toBeNull();
     const write = await tool.plan(tool.schema.parse({ service: 'campaign', path: 'CampaignCriterions', method: 'POST', body: { CampaignId: 105 }, reason: 'x' }), ctx());
     expect(write.plan?.kind).toBe('raw');

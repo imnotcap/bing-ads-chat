@@ -192,10 +192,37 @@ describe('match_product_groups_to_google', () => {
     expect(plan!.notes!.join(' ')).toMatch(/Kunne ikke tjekke.*Rapporten blev ikke klar/);
   });
 
+  it('uses the bid the user names for items it starts bidding on, and checks it against the bid ceiling', async () => {
+    const tool = write('match_product_groups_to_google');
+    const { plan: p, execute } = await tool.plan(tool.schema.parse({ campaignId: '104', reason: 'x', bid: 10.05 }), ctx());
+    const plan = p!;
+    expect(plan.newBids).toEqual([10.05]);
+    expect(plan.notes!.join(' ')).toMatch(/10\.05 kr\. pr\. klik \(det bud, der blev bedt om\)/);
+    await execute();
+    expect(tree.find((n) => n.attribute === 'SKU-1')!.bid).toBe(10.05);
+    expect(tree.find((n) => n.attribute === 'SKU-2')!.excluded).toBe(true);
+  });
+
   it('has nothing to do when Microsoft already matches', async () => {
     const tool = write('match_product_groups_to_google');
     const first = await tool.plan(tool.schema.parse({ campaignId: '104', reason: 'x' }), ctx());
     await first.execute();
     await expect(tool.plan(tool.schema.parse({ campaignId: '104', reason: 'x' }), ctx())).rejects.toThrow(/Ingen produktgrupper at rette/);
+  });
+});
+
+describe('list_product_groups', () => {
+  it('reads Microsoft\'s tree per ad group, without the raw API', async () => {
+    tree = [
+      { id: '1', parentId: null, group: '', groupId: '1040', unit: false, excluded: false, operand: 'All', attribute: '', bid: null },
+      { id: '2', parentId: '1', group: '', groupId: '1040', unit: true, excluded: true, operand: 'Id', attribute: 'SKU-9', bid: null },
+      { id: '3', parentId: '1', group: '', groupId: '1040', unit: true, excluded: false, operand: 'Id', attribute: '', bid: 4 },
+    ];
+    const tool = read('list_product_groups');
+    const out = await tool.run(tool.schema.parse({ campaignId: '104' }), ctx());
+    const g = (out.result as { adGroups: { tree: string; items: unknown[]; everythingElse: unknown }[] }).adGroups[0]!;
+    expect(g.tree).toBe('by item id');
+    expect(g.items).toEqual([{ itemId: 'SKU-9', excluded: true }]);
+    expect(g.everythingElse).toEqual({ bid: 4 });
   });
 });

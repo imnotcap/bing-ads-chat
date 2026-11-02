@@ -1266,7 +1266,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
   defineWrite({
     name: 'microsoft_ads_api',
     kind: 'write',
-    description: `Call any Microsoft Advertising REST API v13 operation directly – for everything the other tools do not cover (ad extensions/assets such as sitelinks and callouts, location and device targeting criteria and bid adjustments, audiences, conversion goals, UET tags, shared budgets and negative keyword lists, labels, Bulk …). Use the dedicated tools for campaigns, ad groups, keywords, negatives and ads – they check feasibility and verify the result.
+    description: `Call any Microsoft Advertising REST API v13 operation directly – for everything the other tools do not cover (ad extensions/assets such as sitelinks and callouts, location and device targeting criteria and bid adjustments, audiences, conversion goals, UET tags, shared budgets and negative keyword lists, labels, Bulk …). Use the dedicated tools for campaigns, ad groups, keywords, negatives, ads and product groups – they check feasibility and verify the result. Product groups (product partitions, listing groups) are refused here: read them with list_product_groups, change them with match_product_groups_to_google.
 ALWAYS look the operation up with find_api_operation first and use exactly the method and path it returns – paths do not always follow a pattern (e.g. GetNegativeKeywordsByEntityIds is POST 'NegativeKeywords/QueryByEntityIds'), and calls to operations that do not exist are refused. The JSON body uses the request element names it lists. Polymorphic objects need a "Type" field with the class name (e.g. BiddingScheme {"Type": "MaxConversionsBiddingScheme"}; ads use the ad type, e.g. "ResponsiveSearch"). Flag combinations are comma-separated. CustomerId and CustomerAccountId headers are added automatically.
 Reads (POST to …/Query…, …/Search, or GET) run immediately; every other call needs the user's approval. Writes are NOT verified automatically: after a write, read the entity back with a Query call before telling the user it is done. Account, user and billing administration (customer/billing services) is not allowed. Live accounts only.`,
     schema: z.object({
@@ -1288,6 +1288,19 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
       }
       const readOnly = isReadOperation(op);
       const missing = missingRequired(op, input.body);
+      // Product groups only change as a whole tree per ad group (ApplyProductPartitionActions);
+      // one raw call per item breaks the tree or does something else than it says.
+      if (/ProductPartition|ListingGroup/i.test(`${path} ${JSON.stringify(input.body ?? {})}`)) {
+        throw new Error(
+          readOnly
+            ? 'Produktgrupper læses med list_product_groups (Shopping) eller compare_with_google (også Performance Max) – ikke med det direkte API.'
+            : 'Produktgrupper ændres ikke med det direkte API. Brug match_product_groups_to_google: ét samlet kort, sendt samlet pr. annoncegruppe og læst tilbage (bid sætter et bestemt bud). Performance Max-listinggrupper rettes i Microsoft Advertising.',
+        );
+      }
+      // A read without the ids/types Microsoft requires only comes back as an error ("The request message is null").
+      const missingKeys = missing.filter((m) => /(Id|Ids|Type)$/.test(m));
+      if (readOnly && missingKeys.length)
+        throw new Error(`${op.op} kræver ${missingKeys.join(', ')} i body (null er tilladt, hvor listen kan være tom). Kaldet er ikke sendt – tilføj felterne og prøv igen.`);
       const run = async () => {
         const result = await ctx.backend.rawRequest(ctx.accountId, input.service as MsService, op.path, op.method as 'GET' | 'POST' | 'PUT' | 'DELETE', input.body).catch((e: unknown) => {
           if (missing.length && e instanceof Error) e.message += ` (Dokumentationen for ${op.op} kræver også: ${missing.join(', ')}.)`;

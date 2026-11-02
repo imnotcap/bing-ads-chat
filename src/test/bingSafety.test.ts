@@ -255,7 +255,7 @@ describe('operations from Microsoft’s documentation', () => {
     await expect(plan('microsoft_ads_api', { service: 'campaign', path: 'EntityNegativeKeywords/QueryByEntityIds', method: 'POST', body: {}, reason: 'x' })).rejects.toThrow(
       /ingen operation.*NegativeKeywords\/QueryByEntityIds/s,
     );
-    const ok = await plan('microsoft_ads_api', { service: 'campaign', path: 'NegativeKeywords/QueryByEntityIds', method: 'POST', body: {}, reason: 'x' });
+    const ok = await plan('microsoft_ads_api', { service: 'campaign', path: 'NegativeKeywords/QueryByEntityIds', method: 'POST', body: { EntityIds: [1], EntityType: 'Campaign', ParentEntityId: 2 }, reason: 'x' });
     expect(ok.plan).toBeNull();
   });
 });
@@ -298,5 +298,25 @@ describe('keyword ideas request', () => {
     expect(params.map((p) => p.Type).sort()).toEqual(['LanguageSearchParameter', 'LocationSearchParameter', 'NetworkSearchParameter', 'QuerySearchParameter']);
     expect(params.find((p) => p.Type === 'LocationSearchParameter')).toEqual({ Type: 'LocationSearchParameter', Locations: [{ LocationId: 59 }] });
     await expect(backend.keywordIdeas('5', { queries: ['x'], location: 'Atlantis' })).rejects.toThrow(/kender ikke landet/);
+  });
+});
+
+describe('product groups never go through the raw API', () => {
+  it('refuses a raw delete of a product partition – one item at a time breaks the tree', async () => {
+    await expect(
+      plan('microsoft_ads_api', { service: 'campaign', path: 'AdGroupCriterions', method: 'DELETE', body: { AdGroupId: 1, AdGroupCriterionIds: [2], CriterionType: 'ProductPartition' }, reason: 'x' }),
+    ).rejects.toThrow(/match_product_groups_to_google/);
+  });
+
+  it('sends product group reads to list_product_groups', async () => {
+    await expect(
+      plan('microsoft_ads_api', { service: 'campaign', path: 'AdGroupCriterions/QueryByIds', method: 'POST', body: { AdGroupId: 1, AdGroupCriterionIds: null, CriterionType: 'ProductPartition' }, reason: 'x' }),
+    ).rejects.toThrow(/list_product_groups/);
+  });
+
+  it('does not send a read that lacks the fields Microsoft requires', async () => {
+    await expect(plan('microsoft_ads_api', { service: 'campaign', path: 'AdGroupCriterions/QueryByIds', method: 'POST', body: { AdGroupId: 1, CriterionType: 'Age' }, reason: 'x' })).rejects.toThrow(
+      /kræver AdGroupCriterionIds.*ikke sendt/s,
+    );
   });
 });
