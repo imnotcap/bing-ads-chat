@@ -26,6 +26,8 @@ vi.mock('@/ai/googleSource', () => ({
 
 let tree: ProductTreeNode[] = [];
 let calls: PartitionAction[][] = [];
+/** The item ids Microsoft showed in ad group 1040 over the last 90 days. */
+let shown: string[] = [];
 
 function backend() {
   const b: AdsBackend = new DemoBackend(0);
@@ -48,6 +50,7 @@ function backend() {
     }
     return { succeeded: actions.length, failed: [] } as never;
   };
+  b.shownProducts = async () => shown.map((itemId) => ({ itemId, adGroupId: '1040', impressions: 10 }));
   return b;
 }
 
@@ -89,6 +92,7 @@ beforeEach(() => {
   // Microsoft: one "Alle produkter" unit.
   tree = [{ id: '1', parentId: null, group: 'Alle produkter', groupId: '1040', unit: true, excluded: false, operand: 'All', attribute: '', bid: 2.2 }];
   calls = [];
+  shown = ['SKU-1', 'SKU-2'];
 });
 
 describe('compare_with_google', () => {
@@ -156,6 +160,36 @@ describe('match_product_groups_to_google', () => {
     const pmax = (await c.backend.listCampaigns(c.accountId)).find((x) => x.type === 'PerformanceMax');
     if (pmax) await expect(tool.plan(tool.schema.parse({ campaignId: pmax.id, reason: 'x' }), c)).rejects.toThrow(/Performance Max/);
     await expect(tool.plan(tool.schema.parse({ campaignId: '102', reason: 'x' }), c)).rejects.toThrow(/kun i Shopping/);
+  });
+
+  it('leaves out an exclusion of a product Microsoft never showed – it would change nothing', async () => {
+    shown = ['SKU-1'];
+    const tool = write('match_product_groups_to_google');
+    const { plan: p, execute } = await tool.plan(tool.schema.parse({ campaignId: '104', reason: 'x' }), ctx());
+    const plan = p!;
+    expect(plan.changes.some((l) => l.after === 'SKU-2')).toBe(false);
+    expect(plan.notes!.join(' ')).toMatch(/1 varenummer, som Google udelukker, er ikke med/);
+    await execute();
+    expect(tree.some((n) => n.attribute === 'SKU-2')).toBe(false);
+    expect(tree.some((n) => n.attribute === 'SKU-1')).toBe(true);
+  });
+
+  it('excludes it anyway when the user asks for it', async () => {
+    shown = ['SKU-1'];
+    const tool = write('match_product_groups_to_google');
+    const { plan } = await tool.plan(tool.schema.parse({ campaignId: '104', reason: 'x', includeUnshown: true }), ctx());
+    expect(plan!.changes.some((l) => l.after === 'SKU-2')).toBe(true);
+  });
+
+  it('keeps every exclusion, and says why, when it cannot read what Microsoft showed', async () => {
+    const c = ctx();
+    c.backend.shownProducts = async () => {
+      throw new Error('Rapporten blev ikke klar');
+    };
+    const tool = write('match_product_groups_to_google');
+    const { plan } = await tool.plan(tool.schema.parse({ campaignId: '104', reason: 'x' }), c);
+    expect(plan!.changes.some((l) => l.after === 'SKU-2')).toBe(true);
+    expect(plan!.notes!.join(' ')).toMatch(/Kunne ikke tjekke.*Rapporten blev ikke klar/);
   });
 
   it('has nothing to do when Microsoft already matches', async () => {

@@ -387,6 +387,14 @@ export interface ProductStatus {
 }
 
 /** One product with its performance in a period and the period before. */
+/** A product that showed in a campaign: the item id as Microsoft reports it, and where. */
+export interface ShownProduct {
+  itemId: string;
+  /** The ad group (Shopping) or asset group (Performance Max). */
+  adGroupId: string | null;
+  impressions: number;
+}
+
 export interface ProductPerformance {
   /** The merchant's product id (offer id). */
   id: string;
@@ -448,6 +456,8 @@ export interface AdsBackend {
    * products worth showing happens in bing/products.ts.
    */
   productPerformance?(accountId: string, range: DateRange, signal?: AbortSignal): Promise<ProductPerformance[]>;
+  /** The products one campaign showed in the period (impressions per item id and ad group / asset group). */
+  shownProducts?(accountId: string, campaignId: string, range: DateRange, signal?: AbortSignal): Promise<ShownProduct[]>;
   /** `location`: a country name in English (default Denmark). */
   keywordIdeas(accountId: string, input: { queries: string[]; url?: string; language?: string; location?: string; limit?: number }): Promise<KeywordIdea[]>;
   budgetOpportunities(accountId: string, campaignId?: string): Promise<BudgetOpportunity[]>;

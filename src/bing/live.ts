@@ -6,7 +6,7 @@ import { sleep } from '@/lib/utils';
 import { MsAdsClient, MsApiError, extractErrorMessages, type MsCredentials } from './client';
 import { parseCsv } from './csv';
 import { buildReportRequest, normalizeReportRows } from './reports';
-import { aggregateProducts, buildProductReportRequest, offerIdOf, productStatuses, type CatalogOffer } from './products';
+import { aggregateProducts, buildProductReportRequest, buildShownProductsRequest, offerIdOf, productStatuses, shownProductsOf, type CatalogOffer } from './products';
 import { previousRange, type DateRange } from '@/lib/format';
 import type {
   ProductPerformance,
@@ -42,6 +42,7 @@ import type {
   ReportRow,
   ReportSpec,
   SearchVolume,
+  ShownProduct,
 } from './types';
 import { extractFirstFile } from './zip';
 import { CampaignCache, type CampaignStore } from './campaignCache';
@@ -614,6 +615,10 @@ export class LiveBackend implements AdsBackend {
     const products = aggregateProducts(current, previous);
     const active = campaigns ? campaigns.filter((c) => (c.type === 'Shopping' || c.type === 'PerformanceMax') && c.status === 'Active').length : null;
     return productStatuses(products, catalog?.offers ?? null, catalog?.issues ?? null, active);
+  }
+
+  async shownProducts(accountId: string, campaignId: string, range: DateRange, signal?: AbortSignal): Promise<ShownProduct[]> {
+    return shownProductsOf(await this.reportCsv(accountId, buildShownProductsRequest(accountId, campaignId, range), signal, PRODUCT_POLL_ATTEMPTS));
   }
 
   /**

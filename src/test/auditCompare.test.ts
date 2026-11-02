@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blocks, compareAds, compareExclusions, compareKeywords, compareNegatives, compareSearchTerms, exclusionsOf, normUrl, pairGroups } from '@/features/audit/compare';
+import { blocks, byShown, compareAds, compareExclusions, compareKeywords, compareNegatives, compareSearchTerms, exclusionsOf, normUrl, pairGroups } from '@/features/audit/compare';
 import { bingDimension, type DListingNode, type DNegative, type NegativeDetail } from '@/features/audit/detail';
 import { toListingNodes } from '@/features/audit/bingDetail';
 
@@ -249,5 +249,17 @@ describe('keywords that are in Microsoft, but not where Google has them', () => 
     const r = compareKeywords({ ...google, keywords: [k('1', 'helt nyt søgeord')] }, bing);
     expect(r.missingInBing.map((x) => x.text)).toEqual(['helt nyt søgeord']);
     expect(r.elsewhereInBing).toEqual([]);
+  });
+});
+
+describe('excluded in Google, never shown in Microsoft', () => {
+  it('counts an item id Microsoft has not shown as not missing; other exclusions always count', () => {
+    const n = (id: string, parentId: string | null, dim: string, value: string, excluded = false): DListingNode => ({ id, parentId, group: 'Alle', unit: dim !== 'all', excluded, dim, value });
+    const google = [n('1', null, 'all', ''), n('2', '1', 'id', 'sku-1', true), n('3', '1', 'id', 'sku-2', true), n('4', '1', 'id', ''), n('5', null, 'all', '')];
+    const brand = [n('6', null, 'all', ''), n('7', '6', 'brand', 'acme', true), n('8', '6', 'brand', '')].map((x) => ({ ...x, group: 'Mærker' }));
+    const r = compareExclusions([...google.slice(0, 4), ...brand], []);
+    const split = byShown(r.missingInBing, { from: '', to: '', all: new Set(['sku-1']), byGroup: new Map() });
+    expect(split.matter.map((g) => g.path.at(-1)!.value)).toEqual(['sku-1', 'acme']);
+    expect(split.unshown.map((g) => g.path.at(-1)!.value)).toEqual(['sku-2']);
   });
 });

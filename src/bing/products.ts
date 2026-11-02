@@ -7,7 +7,7 @@
 import type { DateRange } from '@/lib/format';
 import { EMPTY_METRICS, addMetrics } from './metrics';
 import { msDate, toNumber } from './reports';
-import type { Metrics, ProductPerformance, ProductPlacement, ProductStatus } from './types';
+import type { Metrics, ProductPerformance, ProductPlacement, ProductStatus, ShownProduct } from './types';
 
 /**
  * Columns of ProductDimensionPerformanceReportRequest for the period itself: one row per
@@ -50,6 +50,33 @@ export function buildProductReportRequest(accountId: string, range: DateRange, d
     Scope: { AccountIds: [Number(accountId)] },
     Time: { CustomDateRangeStart: msDate(range.from), CustomDateRangeEnd: msDate(range.to), ReportTimeZone: 'BrusselsCopenhagenMadridParis' },
   };
+}
+
+/**
+ * One campaign's products with impressions per ad group / asset group – only what is
+ * needed to tell whether a product shows in Microsoft at all.
+ */
+export function buildShownProductsRequest(accountId: string, campaignId: string, range: DateRange): Record<string, unknown> {
+  return {
+    Type: 'ProductDimensionPerformanceReportRequest',
+    ReportName: 'XavierOS – viste produkter',
+    Aggregation: 'Summary',
+    Columns: ['MerchantProductId', 'CampaignId', 'AdGroupId', 'AssetGroupId', 'Impressions'],
+    ExcludeColumnHeaders: false,
+    ExcludeReportFooter: true,
+    ExcludeReportHeader: true,
+    Format: 'Csv',
+    FormatVersion: '2.0',
+    ReturnOnlyCompleteData: false,
+    Scope: { AccountIds: null, Campaigns: [{ AccountId: Number(accountId), CampaignId: Number(campaignId) }] },
+    Time: { CustomDateRangeStart: msDate(range.from), CustomDateRangeEnd: msDate(range.to), ReportTimeZone: 'BrusselsCopenhagenMadridParis' },
+  };
+}
+
+export function shownProductsOf(rows: Record<string, string>[]): ShownProduct[] {
+  return rows
+    .map((r) => ({ itemId: text(r.MerchantProductId) ?? '', adGroupId: text(r.AdGroupId) ?? text(r.AssetGroupId), impressions: toNumber(r.Impressions) }))
+    .filter((p) => p.itemId && p.impressions > 0);
 }
 
 function metricsOf(r: Record<string, string>): Metrics {

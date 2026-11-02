@@ -9,7 +9,7 @@ import { queryClient } from '@/lib/queryClient';
 import { addDays, type DateRange } from '@/lib/format';
 import { useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
-import { bingAds, bingNegatives, bingProducts, bingSearchTerms, bingStructure } from './bingDetail';
+import { bingAds, bingNegatives, bingProducts, bingSearchTerms, bingShownItems, bingStructure } from './bingDetail';
 import type { DetailData, DetailPart } from './detail';
 import { applyOp, type AuditOp } from './ops';
 import type { CampaignAudit } from './steps';
@@ -135,6 +135,19 @@ export function useBingDetail<P extends DetailPart>(campaignId: string, part: P,
       };
       return load[part]();
     },
+  });
+}
+
+/** The products the Microsoft campaign showed over the last 90 days (one report; kept an hour). */
+export function useBingShown(campaignId: string, enabled: boolean) {
+  const accountId = useConnection((s) => s.accountId);
+  const mode = useConnection((s) => s.mode);
+  return useQuery({
+    queryKey: ['bing-shown', mode, accountId, campaignId],
+    enabled: enabled && !!accountId,
+    retry: false,
+    staleTime: 3_600_000,
+    queryFn: () => bingShownItems(accountId!, campaignId),
   });
 }
 

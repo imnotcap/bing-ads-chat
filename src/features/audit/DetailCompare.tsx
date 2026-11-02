@@ -16,9 +16,9 @@ import { fmtMoney, fmtNumber, fmtRelative, type DateRange } from '@/lib/format';
 import { cn, errorMessage } from '@/lib/utils';
 import { useUi } from '@/stores/ui';
 import { startChat } from '../chat/startChat';
-import { refreshDetail, useAuditUi, useBingDetail, useGoogleDetail, type CompareTab } from './data';
-import { compareAds, compareExclusions, compareKeywords, compareNegatives, compareSearchTerms, type Condition } from './compare';
-import { dimensionLabel, type DetailPart, type MatchKind } from './detail';
+import { refreshDetail, useAuditUi, useBingDetail, useBingShown, useGoogleDetail, type CompareTab } from './data';
+import { byShown, compareAds, compareExclusions, compareKeywords, compareNegatives, compareSearchTerms, type Condition } from './compare';
+import { SHOWN_DAYS, dimensionLabel, type DetailPart, type MatchKind } from './detail';
 import type { AuditRow } from './model';
 
 /* ---------------------------------- labels ---------------------------------- */
@@ -158,7 +158,11 @@ const intro = (row: AuditRow) =>
 
 function ProductsTab({ row, range }: { row: AuditRow; range: DateRange }) {
   const { google, bing } = useBoth(row, 'products', range, true);
+  const shown = useBingShown(row.bing.id, true);
   const r = useMemo(() => (google.data && bing.data ? compareExclusions(google.data.data, bing.data) : null), [google.data, bing.data]);
+  // Item ids Microsoft has not shown in the campaign: excluding them changes nothing.
+  const split = useMemo(() => (r && shown.data ? byShown(r.missingInBing, shown.data) : null), [r, shown.data]);
+  const missing = split?.matter ?? r?.missingInBing ?? [];
   return (
     <>
       <Status google={google} bing={bing} />
@@ -166,24 +170,35 @@ function ProductsTab({ row, range }: { row: AuditRow; range: DateRange }) {
         <>
           <p className="px-4 pt-3 text-[13px] text-ink-2">
             Google udelukker <b>{r.googleTotal}</b> {r.googleTotal === 1 ? 'produktgruppe' : 'produktgrupper'} i kampagnen. <b>{r.covered}</b> er også udelukket i Microsoft
-            {r.missingInBing.length ? (
+            {missing.length ? (
               <>
                 {' '}
-                – <b className="text-negative">{r.missingInBing.length} mangler</b>.
+                – <b className="text-negative">{missing.length} mangler</b>.
               </>
             ) : (
               '.'
             )}
+            {split && split.unshown.length > 0 && (
+              <>
+                {' '}
+                {split.unshown.length} {split.unshown.length === 1 ? 'varenummer' : 'varenumre'} mere er udelukket i Google, men er slet ikke vist i Microsoft de seneste {SHOWN_DAYS} dage – dem behøver
+                Microsoft ikke at udelukke.
+              </>
+            )}
           </p>
+          {shown.isPending && <p className="px-4 pt-1 text-[12px] text-subtle">Tjekker, hvilke produkter Microsoft har vist …</p>}
+          {shown.error && (
+            <p className="px-4 pt-1 text-[12px] text-subtle">Kunne ikke tjekke, hvilke produkter Microsoft har vist ({errorMessage(shown.error)}) – alle manglende er talt med.</p>
+          )}
           <ListHead
             title="Udelukket i Google, ikke i Microsoft"
-            count={r.missingInBing.length}
+            count={missing.length}
             tone="negative"
-            copy={() => r.missingInBing.map((g) => `${pathText(g.path)}\t${g.groups.join(', ')}`).join('\n')}
+            copy={() => missing.map((g) => `${pathText(g.path)}\t${g.groups.join(', ')}`).join('\n')}
           />
           <Rows
-            items={r.missingInBing}
-            empty="Alt, Google udelukker, er også udelukket i Microsoft."
+            items={missing}
+            empty={split?.unshown.length ? 'Alt, Google udelukker, og som Microsoft viser, er også udelukket i Microsoft.' : 'Alt, Google udelukker, er også udelukket i Microsoft.'}
             render={(g, i) => (
               <li key={i} className={li}>
                 <span className="font-medium text-ink">{pathText(g.path)}</span>
@@ -192,6 +207,26 @@ function ProductsTab({ row, range }: { row: AuditRow; range: DateRange }) {
               </li>
             )}
           />
+          {split && split.unshown.length > 0 && (
+            <>
+              <ListHead
+                title={`Vises ikke i Microsoft – behøver ikke udelukkes (${SHOWN_DAYS} dage)`}
+                count={split.unshown.length}
+                copy={() => split.unshown.map((g) => pathText(g.path)).join('\n')}
+              />
+              <Rows
+                items={split.unshown}
+                first={6}
+                empty=""
+                render={(g, i) => (
+                  <li key={i} className={li}>
+                    <span className="text-ink-2">{pathText(g.path)}</span>
+                    <span className="text-[12px] text-subtle">Google: {g.groups.join(', ') || '–'}</span>
+                  </li>
+                )}
+              />
+            </>
+          )}
           <ListHead title="Kun udelukket i Microsoft" count={r.onlyInBing.length} copy={() => r.onlyInBing.map((g) => pathText(g.path)).join('\n')} />
           <Rows
             items={r.onlyInBing}
@@ -205,7 +240,7 @@ function ProductsTab({ row, range }: { row: AuditRow; range: DateRange }) {
             )}
           />
           <p className="px-4 pb-4 text-[12px] text-subtle">
-            Produktgrupper rettes i Microsoft Advertising under kampagnens produktgrupper – assistenten kan ikke ændre dem endnu. Sammenlignet på tværs af annoncegrupper.
+            Sammenlignet på tværs af annoncegrupper. I Shopping-kampagner kan assistenten rette produktgrupperne efter Google (Spørg assistenten om 1:1 matchup); Performance Max rettes i Microsoft Advertising.
           </p>
         </>
       )}

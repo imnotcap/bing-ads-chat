@@ -135,3 +135,17 @@ export function dimensionLabel(dim: string): string {
   if (m) return `Kategori ${m[1]}`;
   return dim;
 }
+
+/**
+ * The products a Microsoft campaign actually showed (item ids in lower case), over the
+ * last SHOWN_DAYS days: excluding a product that never shows changes nothing.
+ */
+export interface ShownItems {
+  from: string;
+  to: string;
+  all: Set<string>;
+  /** Per ad group / asset group id. */
+  byGroup: Map<string, Set<string>>;
+}
+
+export const SHOWN_DAYS = 90;

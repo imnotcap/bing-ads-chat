@@ -14,7 +14,7 @@
  */
 import type { PartitionAction } from '@/bing/types';
 import { counterparts } from './compare';
-import { dimensionLabel, type DListingNode } from './detail';
+import { dimensionLabel, type DListingNode, type ShownItems } from './detail';
 
 /* ----------------------------------- shapes ----------------------------------- */
 
@@ -70,6 +70,8 @@ export interface MirrorGroup {
   /** The bid new units get: what the ad group's units already bid most often. */
   bid: number | null;
   rows: MirrorRow[];
+  /** Item ids Google excludes that Microsoft has not shown in this ad group: left alone – excluding them changes nothing. */
+  unshown: string[];
   google: TreeShape;
   bing: TreeShape;
 }
@@ -92,9 +94,15 @@ const rowKey = (bingAdGroupId: string, action: MirrorAction, itemId: string) => 
 
 /**
  * Per Google ad group: its Microsoft counterpart (same or nearly the same name) and the
- * rows that would make Microsoft's tree like Google's.
+ * rows that would make Microsoft's tree like Google's. With `shown` (the products Microsoft
+ * showed), an item Google excludes is only excluded in Microsoft when it showed there.
  */
-export function planMirror(google: DListingNode[], bing: DListingNode[], bingGroups: { id: string; name: string; cpcBid?: number | null }[]): MirrorGroup[] {
+export function planMirror(
+  google: DListingNode[],
+  bing: DListingNode[],
+  bingGroups: { id: string; name: string; cpcBid?: number | null }[],
+  shown: ShownItems | null = null,
+): MirrorGroup[] {
   const googleByGroup = new Map<string, DListingNode[]>();
   for (const n of google) googleByGroup.set(n.group, [...(googleByGroup.get(n.group) ?? []), n]);
   const used = new Map<string, string>();
@@ -104,7 +112,7 @@ export function planMirror(google: DListingNode[], bing: DListingNode[], bingGro
     const g = shapeOf(gNodes);
     const name = counterparts(googleGroup, bingGroups.map((b) => b.name))[0];
     const bg = name ? bingGroups.find((b) => b.name === name) : undefined;
-    const base = { googleGroup, bingGroup: bg?.name ?? null, bingAdGroupId: bg?.id ?? null, convert: false, rows: [] as MirrorRow[], google: g };
+    const base = { googleGroup, bingGroup: bg?.name ?? null, bingAdGroupId: bg?.id ?? null, convert: false, rows: [] as MirrorRow[], unshown: [] as string[], google: g };
     if (!bg) {
       out.push({ ...base, status: 'missing', reason: 'Ingen annoncegruppe med samme eller næsten samme navn i Microsoft.', bid: null, bing: { kind: 'none' } });
       continue;
@@ -147,10 +155,17 @@ export function planMirror(google: DListingNode[], bing: DListingNode[], bingGro
 
     // Google is split by item id.
     const rows: MirrorRow[] = [];
+    const unshown: string[] = [];
+    const showsHere = shown?.byGroup.get(bg.id);
     const items = [...g.items.values()].sort((x, y) => (x.raw ?? x.value).localeCompare(y.raw ?? y.value, 'da'));
     for (const item of items) {
       const id = item.raw || item.value;
       const there = b.kind === 'ids' ? b.items.get(item.value) : undefined;
+      const wouldExclude = item.excluded && (!there || !there.excluded);
+      if (wouldExclude && shown && !showsHere?.has(item.value)) {
+        unshown.push(id);
+        continue;
+      }
       if (!there) rows.push(row(item.excluded ? 'add_exclude' : 'add_bid', id, item.excluded ? `Udeluk varenummer ${id}` : `Byd på varenummer ${id}`));
       else if (there.excluded !== item.excluded)
         rows.push(row(item.excluded ? 'to_exclude' : 'to_bid', id, item.excluded ? `Udeluk varenummer ${id} (bydes på i Microsoft)` : `Byd på varenummer ${id} (udelukket i Microsoft)`, false, there));
@@ -159,7 +174,9 @@ export function planMirror(google: DListingNode[], bing: DListingNode[], bingGro
       for (const [value, node] of b.items)
         if (!g.items.has(value)) rows.push(row('remove', node.raw || value, `Fjern varenummer ${node.raw || value} (ikke opdelt i Google – falder ind under "alt andet")`, true, node));
     const bingOtherExcluded = b.kind === 'ids' ? b.other.excluded : false;
-    if (b.kind !== 'ids' || g.other.excluded !== bingOtherExcluded)
+    // Only exclusions that changed nothing differed: splitting "Alle produkter" for none of them is no change.
+    const nothingToSplit = b.kind !== 'ids' && !rows.length && !g.other.excluded;
+    if (!nothingToSplit && (b.kind !== 'ids' || g.other.excluded !== bingOtherExcluded))
       rows.push(
         row(
           g.other.excluded ? 'else_exclude' : 'else_bid',
@@ -169,8 +186,8 @@ export function planMirror(google: DListingNode[], bing: DListingNode[], bingGro
           b.kind === 'ids' ? b.other : undefined,
         ),
       );
-    if (!rows.length) out.push({ ...group, status: 'same' });
-    else out.push({ ...group, convert: b.kind !== 'ids', rows });
+    if (!rows.length) out.push({ ...group, status: 'same', unshown });
+    else out.push({ ...group, convert: b.kind !== 'ids', rows, unshown });
   }
   return out;
 }

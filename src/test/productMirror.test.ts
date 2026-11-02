@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildActions, planMirror, shapeOf, verifyMirror, type MirrorGroup } from '@/features/audit/productMirror';
 import { partitionActionJson } from '@/bing/live';
-import { bingDimension, type DListingNode } from '@/features/audit/detail';
+import { bingDimension, type DListingNode, type ShownItems } from '@/features/audit/detail';
 import type { PartitionAction } from '@/bing/types';
 
 /* ------------------------------- building trees ------------------------------- */
@@ -234,5 +234,45 @@ describe('what Microsoft gets', () => {
       Criterion: { Type: 'ProductPartition', Condition: { Operand: 'Id', Attribute: null }, ParentCriterionId: 77, PartitionType: 'Unit' },
     });
     expect(partitionActionJson({ action: 'Delete', adGroupId: '500', id: '12', excluded: true })).toEqual({ Action: 'Delete', AdGroupCriterion: { Type: 'NegativeAdGroupCriterion', Id: 12, AdGroupId: 500 } });
+  });
+});
+
+describe('products Microsoft never showed are not excluded – it would change nothing', () => {
+  const shown = (ids: string[]): ShownItems => ({ from: '2026-08-04', to: '2026-11-01', all: new Set(ids), byGroup: new Map([['500', new Set(ids)]]) });
+
+  it('leaves out an exclusion of an item Microsoft has not shown in the ad group', () => {
+    const [g] = planMirror(GOOGLE, [bingNode('9', null, 'all', '', { bid: 0.8 })], BING_GROUPS, shown(['sku-1', 'sku-2']));
+    expect(g!.rows.map((r) => [r.action, r.itemId])).toEqual([
+      ['add_bid', 'SKU-1'],
+      ['add_bid', 'SKU-2'],
+      ['else_exclude', ''],
+    ]);
+    expect(g!.unshown).toEqual(['SKU-3']);
+  });
+
+  it('keeps an exclusion Microsoft has shown', () => {
+    const [g] = planMirror(GOOGLE, [bingNode('9', null, 'all', '', { bid: 0.8 })], BING_GROUPS, shown(['sku-1', 'sku-2', 'sku-3']));
+    expect(g!.rows.some((r) => r.action === 'add_exclude' && r.itemId === 'SKU-3')).toBe(true);
+    expect(g!.unshown).toEqual([]);
+  });
+
+  it('does not split "Alle produkter" only for exclusions that change nothing', () => {
+    const google = [node('g0', null, 'all', '', { unit: false }), node('g3', 'g0', 'id', 'SKU-3', { excluded: true }), node('g4', 'g0', 'id', '')];
+    const [g] = planMirror(google, [bingNode('9', null, 'all', '', { bid: 0.8 })], BING_GROUPS, shown(['sku-1']));
+    expect(g!.status).toBe('same');
+    expect(g!.unshown).toEqual(['SKU-3']);
+  });
+
+  it('turns a bid into an exclusion only when the item showed', () => {
+    const bing = [
+      bingNode('b0', null, 'all', '', { unit: false }),
+      bingNode('b1', 'b0', 'id', 'SKU-1', { bid: 1 }),
+      bingNode('b2', 'b0', 'id', 'SKU-2', { bid: 1 }),
+      bingNode('b3', 'b0', 'id', 'SKU-3', { bid: 1 }),
+      bingNode('b4', 'b0', 'id', '', { excluded: true }),
+    ];
+    const [g] = planMirror(GOOGLE, bing, BING_GROUPS, shown(['sku-1', 'sku-2']));
+    expect(g!.status).toBe('same');
+    expect(g!.unshown).toEqual(['SKU-3']);
   });
 });

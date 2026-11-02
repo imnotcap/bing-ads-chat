@@ -5,8 +5,8 @@
  */
 import { getBackend } from '@/bing/backend';
 import type { AdGroup, AdsBackend, ProductTreeNode } from '@/bing/types';
-import type { DateRange } from '@/lib/format';
-import { bingDimension, type CampaignStructure, type DAd, type DAdGroup, type DListingNode, type DNegative, type DSearchTerm, type MatchKind, type NegativeDetail } from './detail';
+import { addDays, today, type DateRange } from '@/lib/format';
+import { SHOWN_DAYS, bingDimension, type ShownItems, type CampaignStructure, type DAd, type DAdGroup, type DListingNode, type DNegative, type DSearchTerm, type MatchKind, type NegativeDetail } from './detail';
 
 const lower = (v: string | null | undefined) => (v ?? '').trim().toLowerCase();
 const kind = (m: string): MatchKind => (/^exact$/i.test(m) ? 'exact' : /^phrase$/i.test(m) ? 'phrase' : 'broad');
@@ -115,4 +115,19 @@ export async function bingAds(accountId: string, campaignId: string, backend?: A
     adGroups: groupsOf(groups),
     ads: ads.map((a) => ({ adGroupId: a.adGroupId, status: lower(a.status), type: a.type, headlines: a.headlines, descriptions: a.descriptions, finalUrls: a.finalUrls })),
   };
+}
+
+/** The products the campaign showed in Microsoft over the last SHOWN_DAYS complete days. */
+export async function bingShownItems(accountId: string, campaignId: string, backend?: AdsBackend): Promise<ShownItems> {
+  const b = backend ?? (await getBackend());
+  if (!b.shownProducts) throw new NotAvailable('Visninger pr. produkt kan kun læses fra den rigtige konto.');
+  const to = addDays(today(), -1);
+  const from = addDays(to, -(SHOWN_DAYS - 1));
+  const out: ShownItems = { from, to, all: new Set(), byGroup: new Map() };
+  for (const p of await b.shownProducts(accountId, campaignId, { from, to })) {
+    const id = lower(p.itemId);
+    out.all.add(id);
+    if (p.adGroupId) out.byGroup.set(p.adGroupId, (out.byGroup.get(p.adGroupId) ?? new Set()).add(id));
+  }
+  return out;
 }

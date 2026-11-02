@@ -36,6 +36,7 @@ import type {
   ReportRow,
   ReportSpec,
   SearchVolume,
+  ShownProduct,
 } from '../types';
 import { demoProducts } from './products';
 import { DEMO_ACCOUNTS, createSeedState, type DemoState } from './seed';
@@ -522,6 +523,12 @@ export class DemoBackend implements AdsBackend {
    * The Shopping and Performance Max traffic split over the demo catalogue, as rows of
    * Microsoft's product report – then the same aggregation as with a real account.
    */
+  async shownProducts(accountId: string, campaignId: string, range: DateRange): Promise<ShownProduct[]> {
+    return (await this.productPerformance(accountId, range)).flatMap((p) =>
+      p.placements.filter((x) => x.campaignId === campaignId && x.metrics.impressions > 0).map((x) => ({ itemId: p.id, adGroupId: x.adGroupId, impressions: x.metrics.impressions })),
+    );
+  }
+
   async productPerformance(accountId: string, range: DateRange): Promise<ProductPerformance[]> {
     await sleep(this.latencyMs * 3);
     const catalogue = demoProducts();

@@ -10,7 +10,7 @@
  *
  * Pure functions – no imports through the `@/` alias.
  */
-import type { CampaignStructure, DAd, DAdGroup, DListingNode, DNegative, DSearchTerm, DetailMetrics, MatchKind, NegativeDetail } from './detail';
+import type { CampaignStructure, DAd, DAdGroup, DListingNode, DNegative, DSearchTerm, DetailMetrics, MatchKind, NegativeDetail, ShownItems } from './detail';
 import { nameScore } from './match';
 
 /* ---------------------------------- helpers ---------------------------------- */
@@ -132,6 +132,19 @@ export function compareExclusions(google: DListingNode[], bing: DListingNode[]):
   const missingInBing = g.filter((ge) => !b.some((be) => covers(be.path, ge.path)));
   const onlyInBing = b.filter((be) => !g.some((ge) => covers(ge.path, be.path)));
   return { missingInBing, onlyInBing, covered: g.length - missingInBing.length, googleTotal: g.length };
+}
+
+/**
+ * Google exclusions missing in Microsoft, split by whether they matter: an item id
+ * Microsoft has not shown in the campaign changes nothing when excluded. Exclusions by
+ * brand, type etc. always count – the report has no impressions per brand to check.
+ */
+export function byShown(gaps: ExclusionGap[], shown: ShownItems): { matter: ExclusionGap[]; unshown: ExclusionGap[] } {
+  const unseen = (g: ExclusionGap) => {
+    const last = g.path[g.path.length - 1];
+    return last?.dim === 'id' && last.value !== '' && !shown.all.has(last.value);
+  };
+  return { matter: gaps.filter((g) => !unseen(g)), unshown: gaps.filter(unseen) };
 }
 
 /* -------------------------------- negative keywords -------------------------------- */
