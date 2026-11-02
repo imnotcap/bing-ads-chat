@@ -452,7 +452,7 @@ export function NotesheetForm() {
             <Input id="ns-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" className="font-mono text-[13px]" />
           </Field>
           {needsKey && (
-            <Field label="Service-kontoens JSON-nøgle" htmlFor="ns-key" hint="Google Ads er forbundet uden nøglen, så notatarket skal have den. Gemmes kun på jeres Cloudflare.">
+            <Field label="Service-kontoens JSON-nøgle" htmlFor="ns-key" hint="Appen har ikke service-kontoens nøgle endnu (Google Ads er ikke forbundet med den), så notatarket skal have den. Gemmes kun på jeres Cloudflare.">
               <div className="flex items-center gap-2">
                 <Button id="ns-key" variant="secondary" size="sm" onClick={() => file.current?.click()}>
                   <FileUp /> {key ? key.name : 'Vælg JSON-fil'}

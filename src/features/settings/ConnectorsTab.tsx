@@ -19,8 +19,12 @@ import { ConnectorLogo, type LogoId } from './ConnectorLogo';
 import { AdsConnectionForm, ClaudeKeyForm, InventarlandForm, MicrosoftSetupGuide, NotesheetForm, SharedBy } from './forms';
 
 type Group = ConnectorGroup | 'ai';
-// A group with nothing left in it (Annoncering, once Google Ads, Meta and LinkedIn are archived) is not shown.
-const GROUPS: { id: Group; label: string }[] = [{ id: 'ai', label: 'AI' }, ...(Object.entries(CONNECTOR_GROUPS) as [ConnectorGroup, string][]).filter(([id]) => ACTIVE_CONNECTORS.some((c) => c.group === id)).map(([id, label]) => ({ id, label }))];
+// A group with nothing left in it is not shown. Annoncering always is: Microsoft Advertising and
+// the notes sheet live there, even with Google Ads, Meta and LinkedIn archived.
+const GROUPS: { id: Group; label: string }[] = [
+  { id: 'ai', label: 'AI' },
+  ...(Object.entries(CONNECTOR_GROUPS) as [ConnectorGroup, string][]).filter(([id]) => id === 'ads' || ACTIVE_CONNECTORS.some((c) => c.group === id)).map(([id, label]) => ({ id, label })),
+];
 
 /** The three connections that have their own forms (shared from before). */
 type BuiltinId = 'claude' | 'microsoft_ads' | 'inventarland' | 'notesheet';
