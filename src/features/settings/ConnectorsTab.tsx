@@ -16,14 +16,14 @@ import { useAccount } from '@/stores/account';
 import { ACTIVE_CONNECTORS, CONNECTOR_GROUPS, type ConnectorDef, type ConnectorGroup, type ConnectorStatus, type ConnectorSummary } from '@/workspace/connectors';
 import { completeSourceLogin, disconnectSource, loadSources, saveSource, startSourceLogin, testSource, useSources } from '@/workspace/sources';
 import { ConnectorLogo, type LogoId } from './ConnectorLogo';
-import { AdsConnectionForm, ClaudeKeyForm, InventarlandForm, MicrosoftSetupGuide, SharedBy } from './forms';
+import { AdsConnectionForm, ClaudeKeyForm, InventarlandForm, MicrosoftSetupGuide, NotesheetForm, SharedBy } from './forms';
 
 type Group = ConnectorGroup | 'ai';
 // A group with nothing left in it (Annoncering, once Google Ads, Meta and LinkedIn are archived) is not shown.
 const GROUPS: { id: Group; label: string }[] = [{ id: 'ai', label: 'AI' }, ...(Object.entries(CONNECTOR_GROUPS) as [ConnectorGroup, string][]).filter(([id]) => ACTIVE_CONNECTORS.some((c) => c.group === id)).map(([id, label]) => ({ id, label }))];
 
 /** The three connections that have their own forms (shared from before). */
-type BuiltinId = 'claude' | 'microsoft_ads' | 'inventarland';
+type BuiltinId = 'claude' | 'microsoft_ads' | 'inventarland' | 'notesheet';
 
 interface Item {
   id: LogoId;
@@ -44,6 +44,7 @@ function useItems(): Item[] {
   return useMemo(() => {
     const ads = ws?.ads;
     const inv = ws?.inventarland;
+    const ns = ws?.notesheet;
     const builtins: Item[] = [
       {
         id: 'claude',
@@ -74,6 +75,16 @@ function useItems(): Item[] {
         group: 'shop',
         status: inv?.connected ? (inv.error ? 'error' : 'connected') : 'not_connected',
         detail: inv?.connected ? (inv.error ?? inv.email) : null,
+      },
+      {
+        id: 'google_sheets',
+        builtin: 'notesheet',
+        name: 'Notatark (Google Sheets)',
+        description: 'En række i jeres notatark efter hver ændring – du ser og retter den først',
+        vendor: 'Google',
+        group: 'ads',
+        status: ns?.connected ? (ns.error ? 'error' : 'connected') : 'not_connected',
+        detail: ns?.connected ? (ns.error ?? ns.name) : null,
       },
     ];
     const sources: Item[] = ACTIVE_CONNECTORS.map((def) => {
@@ -337,7 +348,7 @@ function ConnectorDialog({ item, onClose }: { item: Item | null; onClose: () => 
     >
       {current && (
         <div className="-mx-1 grid max-h-[min(66vh,620px)] gap-4 overflow-y-auto px-1">
-          {current.builtin !== 'microsoft_ads' && current.builtin !== 'claude' && current.builtin !== 'inventarland' && <StatusBanner item={current} summary={summary} />}
+          {current.builtin !== 'microsoft_ads' && current.builtin !== 'claude' && current.builtin !== 'inventarland' && current.builtin !== 'notesheet' && <StatusBanner item={current} summary={summary} />}
           {current.builtin === 'claude' && <ClaudeKeyForm />}
           {current.builtin === 'microsoft_ads' && (
             <>
@@ -346,6 +357,7 @@ function ConnectorDialog({ item, onClose }: { item: Item | null; onClose: () => 
             </>
           )}
           {current.builtin === 'inventarland' && <InventarlandForm />}
+          {current.builtin === 'notesheet' && <NotesheetForm />}
           {current.def && <SourceForm key={current.def.id} def={current.def} summary={summary} />}
         </div>
       )}

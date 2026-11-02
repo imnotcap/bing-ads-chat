@@ -3,7 +3,7 @@
  * spending rules apply, and Godkend/Afvis while it waits for the user.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { Ban, Check, CheckCircle2, ChevronDown, Clock, Loader2, Pin, Plus, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from '@/components/icons';
+import { Ban, Check, CheckCircle2, ChevronDown, Clock, FileSpreadsheet, Loader2, Pin, Plus, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from '@/components/icons';
 import { useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { answerApproval, parseAmount } from '@/ai/approvals';
@@ -16,6 +16,9 @@ import { fmtMoney } from '@/lib/format';
 import { cn, errorMessage } from '@/lib/utils';
 import { useActivity, type ChangeLine } from '@/stores/activity';
 import { useSettings } from '@/stores/settings';
+import { useAccount } from '@/stores/account';
+import { useNoteDrafts, type NoteRow } from '@/ai/notes';
+import { writeNotes } from '@/workspace/shared';
 import type { ToolPart } from '@/stores/chat';
 
 function cell(v: string | number | null | undefined, currency: string) {
@@ -468,6 +471,92 @@ function PickTable({
   );
 }
 
+/**
+ * The rows proposed for the team's notes sheet after the change went through: corrected
+ * here, then written (or skipped). Nothing goes to the sheet before "Skriv i notatark".
+ */
+function NotePreview({ id }: { id: string }) {
+  const draft = useNoteDrafts((s) => s.drafts[id]);
+  const sheet = useAccount((s) => s.workspace?.notesheet);
+  const [rows, setRows] = useState<NoteRow[] | null>(null);
+  if (!draft) return null;
+  const shown = rows ?? draft.rows;
+  const editable = draft.status === 'draft' || draft.status === 'error';
+  const set = (i: number, patch: Partial<NoteRow>) => setRows(shown.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const send = async () => {
+    const out = shown.filter((r) => r.comment.trim());
+    useNoteDrafts.getState().patch(id, { status: 'sending', rows: out });
+    try {
+      await writeNotes(out);
+      useNoteDrafts.getState().patch(id, { status: 'sent', error: undefined });
+    } catch (e) {
+      useNoteDrafts.getState().patch(id, { status: 'error', error: errorMessage(e) });
+    }
+  };
+  const input = 'h-8 w-full rounded-lg border border-line bg-surface px-2.5 text-[13px] text-ink outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/10';
+
+  return (
+    <div className="border-t border-line-2 bg-[#fafafb] px-4 py-3">
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-[12.5px]">
+        <FileSpreadsheet className="size-4 text-positive" />
+        <span className="font-medium text-ink">Notatark</span>
+        {sheet?.name && <span className="text-muted">{sheet.name}</span>}
+        <span className="flex-1" />
+        {draft.status === 'sent' && (
+          <span className="flex items-center gap-1 font-medium text-positive">
+            <Check className="size-3.5" /> Skrevet i arket
+          </span>
+        )}
+        {draft.status === 'skipped' && <span className="text-muted">Ikke skrevet</span>}
+      </div>
+      {draft.status === 'skipped' ? null : (
+        <div className="grid gap-2">
+          {shown.map((r, i) =>
+            editable ? (
+              <div key={i} className="grid gap-1.5 rounded-xl border border-line bg-surface p-2.5 md:grid-cols-[1fr_140px]">
+                <input value={r.adGroup} onChange={(e) => set(i, { adGroup: e.target.value })} placeholder="Annoncegruppe" aria-label="Annoncegruppe" className={input} />
+                <input value={r.topics[0] ?? ''} onChange={(e) => set(i, { topics: [e.target.value] })} placeholder="Emne" aria-label="Emne" className={input} />
+                <textarea
+                  value={r.comment}
+                  onChange={(e) => set(i, { comment: e.target.value })}
+                  rows={2}
+                  aria-label="Kommentar"
+                  className="min-h-[52px] w-full resize-y rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-brand/50 focus:ring-2 focus:ring-brand/10 md:col-span-2"
+                />
+                <p className="text-[11.5px] text-subtle md:col-span-2">Kampagne: {r.campaign || '–'} · Dato, tid, status og dig sættes på, når den skrives.</p>
+              </div>
+            ) : (
+              <div key={i} className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px]">
+                <div className="text-[11.5px] text-subtle">
+                  {[r.campaign, r.adGroup, r.topics[0]].filter(Boolean).join(' · ')}
+                </div>
+                <div className="text-ink">{r.comment}</div>
+              </div>
+            ),
+          )}
+          {draft.status === 'error' && <p className="text-[12.5px] text-negative">Ikke skrevet: {draft.error}</p>}
+          {editable && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="secondary" disabled={!shown.some((r) => r.comment.trim())} onClick={() => void send()}>
+                <FileSpreadsheet /> {draft.status === 'error' ? 'Prøv igen' : `Skriv i notatark (${shown.filter((r) => r.comment.trim()).length})`}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => useNoteDrafts.getState().patch(id, { status: 'skipped' })}>
+                Spring over
+              </Button>
+              <span className="ml-auto text-[11.5px] text-subtle">Ret teksten, hvis du vil – intet skrives, før du trykker.</span>
+            </div>
+          )}
+          {draft.status === 'sending' && (
+            <p className="flex items-center gap-1.5 text-[12.5px] text-muted">
+              <Loader2 className="size-3.5 animate-spin" /> Skriver i arket …
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ApprovalCard({ part, currency }: { part: ToolPart; currency: string }) {
   const plan = part.plan!;
   const [note, setNote] = useState('');
@@ -720,6 +809,7 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
           )
         )}
       </div>
+      {part.status === 'done' && <NotePreview id={part.id} />}
     </motion.div>
   );
 }

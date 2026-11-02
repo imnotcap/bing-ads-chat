@@ -130,6 +130,22 @@ export interface WorkspaceInfo {
     connectedBy: string | null;
     connectedAt: number | null;
   };
+  /**
+   * The team's notes sheet in Google Sheets: a row is added after every confirmed change
+   * (cloudflare/src/notesheet.ts – append only). `serviceAccount`: who must be an editor.
+   */
+  notesheet: {
+    connected: boolean;
+    name: string | null;
+    tab: string | null;
+    url: string | null;
+    serviceAccount: string | null;
+    columns: string[];
+    connectedBy: string | null;
+    connectedAt: number | null;
+    lastWrite: { at: number; rows: number } | null;
+    error: string | null;
+  };
 }
 
 export interface AdsAccess {

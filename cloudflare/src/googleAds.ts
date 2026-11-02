@@ -135,10 +135,10 @@ function pemToDer(pem: string): ArrayBuffer {
 }
 
 /** The signed JWT Google swaps for an access token (valid one hour). */
-export async function signAssertion(key: ServiceAccountKey, nowMs: number): Promise<string> {
+export async function signAssertion(key: ServiceAccountKey, nowMs: number, scope: string = ADWORDS_SCOPE): Promise<string> {
   const iat = Math.floor(nowMs / 1000);
   const header = { alg: 'RS256', typ: 'JWT', ...(key.privateKeyId ? { kid: key.privateKeyId } : {}) };
-  const claims = { iss: key.clientEmail, scope: ADWORDS_SCOPE, aud: GOOGLE_TOKEN_URL, iat, exp: iat + 3600 };
+  const claims = { iss: key.clientEmail, scope, aud: GOOGLE_TOKEN_URL, iat, exp: iat + 3600 };
   const input = `${b64urlText(JSON.stringify(header))}.${b64urlText(JSON.stringify(claims))}`;
   let signing: CryptoKey;
   try {

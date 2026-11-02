@@ -161,6 +161,22 @@ export async function disconnectGoogleAudit() {
   applyWorkspace(await api<WorkspaceInfo>('/workspace/google', { method: 'DELETE' }));
 }
 
+/* ------------------------------ the notes sheet ------------------------------ */
+
+/** Connects the team's notes sheet (a link to the tab); the service account must be an editor of it. */
+export async function connectNotesheet(url: string, key?: string) {
+  applyWorkspace(await api<WorkspaceInfo>('/workspace/notesheet', { method: 'PUT', body: JSON.stringify({ url, ...(key ? { key } : {}) }) }));
+}
+
+export async function disconnectNotesheet() {
+  applyWorkspace(await api<WorkspaceInfo>('/workspace/notesheet', { method: 'DELETE' }));
+}
+
+/** Adds rows at the bottom of the notes sheet's table (the Worker only ever appends). */
+export async function writeNotes(notes: { campaign: string; adGroup: string; topics: string[]; comment: string }[]) {
+  return api<{ written: number }>('/workspace/notesheet/rows', { method: 'POST', body: JSON.stringify({ notes }) });
+}
+
 /* ------------------------------ moving old keys ------------------------------ */
 
 /**

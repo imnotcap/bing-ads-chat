@@ -28,6 +28,7 @@ import { AuthError, type MicrosoftIdentity } from './auth';
 import { AdsKeyError, adsAccountCustomers, adsProbe, adsRefresh, mergeAdsKeys, type AdsKeys } from './microsoftAds';
 import { clearCampaigns, initAdsCache, readCampaigns, writeCampaigns } from './adsCache';
 import { changeAudit, parseOp, readAudits } from './audit';
+import { appendNotes, readSheet, type NoteInput, type NoteSheet } from './notesheet';
 import { DETAIL_PARTS } from '../../src/features/audit/detail';
 import {
   GoogleAdsError,
@@ -141,6 +142,22 @@ interface GoogleCampaignsCache {
 function googleAuthOf(conn: GoogleConnection): GoogleAuth | null {
   if (conn.oauth) return { kind: 'oauth', oauth: conn.oauth };
   return conn.key ? { kind: 'service_account', key: conn.key } : null;
+}
+
+/** The team's notes sheet: where it is, and – when the audit is signed in with OAuth – the service account's own key. */
+interface NoteSheetConnection {
+  sheet: NoteSheet;
+  key?: ServiceAccountKey;
+}
+
+/** A row from the app, checked: short texts, a few topics. */
+function cleanNote(raw: unknown): NoteInput | null {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const text = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const comment = text(o.comment, 1000);
+  if (!comment) return null;
+  const topics = Array.isArray(o.topics) ? o.topics.map((t) => text(t, 60)).filter(Boolean).slice(0, 4) : [];
+  return { campaign: text(o.campaign, 300), adGroup: text(o.adGroup, 300), topics, comment };
 }
 
 const GOOGLE_FRESH_MS = 24 * 3600_000;
@@ -483,6 +500,49 @@ export class Workspace extends DurableObject<Env> {
       await this.clearGoogleCache(0);
       return json(await this.info());
     }
+    /* ------------------- the notes sheet (Google Sheets, append only) ------------------- */
+    // Connected by an administrator with a link to the sheet; the service account (gsc-chat)
+    // must be an editor of it. Rows are only ever added (notesheet.ts → assertSheetCall).
+    if (path === '/workspace/notesheet' && method === 'PUT') {
+      if (user.role !== 'admin') return fail('Kun administratorer kan forbinde notatarket.', 403);
+      const body = (await req.json()) as { url?: string; key?: string };
+      const [google, old] = await Promise.all([this.ctx.storage.get<GoogleConnection>('google'), this.ctx.storage.get<NoteSheetConnection>('notesheet')]);
+      try {
+        const own = body.key?.trim() ? parseServiceAccountKey(body.key) : old?.key;
+        const key = own ?? google?.key;
+        if (!key) return fail('Notatarket skrives med service-kontoen gsc-chat. Vælg dens JSON-nøgle (Google Ads er forbundet uden den).', 400);
+        const sheet = await readSheet(fetch, key, body.url ?? '', Date.now(), user.name);
+        await this.ctx.storage.put('notesheet', { sheet, ...(own ? { key: own } : {}) } satisfies NoteSheetConnection);
+      } catch (e) {
+        if (e instanceof GoogleAdsError) return fail(e.message, 400);
+        throw e;
+      }
+      return json(await this.info());
+    }
+    if (path === '/workspace/notesheet' && method === 'DELETE') {
+      if (user.role !== 'admin') return fail('Kun administratorer kan fjerne notatarket.', 403);
+      await this.ctx.storage.delete('notesheet');
+      return json(await this.info());
+    }
+    if (path === '/workspace/notesheet/rows' && method === 'POST') {
+      const [conn, google] = await Promise.all([this.ctx.storage.get<NoteSheetConnection>('notesheet'), this.ctx.storage.get<GoogleConnection>('google')]);
+      if (!conn) return fail('Notatarket er ikke forbundet.', 409);
+      const key = conn.key ?? google?.key;
+      if (!key) return fail('Notatarket mangler service-kontoens nøgle – forbind det igen under Indstillinger → Forbindelser.', 409);
+      const body = (await req.json()) as { notes?: unknown };
+      const notes = Array.isArray(body.notes) ? body.notes.slice(0, 30).map(cleanNote).filter((n): n is NoteInput => !!n) : [];
+      if (!notes.length) return fail('Ingen rækker at skrive.', 400);
+      try {
+        const sheet = await appendNotes(fetch, key, conn.sheet, notes, user.name, Date.now());
+        await this.ctx.storage.put('notesheet', { ...conn, sheet });
+        return json({ written: notes.length });
+      } catch (e) {
+        if (!(e instanceof GoogleAdsError)) throw e;
+        await this.ctx.storage.put('notesheet', { ...conn, sheet: { ...conn.sheet, error: e.message } });
+        return fail(e.message, 502);
+      }
+    }
+
     if (path === '/workspace/google/campaigns' && method === 'GET') {
       const conn = await this.ctx.storage.get<GoogleConnection>('google');
       if (!conn) return fail('Google Ads er ikke forbundet til audit.', 409);
@@ -771,11 +831,12 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async info(): Promise<WorkspaceInfo> {
-    const [ads, keys, inv, google] = await Promise.all([
+    const [ads, keys, inv, google, notes] = await Promise.all([
       this.ctx.storage.get<AdsConnection>('ads'),
       this.ctx.storage.get<Keys>('keys'),
       this.ctx.storage.get<InventarlandConnection>('inventarland'),
       this.ctx.storage.get<GoogleConnection>('google'),
+      this.ctx.storage.get<NoteSheetConnection>('notesheet'),
     ]);
     const keyInfo = (k?: { value: string; by: string; at: number }) => (k ? { hint: hint(k.value), by: k.by, at: k.at } : null);
     return {
@@ -818,6 +879,20 @@ export class Workspace extends DurableObject<Env> {
             connectedAt: google.connectedAt,
           }
         : { connected: false, method: null, serviceAccount: null, projectId: null, customerId: null, loginCustomerId: null, accountName: null, currency: null, timeZone: null, connectedBy: null, connectedAt: null },
+      notesheet: notes
+        ? {
+            connected: true,
+            name: notes.sheet.name,
+            tab: notes.sheet.title,
+            url: `https://docs.google.com/spreadsheets/d/${notes.sheet.spreadsheetId}/edit#gid=${notes.sheet.sheetId}`,
+            serviceAccount: (notes.key ?? google?.key)?.clientEmail ?? null,
+            columns: Object.keys(notes.sheet.columns),
+            connectedBy: notes.sheet.connectedBy,
+            connectedAt: notes.sheet.connectedAt,
+            lastWrite: notes.sheet.lastWrite ?? null,
+            error: notes.sheet.error ?? null,
+          }
+        : { connected: false, name: null, tab: null, url: null, serviceAccount: google?.key?.clientEmail ?? null, columns: [], connectedBy: null, connectedAt: null, lastWrite: null, error: null },
     };
   }
 
