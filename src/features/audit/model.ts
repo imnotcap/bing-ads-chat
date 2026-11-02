@@ -50,6 +50,13 @@ export function useAuditModel() {
   const google = useGoogleCampaigns(range, googleConnected);
   const audits = useAudits();
 
+  // Matching names against every Google campaign is the costly part – it does not depend on
+  // the checklist, so ticking a step must not redo it.
+  const suggestions = useMemo(() => {
+    const googleList = google.data?.campaigns ?? [];
+    return new Map((bing.data ?? []).map((c) => [c.id, suggestMatch(c, googleList)]));
+  }, [bing.data, google.data]);
+
   const rows = useMemo((): AuditRow[] => {
     const googleList = google.data?.campaigns ?? [];
     const googleById = new Map(googleList.map((g) => [g.id, g]));
@@ -58,7 +65,7 @@ export function useAuditModel() {
       .map((c) => {
         const audit = audits.data?.get(c.id);
         const decided = audit?.googleId !== undefined;
-        const s = decided ? null : suggestMatch(c, googleList);
+        const s = decided ? null : (suggestions.get(c.id) ?? null);
         const progress = progressOf(audit, c.type);
         return {
           bing: c,
@@ -71,7 +78,7 @@ export function useAuditModel() {
       })
       // Running campaigns first, then by spend.
       .sort((a, b) => Number(isActive(b.bing.status)) - Number(isActive(a.bing.status)) || (b.bing.metrics?.spend ?? 0) - (a.bing.metrics?.spend ?? 0));
-  }, [bing.data, google.data, audits.data]);
+  }, [bing.data, google.data, audits.data, suggestions]);
 
   const totals = useMemo(() => {
     let done = 0;

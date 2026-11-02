@@ -27,10 +27,21 @@ export function nameTokens(name: string): string[] {
     .filter((t) => t && !NOISE.has(t));
 }
 
+/** Every Microsoft campaign is scored against every Google one – each name is split once. */
+const tokenCache = new Map<string, Set<string>>();
+function tokenSet(name: string): Set<string> {
+  let t = tokenCache.get(name);
+  if (!t) {
+    if (tokenCache.size > 20_000) tokenCache.clear();
+    tokenCache.set(name, (t = new Set(nameTokens(name))));
+  }
+  return t;
+}
+
 /** 0–1: how alike two campaign names are (shared words over all words), 1 = the same words. */
 export function nameScore(a: string, b: string): number {
-  const ta = new Set(nameTokens(a));
-  const tb = new Set(nameTokens(b));
+  const ta = tokenSet(a);
+  const tb = tokenSet(b);
   if (!ta.size || !tb.size) return 0;
   let shared = 0;
   for (const t of ta) if (tb.has(t)) shared++;

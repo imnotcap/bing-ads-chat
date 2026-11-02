@@ -4,6 +4,15 @@ const nf0 = new Intl.NumberFormat('da-DK', { maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat('da-DK', { maximumFractionDigits: 1 });
 const nf2 = new Intl.NumberFormat('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/** Building an Intl.NumberFormat is slow; a page of numbers formats thousands – reuse them. */
+const formats = new Map<string, Intl.NumberFormat>();
+function numberFormat(options: Intl.NumberFormatOptions): Intl.NumberFormat {
+  const key = JSON.stringify(options);
+  let f = formats.get(key);
+  if (!f) formats.set(key, (f = new Intl.NumberFormat('da-DK', options)));
+  return f;
+}
+
 export function fmtNumber(v: number | null | undefined, decimals = 0): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '–';
   if (decimals === 0) return nf0.format(v);
@@ -13,13 +22,13 @@ export function fmtNumber(v: number | null | undefined, decimals = 0): string {
 
 export function fmtCompact(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '–';
-  return new Intl.NumberFormat('da-DK', { notation: 'compact', maximumFractionDigits: 1 }).format(v);
+  return numberFormat({ notation: 'compact', maximumFractionDigits: 1 }).format(v);
 }
 
 export function fmtMoney(v: number | null | undefined, currency = 'DKK', decimals?: number): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '–';
   const d = decimals ?? (Math.abs(v) >= 1000 || Number.isInteger(v) ? 0 : 2);
-  return new Intl.NumberFormat('da-DK', {
+  return numberFormat({
     style: 'currency',
     currency,
     minimumFractionDigits: d,
@@ -29,11 +38,11 @@ export function fmtMoney(v: number | null | undefined, currency = 'DKK', decimal
 
 export function fmtPercent(v: number | null | undefined, decimals = 1): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '–';
-  return `${new Intl.NumberFormat('da-DK', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(v * 100)}\u00a0%`;
+  return `${numberFormat({ minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(v * 100)}\u00a0%`;
 }
 
 export function fmtUsd(v: number): string {
-  return new Intl.NumberFormat('da-DK', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: v < 1 ? 3 : 2 }).format(v);
+  return numberFormat({ style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: v < 1 ? 3 : 2 }).format(v);
 }
 
 const dateFmt = new Intl.DateTimeFormat('da-DK', { day: 'numeric', month: 'short' });

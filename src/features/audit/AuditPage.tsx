@@ -7,7 +7,7 @@
  * With one: the match, the two side by side for the period, and the checklist.
  */
 import { motion } from 'motion/react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, CircleCheck, FileUp, Loader2, Lock, MessageSquare, RefreshCw, TriangleAlert } from '@/components/icons';
 import { pageTransition } from '@/components/motion';
 import { toast } from '@/components/notifications/toast';
@@ -357,9 +357,10 @@ function Overview({ rows: all, bingCurrency, googleCurrency, googleReady }: { ro
 const NONE = '__none';
 
 function MatchPicker({ row, google }: { row: AuditRow; google: GoogleCampaign[] }) {
-  const ranked = rankCandidates(row.bing, google);
-  const score = new Map(ranked.map((s) => [s.googleId, s.score]));
-  const ordered = [...google].sort((a, b) => (score.get(b.id) ?? 0) - (score.get(a.id) ?? 0) || a.name.localeCompare(b.name, 'da'));
+  const ordered = useMemo(() => {
+    const score = new Map(rankCandidates(row.bing, google).map((s) => [s.googleId, s.score]));
+    return [...google].sort((a, b) => (score.get(b.id) ?? 0) - (score.get(a.id) ?? 0) || a.name.localeCompare(b.name, 'da'));
+  }, [row.bing, google]);
   const value = row.audit?.googleId === null ? NONE : (row.audit?.googleId ?? null);
   const save = (googleId: string | null) =>
     changeAudit({ type: 'match', bingId: row.bing.id, googleId }).catch((e: unknown) => toast.error('Kunne ikke gemme matchet', { description: errorMessage(e) }));
@@ -585,6 +586,23 @@ function AskMatchup({ row, google }: { row: AuditRow; google: GoogleCampaign }) 
   );
 }
 
+/**
+ * Ticking a step gives the row a new audit, but changes nothing these two show – they are
+ * only drawn again when the campaigns, the match, the period or the currency change.
+ * (Redrawing them, with every list in them, on each tick is what made the checklist slow.)
+ */
+type CompareProps = { row: AuditRow; range?: DateRange; bingCurrency: string; googleCurrency: string };
+const sameComparison = (a: CompareProps, b: CompareProps) =>
+  a.row.bing === b.row.bing &&
+  a.row.google === b.row.google &&
+  a.row.audit?.googleId === b.row.audit?.googleId &&
+  a.range?.from === b.range?.from &&
+  a.range?.to === b.range?.to &&
+  a.bingCurrency === b.bingCurrency &&
+  a.googleCurrency === b.googleCurrency;
+const StillCompareTable = memo(CompareTable, sameComparison);
+const StillDetailCompare = memo(DetailCompare, sameComparison);
+
 function CampaignAuditView({ row, google, range, bingCurrency, googleCurrency, googleReady }: { row: AuditRow; google: GoogleCampaign[]; range: DateRange; bingCurrency: string; googleCurrency: string; googleReady: boolean }) {
   return (
     <div className="grid gap-6">
@@ -601,8 +619,8 @@ function CampaignAuditView({ row, google, range, bingCurrency, googleCurrency, g
         {googleReady ? <MatchPicker row={row} google={google} /> : <p className="text-[13px] text-muted">Forbind Google Ads for at vælge modparten.</p>}
         {googleReady && row.google && <AskMatchup row={row} google={row.google} />}
       </div>
-      <CompareTable row={row} bingCurrency={bingCurrency} googleCurrency={googleCurrency} />
-      <DetailCompare row={row} range={range} bingCurrency={bingCurrency} googleCurrency={googleCurrency} />
+      <StillCompareTable row={row} bingCurrency={bingCurrency} googleCurrency={googleCurrency} />
+      <StillDetailCompare row={row} range={range} bingCurrency={bingCurrency} googleCurrency={googleCurrency} />
       <div className="grid gap-2">
         <h3 className="text-[14px] font-medium text-ink">Trin</h3>
         <ol className="overflow-hidden rounded-2xl border border-line bg-surface">

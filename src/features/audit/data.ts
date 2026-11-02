@@ -29,6 +29,12 @@ export function useAudits() {
   });
 }
 
+/** The same steps marked the same way, the same match and the same note text. */
+function sameMarks(a: CampaignAudit, b: CampaignAudit): boolean {
+  const marks = (x: CampaignAudit) => JSON.stringify(Object.entries(x.steps).map(([k, m]) => [k, m?.status]).sort());
+  return a.googleId === b.googleId && (a.note?.text ?? '') === (b.note?.text ?? '') && marks(a) === marks(b);
+}
+
 /** Applies a change at once, then stores it; on a failure the checklist is fetched again. */
 export async function changeAudit(op: AuditOp) {
   const by = useAccount.getState().user?.name ?? '';
@@ -40,7 +46,9 @@ export async function changeAudit(op: AuditOp) {
   });
   try {
     const { audit } = await api<{ audit: CampaignAudit }>('/workspace/audit', { method: 'POST', body: JSON.stringify(op) });
-    queryClient.setQueryData<Map<string, CampaignAudit>>(AUDIT_KEY, (old) => new Map(old).set(audit.bingId, audit));
+    // The workspace's copy only differs in the time stamp and who – if it shows the same, don't redraw the page for it.
+    const shown = queryClient.getQueryData<Map<string, CampaignAudit>>(AUDIT_KEY)?.get(audit.bingId);
+    if (!shown || !sameMarks(shown, audit)) queryClient.setQueryData<Map<string, CampaignAudit>>(AUDIT_KEY, (old) => new Map(old).set(audit.bingId, audit));
   } catch (e) {
     void queryClient.invalidateQueries({ queryKey: AUDIT_KEY });
     throw e;
