@@ -146,6 +146,15 @@ export interface ShownItems {
   all: Set<string>;
   /** Per ad group / asset group id. */
   byGroup: Map<string, Set<string>>;
+  /** What each item did in each ad group over the period ("group|item"), for deciding what to keep. */
+  stats?: Map<string, ItemStats>;
+}
+
+export interface ItemStats {
+  clicks: number;
+  spend: number;
+  conversions: number;
+  revenue: number;
 }
 
 export const SHOWN_DAYS = 90;

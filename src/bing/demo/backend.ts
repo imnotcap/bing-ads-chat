@@ -525,7 +525,7 @@ export class DemoBackend implements AdsBackend {
    */
   async shownProducts(accountId: string, campaignId: string, range: DateRange): Promise<ShownProduct[]> {
     return (await this.productPerformance(accountId, range)).flatMap((p) =>
-      p.placements.filter((x) => x.campaignId === campaignId && x.metrics.impressions > 0).map((x) => ({ itemId: p.id, adGroupId: x.adGroupId, impressions: x.metrics.impressions })),
+      p.placements.filter((x) => x.campaignId === campaignId && x.metrics.impressions > 0).map((x) => ({ itemId: p.id, adGroupId: x.adGroupId, ...x.metrics })),
     );
   }
 

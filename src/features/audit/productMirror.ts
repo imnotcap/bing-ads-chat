@@ -14,7 +14,8 @@
  */
 import type { PartitionAction } from '@/bing/types';
 import { counterparts } from './compare';
-import { dimensionLabel, type DListingNode, type ShownItems } from './detail';
+import { fmtMoney, fmtNumber } from '@/lib/format';
+import { dimensionLabel, type DListingNode, type ItemStats, type ShownItems } from './detail';
 
 /* ----------------------------------- shapes ----------------------------------- */
 
@@ -90,6 +91,18 @@ function bidOf(shape: TreeShape, fallback: number | null | undefined): number | 
   return fallback ?? null;
 }
 
+/** A product worth keeping although Google leaves it out: it converts, at least at the kept ROAS. */
+export function performsWell(s: ItemStats | undefined, keepRoas: number): boolean {
+  if (!s || s.conversions <= 0) return false;
+  return s.spend <= 0 || s.revenue / s.spend >= keepRoas;
+}
+
+/** "90 dage: 12 klik, 165 kr., 0 konv." */
+export function statsText(s: ItemStats, currency = 'DKK'): string {
+  const roas = s.spend > 0 && s.conversions > 0 ? `, ROAS ${fmtNumber(s.revenue / s.spend, 1)}` : '';
+  return `90 dage: ${fmtNumber(s.clicks)} klik, ${fmtMoney(s.spend, currency)}, ${fmtNumber(s.conversions, s.conversions % 1 ? 1 : 0)} konv.${roas}`;
+}
+
 const rowKey = (bingAdGroupId: string, action: MirrorAction, itemId: string) => `${bingAdGroupId}|${action}|${itemId.toLowerCase()}`;
 
 /**
@@ -102,6 +115,7 @@ export function planMirror(
   bing: DListingNode[],
   bingGroups: { id: string; name: string; cpcBid?: number | null }[],
   shown: ShownItems | null = null,
+  opts: { keepRoas?: number; currency?: string } = {},
 ): MirrorGroup[] {
   const googleByGroup = new Map<string, DListingNode[]>();
   for (const n of google) googleByGroup.set(n.group, [...(googleByGroup.get(n.group) ?? []), n]);
@@ -171,8 +185,29 @@ export function planMirror(
         rows.push(row(item.excluded ? 'to_exclude' : 'to_bid', id, item.excluded ? `Udeluk varenummer ${id} (bydes på i Microsoft)` : `Byd på varenummer ${id} (udelukket i Microsoft)`, false, there));
     }
     if (b.kind === 'ids')
-      for (const [value, node] of b.items)
-        if (!g.items.has(value)) rows.push(row('remove', node.raw || value, `Fjern varenummer ${node.raw || value} (ikke opdelt i Google – falder ind under "alt andet")`, true, node));
+      for (const [value, node] of b.items) {
+        if (g.items.has(value)) continue;
+        const id = node.raw || value;
+        if (!g.other.excluded) {
+          rows.push(row('remove', id, `Fjern varenummer ${id} (ikke opdelt i Google – falder ind under "alt andet")`, true, node));
+          continue;
+        }
+        // Not in Google, where "everything else" is excluded: excluded there too. Already excluded here – nothing to do.
+        if (node.excluded) continue;
+        const stats = shown?.stats?.get(`${bg.id}|${value}`);
+        const keep = performsWell(stats, opts.keepRoas ?? 1);
+        rows.push(
+          row(
+            'to_exclude',
+            id,
+            keep
+              ? `${id} er ikke i Google (hører under udelukket "alt andet"), men klarer sig godt her: ${statsText(stats!, opts.currency)} – beholdes, medmindre du sætter flueben`
+              : `Udeluk ${id} – ikke i Google (hører under udelukket "alt andet"). ${stats ? statsText(stats, opts.currency) : `Ikke vist de seneste ${90} dage`}`,
+            keep,
+            node,
+          ),
+        );
+      }
     const bingOtherExcluded = b.kind === 'ids' ? b.other.excluded : false;
     // Only exclusions that changed nothing differed: splitting "Alle produkter" for none of them is no change.
     const nothingToSplit = b.kind !== 'ids' && !rows.length && !g.other.excluded;
@@ -190,6 +225,77 @@ export function planMirror(
     else out.push({ ...group, convert: b.kind !== 'ids', rows, unshown });
   }
   return out;
+}
+
+/* --------------------------- a change the user asks for --------------------------- */
+
+export interface EditRequest {
+  /** Item ids to exclude. */
+  exclude?: string[];
+  /** Item ids to bid on (as their own product group). */
+  include?: string[];
+  /** Item ids whose own product group goes – they fall under "everything else". */
+  remove?: string[];
+  /** The bid for items bid on; default the bid the group's items use most. */
+  bid?: number | null;
+}
+
+/**
+ * One Microsoft ad group's product groups changed as the user asked ("udeluk 2515012108 i
+ * Flipover"): the same rows and actions as the Google mirror, without Google. `notes` says
+ * what needed no change (already excluded, not its own group …).
+ */
+export function planEdit(nodes: DListingNode[], group: { id: string; name: string; cpcBid?: number | null }, req: EditRequest): MirrorGroup & { notes: string[] } {
+  const b = shapeOf(nodes);
+  const notes: string[] = [];
+  const base = {
+    googleGroup: group.name,
+    bingGroup: group.name,
+    bingAdGroupId: group.id,
+    convert: b.kind === 'all' || b.kind === 'none',
+    unshown: [] as string[],
+    google: { kind: 'none' } as TreeShape,
+    bing: b,
+    bid: req.bid ?? bidOf(b, group.cpcBid),
+    notes,
+  };
+  if (b.kind === 'other') return { ...base, status: 'unsupported', reason: `Produkttræet i "${group.name}" ${b.why} – ret det i Microsoft Advertising.`, rows: [] };
+  const rows: MirrorRow[] = [];
+  const seen = new Set<string>();
+  const row = (action: MirrorAction, itemId: string, label: string, node?: DListingNode): MirrorRow => ({
+    key: rowKey(group.id, action, itemId),
+    action,
+    itemId,
+    label,
+    defaultOff: false,
+    ...(node ? { bingNodeId: node.id, bingNodeExcluded: node.excluded } : {}),
+  });
+  const ids = (list: string[] | undefined) =>
+    (list ?? [])
+      .map((x) => x.trim())
+      .filter((x) => x && !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase()));
+  const nodeOf = (id: string) => (b.kind === 'ids' ? b.items.get(id.toLowerCase()) : undefined);
+
+  for (const id of ids(req.exclude)) {
+    const there = nodeOf(id);
+    if (there?.excluded) notes.push(`${there.raw || id} er allerede udelukket.`);
+    else if (there) rows.push(row('to_exclude', there.raw || id, `Udeluk ${there.raw || id}`, there));
+    else rows.push(row('add_exclude', id, `Udeluk ${id}`));
+  }
+  for (const id of ids(req.include)) {
+    const there = nodeOf(id);
+    if (there && !there.excluded) notes.push(`${there.raw || id} bydes der allerede på.`);
+    else if (there) rows.push(row('to_bid', there.raw || id, `Byd på ${there.raw || id} (udelukket i dag)`, there));
+    else rows.push(row('add_bid', id, `Byd på ${id}`));
+  }
+  for (const id of ids(req.remove)) {
+    const there = nodeOf(id);
+    if (!there) notes.push(`${id} er ikke sin egen produktgruppe – intet at fjerne.`);
+    else rows.push(row('remove', there.raw || id, `Fjern ${there.raw || id} – falder under "alt andet" (${b.kind === 'ids' && b.other.excluded ? 'udelukket' : 'bydes på'})`, there));
+  }
+  // "Alle produkter" can only be split: switching or removing needs the item's own group.
+  const usable = base.convert ? rows.filter((r) => r.action === 'add_bid' || r.action === 'add_exclude') : rows;
+  return { ...base, status: usable.length ? 'changes' : 'same', rows: usable };
 }
 
 /* ----------------------------------- actions ----------------------------------- */

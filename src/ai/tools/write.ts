@@ -1266,7 +1266,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
   defineWrite({
     name: 'microsoft_ads_api',
     kind: 'write',
-    description: `Call any Microsoft Advertising REST API v13 operation directly – for everything the other tools do not cover (ad extensions/assets such as sitelinks and callouts, location and device targeting criteria and bid adjustments, audiences, conversion goals, UET tags, shared budgets and negative keyword lists, labels, Bulk …). Use the dedicated tools for campaigns, ad groups, keywords, negatives, ads and product groups – they check feasibility and verify the result. Product groups (product partitions, listing groups) are refused here: read them with list_product_groups, change them with match_product_groups_to_google.
+    description: `Call any Microsoft Advertising REST API v13 operation directly – for everything the other tools do not cover (ad extensions/assets such as sitelinks and callouts, location and device targeting criteria and bid adjustments, audiences, conversion goals, UET tags, shared budgets and negative keyword lists, labels, Bulk …). Use the dedicated tools for campaigns, ad groups, keywords, negatives, ads and product groups – they check feasibility and verify the result. Product groups (product partitions, listing groups) are refused here: read them with list_product_groups, change them with edit_product_groups or match_product_groups_to_google.
 ALWAYS look the operation up with find_api_operation first and use exactly the method and path it returns – paths do not always follow a pattern (e.g. GetNegativeKeywordsByEntityIds is POST 'NegativeKeywords/QueryByEntityIds'), and calls to operations that do not exist are refused. The JSON body uses the request element names it lists. Polymorphic objects need a "Type" field with the class name (e.g. BiddingScheme {"Type": "MaxConversionsBiddingScheme"}; ads use the ad type, e.g. "ResponsiveSearch"). Flag combinations are comma-separated. CustomerId and CustomerAccountId headers are added automatically.
 Reads (POST to …/Query…, …/Search, or GET) run immediately; every other call needs the user's approval. Writes are NOT verified automatically: after a write, read the entity back with a Query call before telling the user it is done. Account, user and billing administration (customer/billing services) is not allowed. Live accounts only.`,
     schema: z.object({
@@ -1294,7 +1294,7 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
         throw new Error(
           readOnly
             ? 'Produktgrupper læses med list_product_groups (Shopping) eller compare_with_google (også Performance Max) – ikke med det direkte API.'
-            : 'Produktgrupper ændres ikke med det direkte API. Brug match_product_groups_to_google: ét samlet kort, sendt samlet pr. annoncegruppe og læst tilbage (bid sætter et bestemt bud). Performance Max-listinggrupper rettes i Microsoft Advertising.',
+            : 'Produktgrupper ændres ikke med det direkte API. Brug edit_product_groups (bestemte varenumre i én annoncegruppe) eller match_product_groups_to_google (som i Google) – sendt samlet pr. annoncegruppe og læst tilbage. Performance Max-listinggrupper rettes i Microsoft Advertising.',
         );
       }
       // A read without the ids/types Microsoft requires only comes back as an error ("The request message is null").

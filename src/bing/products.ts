@@ -61,7 +61,7 @@ export function buildShownProductsRequest(accountId: string, campaignId: string,
     Type: 'ProductDimensionPerformanceReportRequest',
     ReportName: 'XavierOS – viste produkter',
     Aggregation: 'Summary',
-    Columns: ['MerchantProductId', 'CampaignId', 'AdGroupId', 'AssetGroupId', 'Impressions'],
+    Columns: ['MerchantProductId', 'CampaignId', 'AdGroupId', 'AssetGroupId', 'Impressions', 'Clicks', 'Spend', 'Conversions', 'Revenue'],
     ExcludeColumnHeaders: false,
     ExcludeReportFooter: true,
     ExcludeReportHeader: true,
@@ -75,7 +75,15 @@ export function buildShownProductsRequest(accountId: string, campaignId: string,
 
 export function shownProductsOf(rows: Record<string, string>[]): ShownProduct[] {
   return rows
-    .map((r) => ({ itemId: text(r.MerchantProductId) ?? '', adGroupId: text(r.AdGroupId) ?? text(r.AssetGroupId), impressions: toNumber(r.Impressions) }))
+    .map((r) => ({
+      itemId: text(r.MerchantProductId) ?? '',
+      adGroupId: text(r.AdGroupId) ?? text(r.AssetGroupId),
+      impressions: toNumber(r.Impressions),
+      clicks: toNumber(r.Clicks),
+      spend: toNumber(r.Spend),
+      conversions: toNumber(r.Conversions),
+      revenue: toNumber(r.Revenue),
+    }))
     .filter((p) => p.itemId && p.impressions > 0);
 }
 

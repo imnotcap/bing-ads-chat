@@ -123,11 +123,15 @@ export async function bingShownItems(accountId: string, campaignId: string, back
   if (!b.shownProducts) throw new NotAvailable('Visninger pr. produkt kan kun læses fra den rigtige konto.');
   const to = addDays(today(), -1);
   const from = addDays(to, -(SHOWN_DAYS - 1));
-  const out: ShownItems = { from, to, all: new Set(), byGroup: new Map() };
+  const out: ShownItems = { from, to, all: new Set(), byGroup: new Map(), stats: new Map() };
   for (const p of await b.shownProducts(accountId, campaignId, { from, to })) {
     const id = lower(p.itemId);
     out.all.add(id);
-    if (p.adGroupId) out.byGroup.set(p.adGroupId, (out.byGroup.get(p.adGroupId) ?? new Set()).add(id));
+    if (!p.adGroupId) continue;
+    out.byGroup.set(p.adGroupId, (out.byGroup.get(p.adGroupId) ?? new Set()).add(id));
+    const key = `${p.adGroupId}|${id}`;
+    const s = out.stats!.get(key) ?? { clicks: 0, spend: 0, conversions: 0, revenue: 0 };
+    out.stats!.set(key, { clicks: s.clicks + (p.clicks ?? 0), spend: s.spend + (p.spend ?? 0), conversions: s.conversions + (p.conversions ?? 0), revenue: s.revenue + (p.revenue ?? 0) });
   }
   return out;
 }

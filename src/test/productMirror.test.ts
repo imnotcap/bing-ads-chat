@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildActions, planMirror, shapeOf, verifyMirror, type MirrorGroup } from '@/features/audit/productMirror';
+import { buildActions, planEdit, planMirror, shapeOf, verifyMirror, type MirrorGroup } from '@/features/audit/productMirror';
 import { partitionActionJson } from '@/bing/live';
 import { bingDimension, type DListingNode, type ShownItems } from '@/features/audit/detail';
 import type { PartitionAction } from '@/bing/types';
@@ -149,26 +149,33 @@ describe('Microsoft is split by item id too – change only what differs', () =>
   ];
   const [g] = planMirror(GOOGLE, bing, BING_GROUPS);
 
-  it('adds, switches, offers to remove, and fixes "everything else"', () => {
+  it('adds, switches, excludes what Google leaves out, and fixes "everything else"', () => {
     expect(g!.convert).toBe(false);
     expect(g!.bid).toBe(1.2); // the most common bid in the group
     expect(g!.rows.map((r) => [r.action, r.itemId, r.defaultOff])).toEqual([
       ['to_bid', 'SKU-2', false],
       ['add_exclude', 'SKU-3', false],
-      ['remove', 'SKU-9', true],
+      // Not in Google, where "everything else" is excluded – and no results here: excluded, ticked.
+      ['to_exclude', 'SKU-9', false],
       ['else_exclude', '', false],
     ]);
   });
 
-  it('with the default choice: like Google, but SKU-9 is kept until someone ticks it', () => {
+  it('with the default choice: what Google shows, and SKU-9 excluded', () => {
     const after = simulate(bing, buildActions(g!, defaults(g!)));
-    expect(state(after)).toEqual({ items: { 'sku-1': 'bud', 'sku-2': 'bud', 'sku-3': 'udelukket', 'sku-9': 'bud' }, else: 'udelukket' });
+    expect(state(after)).toEqual({ items: { 'sku-1': 'bud', 'sku-2': 'bud', 'sku-3': 'udelukket', 'sku-9': 'udelukket' }, else: 'udelukket' });
     expect(after.find((n) => n.id === '11')).toBeDefined(); // SKU-1 untouched – keeps its id and history
   });
 
-  it('with everything ticked: exactly Google’s tree', () => {
-    const after = simulate(bing, buildActions(g!, all(g!)));
-    expect(state(after)).toEqual({ items: { 'sku-1': 'bud', 'sku-2': 'bud', 'sku-3': 'udelukket' }, else: 'udelukket' });
+  it('keeps an item Google leaves out when it does well here – unticked, with its numbers', () => {
+    const shown: ShownItems = { from: '', to: '', all: new Set(['sku-9']), byGroup: new Map([['500', new Set(['sku-9'])]]), stats: new Map([['500|sku-9', { clicks: 40, spend: 200, conversions: 3, revenue: 1500 }]]) };
+    const [kept] = planMirror(GOOGLE, bing, BING_GROUPS, shown, { keepRoas: 4 });
+    const row = kept!.rows.find((r) => r.itemId === 'SKU-9')!;
+    expect(row).toMatchObject({ action: 'to_exclude', defaultOff: true });
+    expect(row.label).toMatch(/klarer sig godt her: 90 dage: 40 klik, 200\s?kr\., 3 konv\., ROAS 7,5 – beholdes/);
+    // Under the ROAS to keep (7,5 < 10): excluded like the rest.
+    const [strict] = planMirror(GOOGLE, bing, BING_GROUPS, shown, { keepRoas: 10 });
+    expect(strict!.rows.find((r) => r.itemId === 'SKU-9')!.defaultOff).toBe(false);
   });
 
   it('refuses to leave a split without a single item', () => {
@@ -274,5 +281,49 @@ describe('products Microsoft never showed are not excluded – it would change n
     const [g] = planMirror(GOOGLE, bing, BING_GROUPS, shown(['sku-1', 'sku-2']));
     expect(g!.status).toBe('same');
     expect(g!.unshown).toEqual(['SKU-3']);
+  });
+});
+
+describe('product groups the user asks for (edit_product_groups)', () => {
+  const GROUP = { id: '500', name: 'Flipover', cpcBid: 0.4 };
+
+  it('excludes items in a split ad group – the way Flipover looks in Microsoft', () => {
+    // Microsoft: 2392164005, 2515012108, 2392163105, 2392163005 bid on; "everything else" excluded.
+    const tree = [
+      bingNode('1', null, 'all', '', { unit: false }),
+      bingNode('2', '1', 'id', '2392164005', { bid: 20 }),
+      bingNode('3', '1', 'id', '', { excluded: true }),
+      bingNode('4', '1', 'id', '2515012108', { bid: 20 }),
+      bingNode('5', '1', 'id', '2392163105', { bid: 20 }),
+      bingNode('6', '1', 'id', '2392163005', { bid: 32.63 }),
+    ];
+    const g = planEdit(tree, GROUP, { exclude: ['2515012108', '2392163005'] });
+    expect(g.status).toBe('changes');
+    expect(g.rows.map((r) => [r.action, r.itemId])).toEqual([
+      ['to_exclude', '2515012108'],
+      ['to_exclude', '2392163005'],
+    ]);
+    const after = simulate(tree, buildActions(g, all(g)));
+    expect(state(after)).toEqual({ items: { '2392164005': 'bud', '2392163105': 'bud', '2515012108': 'udelukket', '2392163005': 'udelukket' }, else: 'udelukket' });
+  });
+
+  it('says what needs no change, and adds what is not there yet', () => {
+    const tree = [bingNode('1', null, 'all', '', { unit: false }), bingNode('2', '1', 'id', 'SKU-1', { excluded: true }), bingNode('3', '1', 'id', '', { bid: 1 })];
+    const g = planEdit(tree, GROUP, { exclude: ['sku-1', 'SKU-7'], remove: ['SKU-8'] });
+    expect(g.rows.map((r) => [r.action, r.itemId])).toEqual([['add_exclude', 'SKU-7']]);
+    expect(g.notes).toEqual(['SKU-1 er allerede udelukket.', 'SKU-8 er ikke sin egen produktgruppe – intet at fjerne.']);
+  });
+
+  it('splits "Alle produkter" to exclude items – the rest keeps its bid', () => {
+    const tree = [bingNode('9', null, 'all', '', { bid: 0.8 })];
+    const g = planEdit(tree, GROUP, { exclude: ['SKU-1', 'SKU-2'] });
+    expect(g).toMatchObject({ convert: true, bid: 0.8 });
+    const after = simulate(tree, buildActions(g, all(g)));
+    expect(state(after)).toEqual({ items: { 'sku-1': 'udelukket', 'sku-2': 'udelukket' }, else: 'bud' });
+  });
+
+  it('leaves a tree split some other way alone, and says why', () => {
+    const tree = [bingNode('1', null, 'all', '', { unit: false }), bingNode('2', '1', 'brand', 'Acme', { bid: 1 }), bingNode('3', '1', 'brand', '', { bid: 1 })];
+    expect(planEdit(tree, GROUP, { exclude: ['SKU-1'] })).toMatchObject({ status: 'unsupported', reason: expect.stringMatching(/opdelt efter mærke/i) });
   });
 });

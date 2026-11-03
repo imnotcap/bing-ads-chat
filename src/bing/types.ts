@@ -393,6 +393,10 @@ export interface ShownProduct {
   /** The ad group (Shopping) or asset group (Performance Max). */
   adGroupId: string | null;
   impressions: number;
+  clicks?: number;
+  spend?: number;
+  conversions?: number;
+  revenue?: number;
 }
 
 export interface ProductPerformance {

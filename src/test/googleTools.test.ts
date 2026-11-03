@@ -241,3 +241,45 @@ describe('list_product_groups', () => {
     expect(g.everythingElse).toEqual({ bid: 4 });
   });
 });
+
+describe('edit_product_groups', () => {
+  it('excludes the item ids the user names, on one card, and reads the tree back', async () => {
+    // Microsoft: SKU-1 and SKU-2 bid on, "everything else" excluded.
+    tree = [
+      { id: '1', parentId: null, group: '', groupId: '1040', unit: false, excluded: false, operand: 'All', attribute: '', bid: null },
+      { id: '2', parentId: '1', group: '', groupId: '1040', unit: true, excluded: false, operand: 'Id', attribute: 'SKU-1', bid: 20 },
+      { id: '3', parentId: '1', group: '', groupId: '1040', unit: true, excluded: false, operand: 'Id', attribute: 'SKU-2', bid: 32.63 },
+      { id: '4', parentId: '1', group: '', groupId: '1040', unit: true, excluded: true, operand: 'Id', attribute: '', bid: null },
+    ];
+    const tool = write('edit_product_groups');
+    const { plan: p, execute } = await tool.plan(tool.schema.parse({ campaignId: '104', adGroupId: '1040', exclude: ['SKU-2'], reason: 'Brugeren bad om det' }), ctx());
+    const plan = p!;
+    expect(plan.changes.map((l) => [l.after, l.cells?.kind])).toEqual([['SKU-2', 'Udeluk']]);
+    expect(plan.pick?.skipPath).toEqual(['skip']);
+    const done = await execute();
+    expect((done.result as { outcome: string }).outcome).toBe('confirmed');
+    expect(calls).toHaveLength(1);
+    expect(tree.find((n) => n.attribute === 'SKU-2')!.excluded).toBe(true);
+    expect(tree.find((n) => n.attribute === 'SKU-1')!.id).toBe('2'); // untouched
+  });
+
+  it('warns before excluding a product that converts', async () => {
+    tree = [{ id: '1', parentId: null, group: '', groupId: '1040', unit: true, excluded: false, operand: 'All', attribute: '', bid: 2.2 }];
+    const c = ctx();
+    c.backend.shownProducts = async () => [{ itemId: 'SKU-5', adGroupId: '1040', impressions: 900, clicks: 30, spend: 150, conversions: 2, revenue: 1200 }];
+    const tool = write('edit_product_groups');
+    const { plan } = await tool.plan(tool.schema.parse({ campaignId: '104', adGroupId: '1040', exclude: ['SKU-5'], reason: 'x' }), c);
+    expect(plan!.notes!.join(' ')).toMatch(/byder i dag på alle produkter/);
+    expect(plan!.notes!.join(' ')).toMatch(/SKU-5 har konverteret: 90 dage: 30 klik, 150\s?kr\., 2 konv\., ROAS 8 – den klarer sig godt/);
+  });
+
+  it('says when there is nothing to change', async () => {
+    tree = [
+      { id: '1', parentId: null, group: '', groupId: '1040', unit: false, excluded: false, operand: 'All', attribute: '', bid: null },
+      { id: '2', parentId: '1', group: '', groupId: '1040', unit: true, excluded: true, operand: 'Id', attribute: 'SKU-1', bid: null },
+      { id: '3', parentId: '1', group: '', groupId: '1040', unit: true, excluded: false, operand: 'Id', attribute: '', bid: 1 },
+    ];
+    const tool = write('edit_product_groups');
+    await expect(tool.plan(tool.schema.parse({ campaignId: '104', adGroupId: '1040', exclude: ['SKU-1'], reason: 'x' }), ctx())).rejects.toThrow(/Intet at ændre.*SKU-1 er allerede udelukket/);
+  });
+});

@@ -16,10 +16,10 @@ import type { GoogleCampaign } from '@/features/audit/data';
 import { SHOWN_DAYS, type DetailPart, type ShownItems } from '@/features/audit/detail';
 import { rankCandidates, suggestMatch } from '@/features/audit/match';
 import { settingsFacts } from '@/features/audit/settings';
-import { buildActions, planMirror, shapeOf, verifyMirror, type MirrorAction, type MirrorGroup } from '@/features/audit/productMirror';
+import { buildActions, planEdit, planMirror, performsWell, shapeOf, statsText, verifyMirror, type MirrorAction, type MirrorGroup } from '@/features/audit/productMirror';
 import type { ChangeLine } from '@/stores/activity';
 import { auditGoogleMatch, googleCampaigns, googleDetail, requireGoogle } from '../googleSource';
-import { PERIOD_DESCRIPTION, defineRead, defineWrite, getAdGroups, getCampaign, getReport, memo, resolvePeriod, type ToolContext } from './context';
+import { PERIOD_DESCRIPTION, defineRead, defineWrite, getAdGroups, getCampaign, getReport, memo, resolvePeriod, type ExecutionResult, type ToolContext } from './context';
 
 /* ------------------------------ finding the counterpart ------------------------------ */
 
@@ -68,7 +68,9 @@ async function productPlan(ctx: ToolContext, bing: Campaign, google: GoogleCampa
     shownItems(ctx, bing.id, includeUnshown),
   ]);
   const live = groups.filter((x: AdGroup) => x.status !== 'Deleted');
-  return { plan: planMirror(g.data, nodes, live.map((x) => ({ id: x.id, name: x.name, cpcBid: x.cpcBid })), shown.items), shown, google: g.data, bing: nodes };
+  // An item Google leaves out stays when it earns at least the campaign's own ROAS target here.
+  const opts = { keepRoas: bing.bidStrategy.targetRoas ?? 1, currency: ctx.currency };
+  return { plan: planMirror(g.data, nodes, live.map((x) => ({ id: x.id, name: x.name, cpcBid: x.cpcBid })), shown.items, opts), shown, google: g.data, bing: nodes };
 }
 
 /**
@@ -106,6 +108,77 @@ async function settingsOf(ctx: ToolContext, c: Campaign, g: GoogleCampaign, rang
       'Judge the setup from these facts and give ONE short recommendation each for bid strategy/target, budget and bids: keep, or change to what and why (with the number behind it). Microsoft has less data than Google – copying Google\'s target is not automatically right. Change nothing until the user says yes; then use update_campaigns (strategy, target, budget) or update_ad_groups/update_keywords (bids, never under the lowest CPC bid).',
   };
 }
+
+
+/**
+ * Sends each ad group's chosen rows to Microsoft – one call per ad group, all or nothing –
+ * and reads the tree back: only what Microsoft shows afterwards counts as done.
+ */
+async function applyGroups(ctx: ToolContext, groups: MirrorGroup[], lines: ChangeLine[], also: string): Promise<ExecutionResult> {
+  const chosen = new Set(lines.map((l) => l.pickKey!));
+  const confirmed: string[] = [];
+  const missing: string[] = [];
+  const failed: string[] = [];
+  const applied: ChangeLine[] = [];
+  for (const g of groups) {
+    const mine = new Set(g.rows.filter((r) => chosen.has(r.key)).map((r) => r.key));
+    if (!mine.size) continue;
+    try {
+      const actions = buildActions(g, mine);
+      if (!actions.length) continue;
+      await ctx.backend.applyProductPartitionActions!(ctx.accountId, actions);
+    } catch (e) {
+      failed.push(`"${g.bingGroup}": ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
+    const after = toListingNodes(await ctx.backend.listProductPartitions!(ctx.accountId, g.bingAdGroupId!, g.bingGroup!));
+    const v = verifyMirror(g, mine, shapeOf(after));
+    confirmed.push(...v.confirmed.map((t) => `${g.bingGroup}: ${t}`));
+    missing.push(...v.missing.map((t) => `${g.bingGroup}: ${t}`));
+    applied.push(...lines.filter((l) => l.entityId === g.bingAdGroupId && v.confirmed.some((t) => l.field.endsWith(t))));
+  }
+  const outcome = failed.length || missing.length ? (confirmed.length ? 'partial' : 'failed') : 'confirmed';
+  return {
+    result: {
+      outcome,
+      verifiedByReadBack: true,
+      confirmed: confirmed.length,
+      ...(missing.length ? { notConfirmed: missing } : {}),
+      ...(failed.length ? { failed } : {}),
+      instruction: outcome === 'confirmed' ? `Microsoft confirms every change. ${also}` : `Tell the user exactly which ad groups failed or were not confirmed, and why. ${also}`,
+    },
+    summary: outcome === 'confirmed' ? `Bekræftet hos Microsoft: ${confirmed.length} ændringer` : `${confirmed.length} bekræftet · ${failed.length + missing.length} ikke gennemført`,
+    changes: applied,
+  };
+}
+
+/** A row of the product group card. */
+const cardLine = (g: MirrorGroup, r: MirrorGroup['rows'][number], skip: Set<string>): ChangeLine | null =>
+  skip.has(r.key)
+    ? null
+    : {
+        entity: 'Produktgruppe',
+        entityId: g.bingAdGroupId!,
+        field: `${g.bingGroup} · ${r.label}`,
+        after: r.itemId || (r.action === 'all' || r.action === 'collapse' ? 'Alle produkter' : 'Alt andet'),
+        cells: { group: g.bingGroup, groupId: g.bingAdGroupId, kind: TAG[r.action], why: r.label, bid: BID_ROWS.includes(r.action) ? g.bid : null },
+        pickKey: r.key,
+        pickOff: r.defaultOff,
+      };
+
+const BID_ROWS: MirrorAction[] = ['add_bid', 'to_bid', 'else_bid', 'all', 'collapse'];
+
+const PICK = {
+  skipPath: ['skip'],
+  group: 'group',
+  itemLabel: 'Varenummer',
+  tag: 'kind',
+  tagLabel: 'Handling',
+  note: 'why',
+  columns: [{ key: 'bid', label: 'Bud', format: 'money' as const }],
+  groupBid: { idCell: 'groupId', valueCell: 'bid', path: ['bids'], label: 'Bud' },
+  approveLabel: 'Udfør {n} ændringer i Microsoft',
+};
 
 /* ------------------------------------ tools ------------------------------------ */
 
@@ -258,7 +331,7 @@ export const googleTools = [
     name: 'list_product_groups',
     kind: 'read',
     description:
-      'Read a Microsoft Shopping campaign\'s product groups (product partitions) per ad group: whether the tree is "Alle produkter", split by item id (each item id with its bid or excluded, and "everything else"), or split some other way. Use this – never microsoft_ads_api – to read product groups. Change them with match_product_groups_to_google.',
+      'Read a Microsoft Shopping campaign\'s product groups (product partitions) per ad group: whether the tree is "Alle produkter", split by item id (each item id with its bid or excluded, and "everything else"), or split some other way. Use this – never microsoft_ads_api – to read product groups. Change them with edit_product_groups (what the user names) or match_product_groups_to_google (like Google).',
     schema: z.object({
       campaignId: z.string().describe('The Microsoft Shopping campaign.'),
       adGroupId: z.string().optional().describe('Only this ad group.'),
@@ -286,10 +359,72 @@ export const googleTools = [
   }),
 
   defineWrite({
+    name: 'edit_product_groups',
+    kind: 'write',
+    description:
+      'Change product groups in ONE Microsoft Shopping ad group exactly as the user asks – exclude item ids, bid on item ids, or remove an item\'s own product group (it falls under "everything else") – e.g. "ekskludér 2515012108 & 2392163005 under Flipover". Works whether the ad group bids on "Alle produkter" (split by item id, the rest keeps its bid) or is already split. Get the ad group id from list_product_groups or find_campaigns_and_ad_groups. Shows a card the user approves; sent to Microsoft in one call for the ad group and read back. Never use microsoft_ads_api for product groups. Only Microsoft is changed.',
+    schema: z.object({
+      campaignId: z.string().describe('The Microsoft Shopping campaign.'),
+      adGroupId: z.string().describe('The ad group whose product groups change.'),
+      exclude: z.array(z.string().min(1).max(100)).max(500).optional().describe('Item ids to exclude.'),
+      include: z.array(z.string().min(1).max(100)).max(500).optional().describe('Item ids to bid on as their own product group.'),
+      remove: z.array(z.string().min(1).max(100)).max(500).optional().describe('Item ids whose own product group is removed (they fall under "everything else").'),
+      bid: z.number().positive().max(1000).optional().describe('CPC bid for the item ids bid on – only when the user names one. Default: the bid the group\'s items use most.'),
+      bids: z.record(z.string(), z.number().positive().max(1000)).optional().describe('Leave out – set on the card.'),
+      skip: z.array(z.string()).max(2000).optional().describe('Leave out – filled in from what the user ticks off on the card.'),
+      reason: z.string().describe('Why, in Danish – shown on the approval card.'),
+    }),
+    label: () => 'Retter produktgrupper',
+    async plan(input, ctx) {
+      const c = await getCampaign(ctx, input.campaignId);
+      if (c.type !== 'Shopping') throw new Error(`"${c.name}" er en ${c.type}-kampagne – produktgrupper kan kun rettes i Shopping-kampagner herfra.`);
+      if (!ctx.backend.applyProductPartitionActions || !ctx.backend.listProductPartitions) throw new Error('Produktgrupper kan kun ændres på den rigtige Microsoft-konto (ikke demo).');
+      const ag = (await getAdGroups(ctx, c.id)).find((g) => g.id === String(input.adGroupId));
+      if (!ag) throw new Error(`Annoncegruppe ${input.adGroupId} findes ikke i "${c.name}". Find den med list_product_groups.`);
+      if (!input.exclude?.length && !input.include?.length && !input.remove?.length) throw new Error('Angiv hvilke varenumre der skal udelukkes, bydes på eller fjernes.');
+      const nodes = toListingNodes(await ctx.backend.listProductPartitions(ctx.accountId, ag.id, ag.name));
+      const planned = planEdit(nodes, { id: ag.id, name: ag.name, cpcBid: ag.cpcBid }, { exclude: input.exclude, include: input.include, remove: input.remove, bid: input.bid });
+      if (planned.status === 'unsupported') throw new Error(planned.reason);
+      const group: MirrorGroup = { ...planned, bid: input.bids?.[ag.id] ?? planned.bid };
+      const skip = new Set(input.skip ?? []);
+      const lines = group.rows.map((r) => cardLine(group, r, skip)).filter((l): l is ChangeLine => !!l);
+      if (!lines.length) throw new Error(`Intet at ændre i "${ag.name}". ${planned.notes.join(' ')}`.trim());
+      // What the products excluded have done here – a converting one should be a deliberate choice.
+      const shown = await shownItems(ctx, c.id, false);
+      const warnings = group.rows
+        .filter((r) => (r.action === 'add_exclude' || r.action === 'to_exclude') && !skip.has(r.key))
+        .flatMap((r) => {
+          const st = shown.items?.stats?.get(`${ag.id}|${r.itemId.toLowerCase()}`);
+          return st && st.conversions > 0 ? [`${r.itemId} har konverteret: ${statsText(st, ctx.currency)}${performsWell(st, c.bidStrategy.targetRoas ?? 1) ? ' – den klarer sig godt; er udelukkelsen meningen?' : '.'}`] : [];
+        });
+      const bidding = lines.some((l) => l.cells?.bid !== null && l.cells?.bid !== undefined);
+      return {
+        plan: {
+          kind: 'update',
+          title: `Produktgrupper · ${ag.name}`,
+          reason: input.reason,
+          changes: lines,
+          dailyBudgetDelta: 0,
+          increasesSpend: bidding,
+          campaignIds: [c.id],
+          newBids: bidding && group.bid ? [group.bid] : [],
+          notes: [
+            ...(group.convert ? [`"${ag.name}" byder i dag på alle produkter: de valgte varenumre får deres egen produktgruppe, og resten bydes der fortsat på.`] : []),
+            ...warnings,
+            ...planned.notes,
+          ],
+          pick: PICK,
+        },
+        execute: () => applyGroups(ctx, [group], lines, ''),
+      };
+    },
+  }),
+
+  defineWrite({
     name: 'match_product_groups_to_google',
     kind: 'write',
     description:
-      'Make a Shopping campaign\'s product groups in Microsoft like its Google Ads counterpart\'s: per ad group the same item ids bid on or excluded, and the same "everything else". The tool reads both trees and works the changes out itself – do not list item ids. Microsoft\'s "Alle produkter" is split by item id when Google is; a split Microsoft ad group gets only the differences (its other items keep their bids and history). Removing items Google does not split out, or undoing a split, starts unticked on the card. New item ids get the bid the ad group\'s units already use most. An item Google excludes is only excluded in Microsoft when Microsoft has shown it in that ad group in the last 90 days – excluding a product that never shows changes nothing (includeUnshown: true to exclude those too, only if the user asks). Trees split by brand, product type or several levels are reported and left alone. Only Microsoft is changed – Google is read only. Bid strategy, budgets and campaign settings are not touched.',
+      'Make a Shopping campaign\'s product groups in Microsoft like its Google Ads counterpart\'s: per ad group the same item ids bid on or excluded, and the same "everything else". The tool reads both trees and works the changes out itself – do not list item ids. Microsoft\'s "Alle produkter" is split by item id when Google is; a split Microsoft ad group gets only the differences (its other items keep their bids and history). Removing items Google does not split out, or undoing a split, starts unticked on the card. Item ids Microsoft splits out but Google does not (they fall under Google\'s excluded "everything else") are excluded too – unticked when they do well here (converting at the campaign\'s ROAS target or better over 90 days). New item ids get the bid the ad group\'s units already use most. An item Google excludes is only excluded in Microsoft when Microsoft has shown it in that ad group in the last 90 days – excluding a product that never shows changes nothing (includeUnshown: true to exclude those too, only if the user asks). Trees split by brand, product type or several levels are reported and left alone. Only Microsoft is changed – Google is read only. Bid strategy, budgets and campaign settings are not touched.',
     schema: z.object({
       campaignId: z.string().describe('The Microsoft Shopping campaign.'),
       googleCampaignId: z.string().optional().describe('The Google campaign, if not the one matched on the Audit page.'),
@@ -383,47 +518,7 @@ export const googleTools = [
             approveLabel: 'Udfør {n} ændringer i Microsoft',
           },
         },
-        execute: async () => {
-          const chosen = new Set(lines.map((l) => l.pickKey!));
-          const confirmed: string[] = [];
-          const missing: string[] = [];
-          const failed: string[] = [];
-          const applied: ChangeLine[] = [];
-          // One call per ad group (Microsoft's rule) – a group that fails leaves the others untouched.
-          for (const g of working) {
-            const mine = new Set(g.rows.filter((r) => chosen.has(r.key)).map((r) => r.key));
-            if (!mine.size) continue;
-            try {
-              const actions = buildActions(g, mine);
-              if (!actions.length) continue;
-              await ctx.backend.applyProductPartitionActions!(ctx.accountId, actions);
-            } catch (e) {
-              failed.push(`"${g.bingGroup}": ${e instanceof Error ? e.message : String(e)}`);
-              continue;
-            }
-            const after = toListingNodes(await ctx.backend.listProductPartitions!(ctx.accountId, g.bingAdGroupId!, g.bingGroup!));
-            const v = verifyMirror(g, mine, shapeOf(after));
-            confirmed.push(...v.confirmed.map((t) => `${g.bingGroup}: ${t}`));
-            missing.push(...v.missing.map((t) => `${g.bingGroup}: ${t}`));
-            applied.push(...lines.filter((l) => l.entityId === g.bingAdGroupId && v.confirmed.some((t) => l.field.endsWith(t))));
-          }
-          const outcome = failed.length || missing.length ? (confirmed.length ? 'partial' : 'failed') : 'confirmed';
-          return {
-            result: {
-              outcome,
-              verifiedByReadBack: true,
-              confirmed: confirmed.length,
-              ...(missing.length ? { notConfirmed: missing } : {}),
-              ...(failed.length ? { failed } : {}),
-              instruction:
-                outcome === 'confirmed'
-                  ? 'Microsoft confirms every change. Google was not touched.'
-                  : 'Tell the user exactly which ad groups failed or were not confirmed, and why. Google was not touched.',
-            },
-            summary: outcome === 'confirmed' ? `Bekræftet hos Microsoft: ${confirmed.length} ændringer` : `${confirmed.length} bekræftet · ${failed.length + missing.length} ikke gennemført`,
-            changes: applied,
-          };
-        },
+        execute: () => applyGroups(ctx, working, lines, 'Google was not touched.'),
       };
     },
   }),
