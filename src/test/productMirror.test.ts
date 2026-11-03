@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildActions, planEdit, planMirror, shapeOf, verifyMirror, type MirrorGroup } from '@/features/audit/productMirror';
-import { partitionActionJson } from '@/bing/live';
+import { listingGroupActionJson, partitionActionJson } from '@/bing/live';
 import { bingDimension, type DListingNode, type ShownItems } from '@/features/audit/detail';
 import type { PartitionAction } from '@/bing/types';
 
@@ -325,5 +325,53 @@ describe('product groups the user asks for (edit_product_groups)', () => {
   it('leaves a tree split some other way alone, and says why', () => {
     const tree = [bingNode('1', null, 'all', '', { unit: false }), bingNode('2', '1', 'brand', 'Acme', { bid: 1 }), bingNode('3', '1', 'brand', '', { bid: 1 })];
     expect(planEdit(tree, GROUP, { exclude: ['SKU-1'] })).toMatchObject({ status: 'unsupported', reason: expect.stringMatching(/opdelt efter mærke/i) });
+  });
+});
+
+describe('bids and Performance Max (edit_product_groups)', () => {
+  const GROUP = { id: '500', name: 'Flipover', cpcBid: 0.4 };
+  const tree = () => [
+    bingNode('1', null, 'all', '', { unit: false }),
+    bingNode('2', '1', 'id', 'SKU-1', { bid: 20 }),
+    bingNode('3', '1', 'id', 'SKU-2', { excluded: true }),
+    bingNode('4', '1', 'id', '', { bid: 5 }),
+  ];
+
+  it('sets a new bid on items and on "alt andet" – and says what it cannot', () => {
+    const g = planEdit(tree(), GROUP, { setBid: ['SKU-1', 'alt andet', 'SKU-2', 'SKU-9'], bid: 12 });
+    expect(g.rows.map((r) => [r.action, r.itemId])).toEqual([
+      ['rebid', 'SKU-1'],
+      ['else_bid', ''],
+    ]);
+    expect(g.notes).toEqual(['SKU-2 er udelukket – byd på den med include.', 'SKU-9 er ikke sin egen produktgruppe – byd på den med include.']);
+    const after = simulate(tree(), buildActions(g, all(g)));
+    expect(after.find((n) => n.raw === 'SKU-1')!.bid).toBe(12);
+    expect(after.find((n) => n.parentId && n.value === '')!.bid).toBe(12);
+    expect(verifyMirror(g, all(g), shapeOf(after)).missing).toEqual([]);
+  });
+
+  it('Performance Max: excludes without any bid, and refuses bids', () => {
+    const pmax = [bingNode('9', null, 'all', '', {})];
+    const g = planEdit(pmax, GROUP, { exclude: ['SKU-1'], setBid: ['SKU-1'], bid: 5, noBids: true });
+    expect(g).toMatchObject({ noBids: true, bid: null, convert: true });
+    expect(g.notes).toContain('Performance Max har ingen bud pr. varenummer – Microsoft byder selv.');
+    const actions = buildActions(g, all(g));
+    expect(actions.every((a) => a.action === 'Delete' || a.bid === undefined)).toBe(true);
+    expect(actions.filter((a) => a.action === 'Add').map((a) => (a.action === 'Add' ? [a.kind, a.attribute, a.excluded] : null))).toEqual([
+      ['subdivision', null, false],
+      ['unit', 'SKU-1', true],
+      ['unit', null, false],
+    ]);
+  });
+});
+
+describe('what Microsoft gets for Performance Max', () => {
+  it('sends listing groups without bids, with the asset group and Microsoft\'s own ids', () => {
+    expect(listingGroupActionJson({ action: 'Delete', adGroupId: '77', id: '77~5', excluded: false })).toEqual({ Action: 'Delete', ListingGroup: { AssetGroupId: 77, Id: 5 } });
+    expect(listingGroupActionJson({ action: 'Add', adGroupId: '77', tempId: -1, parentId: null, kind: 'subdivision', operand: 'All', attribute: null, excluded: false })).toEqual({
+      Action: 'Add',
+      ListingGroup: { AssetGroupId: 77, Id: -1, ParentListingGroupId: null, ListingGroupType: 'Subdivision', IsExcluded: false, Dimension: { Operand: 'All', Attribute: null } },
+    });
+    expect(listingGroupActionJson({ action: 'Add', adGroupId: '77', parentId: -1, kind: 'unit', operand: 'Id', attribute: 'SKU-1', excluded: true }).ListingGroup).toMatchObject({ ParentListingGroupId: -1, IsExcluded: true, Dimension: { Operand: 'Id', Attribute: 'SKU-1' } });
   });
 });

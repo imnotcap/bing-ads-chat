@@ -339,7 +339,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
     async plan(input, ctx) {
       const type = input.type ?? 'Search';
       if (type !== 'Search') {
-        throw new Error(`${type}-kampagner kræver ekstra indstillinger (fx butik/produktfeed, asset groups eller målgrupper), som dette værktøj ikke sætter. Brug microsoft_ads_api med de nødvendige Settings, eller opret den i Microsoft Advertising.`);
+        throw new Error(`${type}-kampagner kræver ekstra indstillinger (fx butik/produktfeed, asset groups eller målgrupper), som dette værktøj ikke sætter. Opret den med microsoft_ads_api (POST campaign/Campaigns med CampaignType og Settings – Shopping: ShoppingSetting med StoreId; slå felterne op med find_api_operation), og læs den tilbage bagefter. Nye kampagner oprettes på pause.`);
       }
       const problem = bidStrategyProblem({ name: input.name, type }, input.bidStrategy);
       if (problem) throw new Error(problem);
@@ -912,6 +912,61 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
     },
   }),
 
+  defineWrite({
+    name: 'remove_negative_keywords',
+    kind: 'write',
+    description:
+      'Remove negative keywords from a campaign (omit adGroupId) or an ad group – e.g. when a negative blocks searches that should show ads. Name them by text (and match type, if the same text exists as both). The tool finds them, shows what goes, removes them and reads the negatives back. Can be undone (adds them again).',
+    schema: z.object({
+      campaignId: z.string(),
+      adGroupId: z.string().optional(),
+      keywords: z.array(z.object({ text: z.string().min(1).max(100), matchType: z.enum(['Exact', 'Phrase']).optional() })).min(1).max(500),
+      reason,
+    }),
+    label: (i) => `Fjerner ${i.keywords.length} negative søgeord`,
+    async plan(input, ctx) {
+      const c = await getCampaign(ctx, input.campaignId);
+      const g = input.adGroupId ? await getAdGroup(ctx, c.id, input.adGroupId) : null;
+      const target = g ? `annoncegruppen ${g.name}` : `kampagnen ${c.name}`;
+      const entityType = g ? 'AdGroup' : 'Campaign';
+      const entityId = g ? g.id : c.id;
+      const existing = await ctx.backend.listNegativeKeywords(ctx.accountId, entityType, entityId, c.id);
+      const found: NegativeKeyword[] = [];
+      const missing: string[] = [];
+      for (const k of input.keywords) {
+        const hits = existing.filter((n) => normalizeKeyword(n.text) === normalizeKeyword(k.text) && (!k.matchType || n.matchType === k.matchType) && !found.includes(n));
+        if (hits.length) found.push(...hits);
+        else missing.push(`"${k.text}"${k.matchType ? ` (${MATCH_LABELS[k.matchType]})` : ''}`);
+      }
+      if (!found.length) throw new Error(`Ingen af dem er negative søgeord på ${target}: ${missing.join(', ')}. Se dem med list_negative_keywords.`);
+      const lines: ChangeLine[] = found.map((n) => ({ entity: 'Negativt søgeord', entityId, field: `Fjern negativt søgeord · ${MATCH_LABELS[n.matchType]}`, before: n.text, after: 'Fjernet' }));
+      const checks: LineCheck<NegativeKeyword[]>[] = found.map((n, index) => ({
+        line: lines[index]!,
+        index,
+        verify: (s) => (s.some((x) => x.id === n.id) ? 'findes stadig ved genlæsning' : null),
+      }));
+      return {
+        plan: {
+          kind: 'update',
+          title: `Fjern negative søgeord fra ${target}`,
+          reason: input.reason,
+          changes: lines,
+          dailyBudgetDelta: 0,
+          increasesSpend: true,
+          campaignIds: [c.id],
+          notes: [...(missing.length ? [`Ikke fundet på ${target}: ${missing.join(', ')}.`] : []), 'Søgninger, de stoppede, kan igen vise annoncer.'],
+          undo: { tool: 'add_negative_keywords', input: { campaignId: c.id, ...(g ? { adGroupId: g.id } : {}), keywords: found.map((n) => ({ text: n.text, matchType: n.matchType })), reason: 'Fortryd' } },
+        },
+        execute: async () => {
+          const res = await ctx.backend.deleteNegativeKeywords(ctx.accountId, entityType, entityId, found.map((n) => n.id!).filter(Boolean));
+          fresh(ctx);
+          const state = await readBack(() => ctx.backend.listNegativeKeywords(ctx.accountId, entityType, entityId, c.id), checks, failedIndexes(res));
+          return report(verify(checks, res, state), { noun: 'negative søgeord fjernet' });
+        },
+      };
+    },
+  }),
+
   /* ------------------------------------------------------------------------ ads */
   defineWrite({
     name: 'propose_negative_keywords',
@@ -1294,7 +1349,7 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
         throw new Error(
           readOnly
             ? 'Produktgrupper læses med list_product_groups (Shopping) eller compare_with_google (også Performance Max) – ikke med det direkte API.'
-            : 'Produktgrupper ændres ikke med det direkte API. Brug edit_product_groups (bestemte varenumre i én annoncegruppe) eller match_product_groups_to_google (som i Google) – sendt samlet pr. annoncegruppe og læst tilbage. Performance Max-listinggrupper rettes i Microsoft Advertising.',
+            : 'Produktgrupper ændres ikke med det direkte API. Brug edit_product_groups (bestemte varenumre i én annoncegruppe) eller match_product_groups_to_google (som i Google) – sendt samlet pr. annoncegruppe og læst tilbage. Performance Max-listinggrupper også med edit_product_groups (asset group).',
         );
       }
       // A read without the ids/types Microsoft requires only comes back as an error ("The request message is null").

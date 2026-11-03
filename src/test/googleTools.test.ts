@@ -269,7 +269,7 @@ describe('edit_product_groups', () => {
     c.backend.shownProducts = async () => [{ itemId: 'SKU-5', adGroupId: '1040', impressions: 900, clicks: 30, spend: 150, conversions: 2, revenue: 1200 }];
     const tool = write('edit_product_groups');
     const { plan } = await tool.plan(tool.schema.parse({ campaignId: '104', adGroupId: '1040', exclude: ['SKU-5'], reason: 'x' }), c);
-    expect(plan!.notes!.join(' ')).toMatch(/byder i dag på alle produkter/);
+    expect(plan!.notes!.join(' ')).toMatch(/tager i dag alle produkter/);
     expect(plan!.notes!.join(' ')).toMatch(/SKU-5 har konverteret: 90 dage: 30 klik, 150\s?kr\., 2 konv\., ROAS 8 – den klarer sig godt/);
   });
 
@@ -281,5 +281,51 @@ describe('edit_product_groups', () => {
     ];
     const tool = write('edit_product_groups');
     await expect(tool.plan(tool.schema.parse({ campaignId: '104', adGroupId: '1040', exclude: ['SKU-1'], reason: 'x' }), ctx())).rejects.toThrow(/Intet at ændre.*SKU-1 er allerede udelukket/);
+  });
+});
+
+describe('edit_product_groups – bids and Performance Max', () => {
+  it('sets a new bid on an item the ad group bids on', async () => {
+    tree = [
+      { id: '1', parentId: null, group: '', groupId: '1040', unit: false, excluded: false, operand: 'All', attribute: '', bid: null },
+      { id: '2', parentId: '1', group: '', groupId: '1040', unit: true, excluded: false, operand: 'Id', attribute: '2392164005', bid: 20 },
+      { id: '3', parentId: '1', group: '', groupId: '1040', unit: true, excluded: true, operand: 'Id', attribute: '', bid: null },
+    ];
+    const tool = write('edit_product_groups');
+    const { plan, execute } = await tool.plan(tool.schema.parse({ campaignId: '104', adGroupId: '1040', setBid: ['2392164005'], bid: 12, reason: 'x' }), ctx());
+    expect(plan!.changes.map((l) => [l.after, l.cells?.kind, l.cells?.bid])).toEqual([['2392164005', 'Bud', 12]]);
+    expect(plan!.newBids).toEqual([12]);
+    expect((await execute()).result).toMatchObject({ outcome: 'confirmed' });
+    expect(tree.find((n) => n.attribute === '2392164005')!.bid).toBe(12);
+  });
+
+  it('excludes an item in a Performance Max asset group – no bids, its own call', async () => {
+    let listing: ProductTreeNode[] = [{ id: '77~1', parentId: null, group: 'Bestsellere', groupId: '77', unit: true, excluded: false, operand: '', attribute: '' }];
+    const sent: PartitionAction[][] = [];
+    const c = ctx();
+    c.backend.listAssetGroupListingGroups = async () => listing;
+    c.backend.applyAssetGroupListingGroupActions = async (_a, actions) => {
+      sent.push(actions);
+      let next = 100;
+      const temp = new Map<number, string>();
+      for (const a of actions) {
+        if (a.action === 'Delete') listing = listing.filter((n) => n.id !== a.id);
+        else {
+          const id = `77~${next++}`;
+          if (a.tempId !== undefined) temp.set(a.tempId, id);
+          const parentId = a.parentId === null ? null : typeof a.parentId === 'number' ? temp.get(a.parentId)! : a.parentId;
+          listing.push({ id, parentId, group: 'Bestsellere', groupId: '77', unit: a.kind === 'unit', excluded: a.excluded, operand: a.operand, attribute: a.attribute ?? '' });
+        }
+      }
+      return { ids: [] };
+    };
+    const tool = write('edit_product_groups');
+    const { plan, execute } = await tool.plan(tool.schema.parse({ campaignId: '107', adGroupId: '77', exclude: ['SKU-1'], reason: 'x' }), c);
+    expect(plan!.title).toBe('Listinggrupper · Bestsellere');
+    expect(plan!.pick?.groupBid).toBeUndefined();
+    expect((await execute()).result).toMatchObject({ outcome: 'confirmed' });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.every((a) => a.action === 'Delete' || a.bid === undefined)).toBe(true);
+    expect(listing.find((n) => n.attribute === 'SKU-1')!.excluded).toBe(true);
   });
 });

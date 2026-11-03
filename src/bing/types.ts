@@ -440,6 +440,8 @@ export interface AdsBackend {
   applyProductPartitionActions?(accountId: string, actions: PartitionAction[]): Promise<MutationResult>;
   /** A Performance Max campaign's listing groups, for all its asset groups (live only). */
   listAssetGroupListingGroups?(accountId: string, campaignId: string): Promise<ProductTreeNode[]>;
+  /** Performance Max listing groups of ONE asset group, all or nothing (adGroupId = the asset group). No bids. */
+  applyAssetGroupListingGroupActions?(accountId: string, actions: PartitionAction[]): Promise<MutationResult>;
 
   updateCampaigns(accountId: string, patches: CampaignPatch[]): Promise<MutationResult>;
   createCampaign(accountId: string, spec: NewCampaign): Promise<MutationResult>;
@@ -450,6 +452,7 @@ export interface AdsBackend {
   updateKeywords(accountId: string, adGroupId: string, patches: KeywordPatch[]): Promise<MutationResult>;
   deleteKeywords(accountId: string, adGroupId: string, keywordIds: string[]): Promise<MutationResult>;
   addNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, keywords: NegativeKeyword[]): Promise<MutationResult>;
+  deleteNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, ids: string[]): Promise<MutationResult>;
   createResponsiveSearchAd(accountId: string, adGroupId: string, ad: NewResponsiveSearchAd): Promise<MutationResult>;
   updateAds(accountId: string, adGroupId: string, patches: AdPatch[]): Promise<MutationResult>;
 

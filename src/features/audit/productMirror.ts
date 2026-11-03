@@ -45,7 +45,7 @@ export function shapeOf(nodes: DListingNode[]): TreeShape {
 
 /* ----------------------------------- planning ----------------------------------- */
 
-export type MirrorAction = 'add_bid' | 'add_exclude' | 'to_bid' | 'to_exclude' | 'remove' | 'else_bid' | 'else_exclude' | 'all' | 'collapse';
+export type MirrorAction = 'add_bid' | 'add_exclude' | 'to_bid' | 'to_exclude' | 'rebid' | 'remove' | 'else_bid' | 'else_exclude' | 'all' | 'collapse';
 
 export interface MirrorRow {
   /** Stable across re-plans: what the user ticks off is remembered by it. */
@@ -71,6 +71,8 @@ export interface MirrorGroup {
   /** The bid new units get: what the ad group's units already bid most often. */
   bid: number | null;
   rows: MirrorRow[];
+  /** Performance Max listing groups: no bids at all (Microsoft sets them). */
+  noBids?: boolean;
   /** Item ids Google excludes that Microsoft has not shown in this ad group: left alone – excluding them changes nothing. */
   unshown: string[];
   google: TreeShape;
@@ -238,6 +240,10 @@ export interface EditRequest {
   remove?: string[];
   /** The bid for items bid on; default the bid the group's items use most. */
   bid?: number | null;
+  /** Item ids (or "alt andet" for everything else) whose bid becomes `bid`. */
+  setBid?: string[];
+  /** Performance Max: listing groups without bids. */
+  noBids?: boolean;
 }
 
 /**
@@ -256,7 +262,8 @@ export function planEdit(nodes: DListingNode[], group: { id: string; name: strin
     unshown: [] as string[],
     google: { kind: 'none' } as TreeShape,
     bing: b,
-    bid: req.bid ?? bidOf(b, group.cpcBid),
+    bid: req.noBids ? null : (req.bid ?? bidOf(b, group.cpcBid)),
+    noBids: !!req.noBids,
     notes,
   };
   if (b.kind === 'other') return { ...base, status: 'unsupported', reason: `Produkttræet i "${group.name}" ${b.why} – ret det i Microsoft Advertising.`, rows: [] };
@@ -293,6 +300,25 @@ export function planEdit(nodes: DListingNode[], group: { id: string; name: strin
     if (!there) notes.push(`${id} er ikke sin egen produktgruppe – intet at fjerne.`);
     else rows.push(row('remove', there.raw || id, `Fjern ${there.raw || id} – falder under "alt andet" (${b.kind === 'ids' && b.other.excluded ? 'udelukket' : 'bydes på'})`, there));
   }
+  if (req.setBid?.length) {
+    if (req.noBids) notes.push('Performance Max har ingen bud pr. varenummer – Microsoft byder selv.');
+    else if (!req.bid) notes.push('Angiv det nye bud.');
+    else
+      for (const raw of req.setBid) {
+        const id = raw.trim();
+        if (/^(alt andet|everything else|\*)$/i.test(id)) {
+          if (b.kind === 'ids' && !b.other.excluded) rows.push(row('else_bid', '', `"Alt andet": bud ${req.bid}`, b.other));
+          else if (b.kind === 'all' && !b.root.excluded) notes.push('Gruppen byder på alle produkter som ét – skift annoncegruppens standardbud med update_ad_groups.');
+          else notes.push('"Alt andet" er udelukket – intet bud at ændre.');
+          continue;
+        }
+        const there = nodeOf(id);
+        if (!there) notes.push(`${id} er ikke sin egen produktgruppe – byd på den med include.`);
+        else if (there.excluded) notes.push(`${there.raw || id} er udelukket – byd på den med include.`);
+        else if (there.bid === req.bid) notes.push(`${there.raw || id} har allerede bud ${req.bid}.`);
+        else rows.push(row('rebid', there.raw || id, `Bud på ${there.raw || id}: ${there.bid ?? '–'} → ${req.bid}`, there));
+      }
+  }
   // "Alle produkter" can only be split: switching or removing needs the item's own group.
   const usable = base.convert ? rows.filter((r) => r.action === 'add_bid' || r.action === 'add_exclude') : rows;
   return { ...base, status: usable.length ? 'changes' : 'same', rows: usable };
@@ -312,7 +338,7 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
   const rows = group.rows.filter((r) => chosen.has(r.key));
   if (!rows.length) return [];
   const b = group.bing;
-  const needsBid = rows.some((r) => ['add_bid', 'to_bid', 'else_bid', 'all', 'collapse'].includes(r.action)) || group.convert;
+  const needsBid = !group.noBids && (rows.some((r) => ['add_bid', 'to_bid', 'rebid', 'else_bid', 'all', 'collapse'].includes(r.action)) || group.convert);
   if (needsBid && !group.bid) throw new Error(`"${group.bingGroup}" har intet bud at gå ud fra – sæt et standardbud på annoncegruppen først.`);
   const unit = (parentId: string | number, attribute: string | null, excluded: boolean): PartitionAction => ({
     action: 'Add',
@@ -322,7 +348,7 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
     operand: ITEM,
     attribute,
     excluded,
-    ...(excluded ? {} : { bid: group.bid }),
+    ...(excluded || group.noBids ? {} : { bid: group.bid }),
   });
 
   // The whole tree as one unit (Google bids on all products).
@@ -363,7 +389,8 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
         break;
       case 'to_bid':
       case 'to_exclude':
-        // A unit cannot change between bid on and excluded: it is replaced.
+      case 'rebid':
+        // A unit cannot change between bid on and excluded: it is replaced (a new bid the same way).
         deletes.push({ action: 'Delete', adGroupId, id: r.bingNodeId!, excluded: !!r.bingNodeExcluded });
         adds.push(unit(parent, r.itemId, r.action === 'to_exclude'));
         break;
@@ -393,6 +420,7 @@ export function verifyMirror(group: MirrorGroup, chosen: Set<string>, after: Tre
       const node = after.items.get(r.itemId.toLowerCase());
       if (r.action === 'add_bid' || r.action === 'to_bid') ok = !!node && !node.excluded;
       else if (r.action === 'add_exclude' || r.action === 'to_exclude') ok = !!node && node.excluded;
+      else if (r.action === 'rebid') ok = !!node && !node.excluded && node.bid === group.bid;
       else if (r.action === 'remove') ok = !node;
       else if (r.action === 'else_bid') ok = !after.other.excluded;
       else if (r.action === 'else_exclude') ok = after.other.excluded;

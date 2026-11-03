@@ -356,6 +356,21 @@ export class DemoBackend implements AdsBackend {
     return {};
   }
 
+  async deleteNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, ids: string[]): Promise<MutationResult> {
+    await this.delay();
+    if (entityType === 'Campaign') this.campaign(accountId, entityId);
+    else this.adGroup(accountId, entityId);
+    const key = `${entityType}:${entityId}`;
+    const list = this.state.negatives[key] ?? [];
+    const failed: ItemError[] = [];
+    ids.forEach((id, index) => {
+      if (!list.some((n) => n.id === id)) failed.push({ index, message: `Negativt søgeord ${id} findes ikke her.`, code: 'NegativeKeywordNotFound' });
+    });
+    this.state.negatives[key] = list.filter((n) => !ids.includes(n.id ?? ''));
+    this.commit();
+    return batchOutcome(ids.filter((_, i) => !failed.some((f) => f.index === i)), failed, ids.length);
+  }
+
   async addNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, keywords: NegativeKeyword[]): Promise<MutationResult> {
     await this.delay();
     if (entityType === 'Campaign') this.campaign(accountId, entityId);

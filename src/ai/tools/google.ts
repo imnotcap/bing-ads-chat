@@ -9,11 +9,11 @@
  */
 import { z } from 'zod';
 import { daysBetween, fmtMoney } from '@/lib/format';
-import type { AdGroup, Campaign } from '@/bing/types';
+import type { AdGroup, Campaign, PartitionAction } from '@/bing/types';
 import { bingAds, bingNegatives, bingProducts, bingSearchTerms, bingShownItems, bingStructure, toListingNodes } from '@/features/audit/bingDetail';
 import { byShown, compareAds, compareExclusions, compareKeywords, compareNegatives, compareSearchTerms } from '@/features/audit/compare';
 import type { GoogleCampaign } from '@/features/audit/data';
-import { SHOWN_DAYS, type DetailPart, type ShownItems } from '@/features/audit/detail';
+import { SHOWN_DAYS, type DListingNode, type DetailPart, type ShownItems } from '@/features/audit/detail';
 import { rankCandidates, suggestMatch } from '@/features/audit/match';
 import { settingsFacts } from '@/features/audit/settings';
 import { buildActions, planEdit, planMirror, performsWell, shapeOf, statsText, verifyMirror, type MirrorAction, type MirrorGroup } from '@/features/audit/productMirror';
@@ -114,7 +114,23 @@ async function settingsOf(ctx: ToolContext, c: Campaign, g: GoogleCampaign, rang
  * Sends each ad group's chosen rows to Microsoft – one call per ad group, all or nothing –
  * and reads the tree back: only what Microsoft shows afterwards counts as done.
  */
-async function applyGroups(ctx: ToolContext, groups: MirrorGroup[], lines: ChangeLine[], also: string): Promise<ExecutionResult> {
+/** How a product tree is sent and read back: Shopping ad groups, or Performance Max asset groups. */
+interface TreeIO {
+  apply: (actions: PartitionAction[]) => Promise<unknown>;
+  read: (group: MirrorGroup) => Promise<DListingNode[]>;
+}
+
+const shoppingIO = (ctx: ToolContext): TreeIO => ({
+  apply: (actions) => ctx.backend.applyProductPartitionActions!(ctx.accountId, actions),
+  read: async (g) => toListingNodes(await ctx.backend.listProductPartitions!(ctx.accountId, g.bingAdGroupId!, g.bingGroup!)),
+});
+
+const pmaxIO = (ctx: ToolContext, campaignId: string): TreeIO => ({
+  apply: (actions) => ctx.backend.applyAssetGroupListingGroupActions!(ctx.accountId, actions),
+  read: async (g) => toListingNodes(await ctx.backend.listAssetGroupListingGroups!(ctx.accountId, campaignId)).filter((n) => n.groupId === g.bingAdGroupId),
+});
+
+async function applyGroups(ctx: ToolContext, groups: MirrorGroup[], lines: ChangeLine[], also: string, io: TreeIO = shoppingIO(ctx)): Promise<ExecutionResult> {
   const chosen = new Set(lines.map((l) => l.pickKey!));
   const confirmed: string[] = [];
   const missing: string[] = [];
@@ -126,12 +142,12 @@ async function applyGroups(ctx: ToolContext, groups: MirrorGroup[], lines: Chang
     try {
       const actions = buildActions(g, mine);
       if (!actions.length) continue;
-      await ctx.backend.applyProductPartitionActions!(ctx.accountId, actions);
+      await io.apply(actions);
     } catch (e) {
       failed.push(`"${g.bingGroup}": ${e instanceof Error ? e.message : String(e)}`);
       continue;
     }
-    const after = toListingNodes(await ctx.backend.listProductPartitions!(ctx.accountId, g.bingAdGroupId!, g.bingGroup!));
+    const after = await io.read(g);
     const v = verifyMirror(g, mine, shapeOf(after));
     confirmed.push(...v.confirmed.map((t) => `${g.bingGroup}: ${t}`));
     missing.push(...v.missing.map((t) => `${g.bingGroup}: ${t}`));
@@ -166,7 +182,7 @@ const cardLine = (g: MirrorGroup, r: MirrorGroup['rows'][number], skip: Set<stri
         pickOff: r.defaultOff,
       };
 
-const BID_ROWS: MirrorAction[] = ['add_bid', 'to_bid', 'else_bid', 'all', 'collapse'];
+const BID_ROWS: MirrorAction[] = ['add_bid', 'to_bid', 'rebid', 'else_bid', 'all', 'collapse'];
 
 const PICK = {
   skipPath: ['skip'],
@@ -187,6 +203,7 @@ const TAG: Record<MirrorAction, string> = {
   add_exclude: 'Udeluk',
   to_bid: 'Byd',
   to_exclude: 'Udeluk',
+  rebid: 'Bud',
   remove: 'Fjern',
   else_bid: 'Byd',
   else_exclude: 'Udeluk',
@@ -362,14 +379,15 @@ export const googleTools = [
     name: 'edit_product_groups',
     kind: 'write',
     description:
-      'Change product groups in ONE Microsoft Shopping ad group exactly as the user asks – exclude item ids, bid on item ids, or remove an item\'s own product group (it falls under "everything else") – e.g. "ekskludér 2515012108 & 2392163005 under Flipover". Works whether the ad group bids on "Alle produkter" (split by item id, the rest keeps its bid) or is already split. Get the ad group id from list_product_groups or find_campaigns_and_ad_groups. Shows a card the user approves; sent to Microsoft in one call for the ad group and read back. Never use microsoft_ads_api for product groups. Only Microsoft is changed.',
+      'Change product groups in ONE Microsoft ad group exactly as the user asks – exclude item ids, bid on item ids, change the bid of item ids (or "alt andet"), or remove an item\'s own product group (it falls under "everything else") – e.g. "ekskludér 2515012108 & 2392163005 under Flipover", "sæt buddet på 2392164005 til 12 kr.". Shopping: an ad group. Performance Max: an asset group (adGroupId = the asset group id; listing groups have no bids – exclude, include and remove only). Works whether the group takes "Alle produkter" (split by item id, the rest stays as it is) or is already split. Get ids from list_product_groups or find_campaigns_and_ad_groups. Shows a card the user approves; sent to Microsoft in one call for the group and read back. Never use microsoft_ads_api for product groups. Only Microsoft is changed.',
     schema: z.object({
-      campaignId: z.string().describe('The Microsoft Shopping campaign.'),
-      adGroupId: z.string().describe('The ad group whose product groups change.'),
+      campaignId: z.string().describe('The Microsoft Shopping or Performance Max campaign.'),
+      adGroupId: z.string().describe('The ad group (Shopping) or asset group (Performance Max) whose product groups change.'),
       exclude: z.array(z.string().min(1).max(100)).max(500).optional().describe('Item ids to exclude.'),
       include: z.array(z.string().min(1).max(100)).max(500).optional().describe('Item ids to bid on as their own product group.'),
       remove: z.array(z.string().min(1).max(100)).max(500).optional().describe('Item ids whose own product group is removed (they fall under "everything else").'),
-      bid: z.number().positive().max(1000).optional().describe('CPC bid for the item ids bid on – only when the user names one. Default: the bid the group\'s items use most.'),
+      setBid: z.array(z.string().min(1).max(100)).max(500).optional().describe('Item ids already bid on whose bid becomes `bid` ("alt andet" = everything else). Shopping only.'),
+      bid: z.number().positive().max(1000).optional().describe('CPC bid – for setBid, and for the item ids bid on when the user names one (default: the bid the group\'s items use most). Shopping only.'),
       bids: z.record(z.string(), z.number().positive().max(1000)).optional().describe('Leave out – set on the card.'),
       skip: z.array(z.string()).max(2000).optional().describe('Leave out – filled in from what the user ticks off on the card.'),
       reason: z.string().describe('Why, in Danish – shown on the approval card.'),
@@ -377,15 +395,31 @@ export const googleTools = [
     label: () => 'Retter produktgrupper',
     async plan(input, ctx) {
       const c = await getCampaign(ctx, input.campaignId);
-      if (c.type !== 'Shopping') throw new Error(`"${c.name}" er en ${c.type}-kampagne – produktgrupper kan kun rettes i Shopping-kampagner herfra.`);
-      if (!ctx.backend.applyProductPartitionActions || !ctx.backend.listProductPartitions) throw new Error('Produktgrupper kan kun ændres på den rigtige Microsoft-konto (ikke demo).');
-      const ag = (await getAdGroups(ctx, c.id)).find((g) => g.id === String(input.adGroupId));
-      if (!ag) throw new Error(`Annoncegruppe ${input.adGroupId} findes ikke i "${c.name}". Find den med list_product_groups.`);
-      if (!input.exclude?.length && !input.include?.length && !input.remove?.length) throw new Error('Angiv hvilke varenumre der skal udelukkes, bydes på eller fjernes.');
-      const nodes = toListingNodes(await ctx.backend.listProductPartitions(ctx.accountId, ag.id, ag.name));
-      const planned = planEdit(nodes, { id: ag.id, name: ag.name, cpcBid: ag.cpcBid }, { exclude: input.exclude, include: input.include, remove: input.remove, bid: input.bid });
+      const pmax = c.type === 'PerformanceMax';
+      if (c.type !== 'Shopping' && !pmax) throw new Error(`"${c.name}" er en ${c.type}-kampagne – produktgrupper findes kun i Shopping- og Performance Max-kampagner.`);
+      if (pmax ? !ctx.backend.applyAssetGroupListingGroupActions || !ctx.backend.listAssetGroupListingGroups : !ctx.backend.applyProductPartitionActions || !ctx.backend.listProductPartitions)
+        throw new Error('Produktgrupper kan kun ændres på den rigtige Microsoft-konto (ikke demo).');
+      if (!input.exclude?.length && !input.include?.length && !input.remove?.length && !input.setBid?.length) throw new Error('Angiv hvilke varenumre der skal udelukkes, bydes på, have nyt bud eller fjernes.');
+      // The group and its tree: an ad group's product groups, or an asset group's listing groups.
+      let ag: { id: string; name: string; cpcBid?: number | null };
+      let nodes: DListingNode[];
+      if (pmax) {
+        const all = toListingNodes(await ctx.backend.listAssetGroupListingGroups!(ctx.accountId, c.id));
+        nodes = all.filter((n) => n.groupId === String(input.adGroupId));
+        if (!nodes.length) {
+          const names = [...new Set(all.map((n) => `"${n.group}" (id ${n.groupId})`))];
+          throw new Error(`Asset group ${input.adGroupId} har ingen listinggrupper i "${c.name}".${names.length ? ` Asset groups: ${names.join(', ')}.` : ''}`);
+        }
+        ag = { id: String(input.adGroupId), name: nodes[0]!.group };
+      } else {
+        const found = (await getAdGroups(ctx, c.id)).find((g) => g.id === String(input.adGroupId));
+        if (!found) throw new Error(`Annoncegruppe ${input.adGroupId} findes ikke i "${c.name}". Find den med list_product_groups.`);
+        ag = { id: found.id, name: found.name, cpcBid: found.cpcBid };
+        nodes = toListingNodes(await ctx.backend.listProductPartitions!(ctx.accountId, found.id, found.name));
+      }
+      const planned = planEdit(nodes, ag, { exclude: input.exclude, include: input.include, remove: input.remove, setBid: input.setBid, bid: input.bid, noBids: pmax });
       if (planned.status === 'unsupported') throw new Error(planned.reason);
-      const group: MirrorGroup = { ...planned, bid: input.bids?.[ag.id] ?? planned.bid };
+      const group: MirrorGroup = { ...planned, bid: pmax ? null : (input.bids?.[ag.id] ?? planned.bid) };
       const skip = new Set(input.skip ?? []);
       const lines = group.rows.map((r) => cardLine(group, r, skip)).filter((l): l is ChangeLine => !!l);
       if (!lines.length) throw new Error(`Intet at ændre i "${ag.name}". ${planned.notes.join(' ')}`.trim());
@@ -397,25 +431,26 @@ export const googleTools = [
           const st = shown.items?.stats?.get(`${ag.id}|${r.itemId.toLowerCase()}`);
           return st && st.conversions > 0 ? [`${r.itemId} har konverteret: ${statsText(st, ctx.currency)}${performsWell(st, c.bidStrategy.targetRoas ?? 1) ? ' – den klarer sig godt; er udelukkelsen meningen?' : '.'}`] : [];
         });
-      const bidding = lines.some((l) => l.cells?.bid !== null && l.cells?.bid !== undefined);
+      const bidding = !pmax && lines.some((l) => l.cells?.bid !== null && l.cells?.bid !== undefined);
       return {
         plan: {
           kind: 'update',
-          title: `Produktgrupper · ${ag.name}`,
+          title: `${pmax ? 'Listinggrupper' : 'Produktgrupper'} · ${ag.name}`,
           reason: input.reason,
           changes: lines,
           dailyBudgetDelta: 0,
-          increasesSpend: bidding,
+          increasesSpend: bidding || lines.some((l) => l.cells?.kind === 'Byd'),
           campaignIds: [c.id],
           newBids: bidding && group.bid ? [group.bid] : [],
           notes: [
-            ...(group.convert ? [`"${ag.name}" byder i dag på alle produkter: de valgte varenumre får deres egen produktgruppe, og resten bydes der fortsat på.`] : []),
+            ...(group.convert ? [`"${ag.name}" tager i dag alle produkter: de valgte varenumre får deres egen gruppe, og resten er som før.`] : []),
+            ...(lines.some((l) => l.cells?.kind === 'Bud') ? ['Et nyt bud sættes ved at erstatte varenummerets produktgruppe – tallene i rapporterne følger varenummeret.'] : []),
             ...warnings,
             ...planned.notes,
           ],
-          pick: PICK,
+          pick: pmax ? { ...PICK, columns: [], groupBid: undefined } : PICK,
         },
-        execute: () => applyGroups(ctx, [group], lines, ''),
+        execute: () => applyGroups(ctx, [group], lines, '', pmax ? pmaxIO(ctx, c.id) : shoppingIO(ctx)),
       };
     },
   }),
@@ -441,7 +476,7 @@ export const googleTools = [
     label: () => 'Retter produktgrupper som i Google',
     async plan(input, ctx) {
       const c = await getCampaign(ctx, input.campaignId);
-      if (c.type === 'PerformanceMax') throw new Error('Performance Max-listinggrupper kan ikke ændres herfra endnu – kun Shopping-kampagners produktgrupper.');
+      if (c.type === 'PerformanceMax') throw new Error('Spejling efter Google findes kun for Shopping. I Performance Max udelukkes eller tilføjes varenumre pr. asset group med edit_product_groups.');
       if (c.type !== 'Shopping') throw new Error(`"${c.name}" er en ${c.type}-kampagne – produktgrupper findes kun i Shopping-kampagner.`);
       if (!ctx.backend.applyProductPartitionActions) throw new Error('Produktgrupper kan kun ændres på den rigtige Microsoft-konto (ikke demo).');
       const period = resolvePeriod(undefined, ctx);

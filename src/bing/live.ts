@@ -143,6 +143,25 @@ export function partitionActionJson(a: PartitionAction): Json {
   };
 }
 
+/** A listing group id as Microsoft knows it (the app prefixes the asset group: "gid~id"). */
+const ownId = (id: string | number) => (typeof id === 'number' ? id : Number(String(id).split('~').pop()));
+
+/** A product tree action as Performance Max's AssetGroupListingGroupAction (no bids). */
+export function listingGroupActionJson(a: PartitionAction): Json {
+  if (a.action === 'Delete') return { Action: 'Delete', ListingGroup: { AssetGroupId: Number(a.adGroupId), Id: ownId(a.id) } };
+  return {
+    Action: 'Add',
+    ListingGroup: {
+      AssetGroupId: Number(a.adGroupId),
+      ...(a.tempId !== undefined ? { Id: a.tempId } : {}),
+      ParentListingGroupId: a.parentId === null ? null : ownId(a.parentId),
+      ListingGroupType: a.kind === 'subdivision' ? 'Subdivision' : 'Unit',
+      IsExcluded: a.excluded,
+      Dimension: { Operand: a.operand, Attribute: a.attribute },
+    },
+  };
+}
+
 /**
  * Reads the result of a batch operation. Microsoft reports a failed item as a
  * BatchError whose Index is the item's position in the request (the list of errors is
@@ -413,6 +432,7 @@ export class LiveBackend implements AdsBackend {
           id: `${gid}~${str(l.Id)}`,
           parentId: parent && parent !== '0' ? `${gid}~${parent}` : null,
           group: str(g.Name),
+          groupId: gid,
           unit: type ? type === 'Unit' : null,
           excluded: l.IsExcluded === true || str(l.IsExcluded).toLowerCase() === 'true',
           operand: str(dimension.Operand),
@@ -421,6 +441,23 @@ export class LiveBackend implements AdsBackend {
       }
     }
     return out;
+  }
+
+  /**
+   * Performance Max listing groups (ApplyAssetGroupListingGroupActions): the same tree as a
+   * Shopping ad group's product groups, without bids. One asset group per call; Microsoft
+   * applies all of a call's actions or none.
+   */
+  async applyAssetGroupListingGroupActions(accountId: string, actions: PartitionAction[]): Promise<MutationResult> {
+    const groups = new Set(actions.map((a) => a.adGroupId));
+    if (groups.size !== 1) throw new Error('Ændringer af listinggrupper skal sendes én asset group ad gangen.');
+    const res = (await this.cm<Json>(accountId, 'AssetGroupListingGroupActions/Apply', 'POST', { ListingGroupActions: actions.map(listingGroupActionJson) })) ?? {};
+    const errors = arr<Json>(res.PartialErrors);
+    if (errors.length) {
+      const messages = [...new Set(errors.flatMap((e) => extractErrorMessages(e)))];
+      throw new MsApiError(`Microsoft Advertising afviste ændringen af listinggrupperne – intet blev ændret: ${messages.slice(0, 3).join(' · ') || 'ukendt fejl'}`, 400, errors);
+    }
+    return { ids: arr<unknown>(res.AssetGroupListingGroupIds).map((v) => str(v)).filter(Boolean) };
   }
 
   /* ------------------------------- mutations ------------------------------- */
@@ -522,6 +559,14 @@ export class LiveBackend implements AdsBackend {
       ],
     });
     return batchResult(res, keywords.length);
+  }
+
+  /** DeleteNegativeKeywordsFromEntities – by id, on one campaign or ad group. */
+  async deleteNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, ids: string[]): Promise<MutationResult> {
+    const res = await this.cm(accountId, 'EntityNegativeKeywords', 'DELETE', {
+      EntityNegativeKeywords: [{ EntityId: Number(entityId), EntityType: entityType, NegativeKeywords: ids.map((id) => ({ Type: 'NegativeKeyword', Id: Number(id) })) }],
+    });
+    return batchResult(res, ids.length);
   }
 
   async createResponsiveSearchAd(accountId: string, adGroupId: string, ad: NewResponsiveSearchAd): Promise<MutationResult> {
