@@ -17,7 +17,7 @@ import { blockedBy } from './searchTerms';
 import { presetRange } from '@/lib/format';
 import { activeDailyBudget } from '@/bing/spend';
 import { findOperation, isReadOperation, missingRequired, searchOperations } from '@/bing/msOperations';
-import type { AdGroup, Campaign, ItemError, Keyword, MsService, NegativeKeyword, PinPosition } from '@/bing/types';
+import type { AdGroup, Campaign, ItemError, Keyword, MsService, NegativeKeyword, PinPosition, ProductTreeNode } from '@/bing/types';
 import { applyTargeting, joinVerified, planTargeting, readTargets, standardFor } from './targeting';
 import { useActivity, type ChangeLine } from '@/stores/activity';
 import type { ChangePlan } from '../guardrails';
@@ -499,8 +499,8 @@ A campaign shows no ads until it has ad groups: follow up with create_ad_group (
   defineWrite({
     name: 'create_ad_group',
     kind: 'write',
-    description: `Create one or more ad groups in ONE Search or Shopping campaign – all on one approval card (e.g. nine ad groups with their bids in one call). cpcBid per group is required when the campaign uses Enhanced/Manual CPC (without it Microsoft sets the minimum bid and the group gets almost no traffic) and is not allowed under automated bid strategies in Search campaigns.
-Shopping: each ad group also gets the product group "Alle produkter" with its bid and a product ad – without both it shows no ads. Use edit_product_groups afterwards to split or exclude products.
+    description: `Create one or more ad groups in ONE Search or Shopping campaign – all on one approval card (e.g. nine ad groups with their bids in one call). cpcBid per group is required when bids are used (Enhanced/Manual CPC, and always in Shopping) and is not allowed under automated bid strategies in Search campaigns. The bid is the user's choice: when they haven't given one for a group, ASK them before calling (list the groups missing a bid) – never pick or estimate a bid yourself. Under automated bidding don't ask.
+Shopping: each ad group gets a product ad, and its product groups are "Alle produkter" split by item id – the item ids in \`items\` are bid on with the group's cpcBid, and "alt andet" (everything else) is ALWAYS excluded, so only those items show. Without items nothing shows until item ids are added with edit_product_groups (include). Put the user's item ids for each group in \`items\`.
 When the campaign has no language, each ad group gets Danish (Microsoft requires a language on one of them).
 The team standard is set on the campaign in the same card where it is missing: mobile and tablet -90 %, the standard ad schedule (if the campaign has none) and Denmark with its five regions (if the campaign has no locations).`,
     schema: z.object({
@@ -509,7 +509,8 @@ The team standard is set on the campaign in the same card where it is missing: m
         .array(
           z.object({
             name: z.string().min(1).max(256),
-            cpcBid: z.number().positive().optional().describe('CPC bid (Shopping: the bid on "Alle produkter").'),
+            cpcBid: z.number().positive().optional().describe('CPC bid (Shopping: the bid on the item ids, also those added later).'),
+            items: z.array(z.string().min(1).max(100)).max(1000).optional().describe('Shopping: item ids (varenumre) to bid on in this group – everything else is excluded.'),
           }),
         )
         .min(1)
@@ -528,8 +529,11 @@ The team standard is set on the campaign in the same card where it is missing: m
       for (const g of input.adGroups) {
         if (!shopping && ignored && g.cpcBid) throw new Error(`Ikke sendt: ${ignored} Opret annoncegrupperne uden cpcBid.`);
         if ((shopping || !ignored) && !g.cpcBid) {
-          throw new Error(`"${g.name}" mangler et CPC-bud. ${shopping ? 'I Shopping får "Alle produkter" buddet' : `"${c.name}" bruger ${bidLabel(c.bidStrategy)}`} – uden bud sætter Microsoft minimumsbuddet, og gruppen får stort set ingen trafik.`);
+          throw new Error(`Ikke sendt: "${g.name}" mangler et CPC-bud, og ${shopping ? 'i Shopping får varenumrene buddet' : `"${c.name}" bruger ${bidLabel(c.bidStrategy)}, så buddet bruges`}. Spørg brugeren om CPC-buddet for ${input.adGroups.filter((x) => !x.cpcBid).map((x) => `"${x.name}"`).join(', ')} – find ikke selv på et bud – og kald så igen med buddene.`);
         }
+        if (!shopping && g.items?.length) throw new Error(`Varenumre hører til Shopping – "${c.name}" er en ${c.type}-kampagne.`);
+        const dup = (g.items ?? []).map((x) => x.trim().toLowerCase()).find((x, i, all) => all.indexOf(x) !== i);
+        if (dup) throw new Error(`Varenummeret ${dup} står flere gange i "${g.name}".`);
       }
       const names = input.adGroups.map((g) => g.name.trim().toLowerCase());
       const twice = names.filter((n, i) => names.indexOf(n) !== i);
@@ -545,7 +549,7 @@ The team standard is set on the campaign in the same card where it is missing: m
       if (language) notes.push('Kampagnen har intet sprog, så annoncegrupperne får sproget dansk.');
       notes.push(
         shopping
-          ? 'Hver annoncegruppe får produktgruppen "Alle produkter" med buddet og en produktannonce – så viser den produkter fra butikken. Del produkterne op bagefter, hvis du vil.'
+          ? 'Hver annoncegruppe får en produktannonce, og "Alle produkter" deles op: de angivne varenumre får buddet, og "alt andet" udelukkes – så vises kun de varenumre.'
           : 'Annoncegrupperne viser først annoncer, når de har søgeord og en godkendt annonce.',
       );
       if (status === 'Paused' && input.status !== 'Paused') notes.push('Oprettes på pause (forbrugsregel: nye ting starter på pause).');
@@ -553,8 +557,18 @@ The team standard is set on the campaign in the same card where it is missing: m
       const lines: ChangeLine[] = [];
       const rows = input.adGroups.map((g, i) => {
         const name = lines.push({ entity: 'Annoncegruppe', field: 'Annoncegruppe', after: g.name, edit: { path: ['adGroups', i, 'name'], maxLength: 256 } }) - 1;
-        const bid = g.cpcBid ? lines.push({ entity: 'Annoncegruppe', field: `${shopping ? 'Bud på "Alle produkter"' : 'CPC-bud'} · ${g.name}`, after: g.cpcBid, edit: { path: ['adGroups', i, 'cpcBid'], kind: 'money' as const } }) - 1 : null;
-        return { name, bid };
+        const bid = g.cpcBid ? lines.push({ entity: 'Annoncegruppe', field: `${shopping ? 'Bud på varenumre' : 'CPC-bud'} · ${g.name}`, after: g.cpcBid, edit: { path: ['adGroups', i, 'cpcBid'], kind: 'money' as const } }) - 1 : null;
+        const items = (g.items ?? []).map((x) => x.trim()).filter(Boolean);
+        const products = shopping
+          ? lines.push({
+              entity: 'Annoncegruppe',
+              field: `Produktgrupper · ${g.name}`,
+              after: items.length
+                ? `${items.length === 1 ? `Varenummer ${items[0]}` : `${items.length} varenumre (${items.slice(0, 5).join(', ')}${items.length > 5 ? ' …' : ''})`} · alt andet udelukket`
+                : 'Alle produkter udelukket – tilføj varenumre bagefter',
+            }) - 1
+          : null;
+        return { name, bid, products, items };
       });
 
       // The team standard on the campaign, where it is missing.
@@ -596,12 +610,15 @@ The team standard is set on the campaign in the same card where it is missing: m
             created.set(i, id);
             if (!shopping) continue;
             if (ctx.backend.applyProductPartitionActions) {
+              // Microsoft's root must stay biddable: "Alle produkter" is split by item id – the items bid on, "alt andet" excluded.
               try {
                 await ctx.backend.applyProductPartitionActions(ctx.accountId, [
-                  { action: 'Add', adGroupId: id, parentId: null, kind: 'unit', operand: 'All', attribute: null, excluded: false, bid: g.cpcBid ?? null },
+                  { action: 'Add', adGroupId: id, tempId: -1, parentId: null, kind: 'subdivision', operand: 'All', attribute: null, excluded: false },
+                  ...row.items.map((item) => ({ action: 'Add' as const, adGroupId: id, parentId: -1, kind: 'unit' as const, operand: 'Id', attribute: item, excluded: false, bid: g.cpcBid ?? null })),
+                  { action: 'Add', adGroupId: id, parentId: -1, kind: 'unit', operand: 'Id', attribute: null, excluded: true },
                 ]);
               } catch (e) {
-                if (row.bid !== null) failed.push({ index: row.bid, message: `"Alle produkter": ${e instanceof Error ? e.message : String(e)}` });
+                if (row.products !== null) failed.push({ index: row.products, message: e instanceof Error ? e.message : String(e) });
               }
             }
             if (ctx.backend.createProductAd) {
@@ -617,25 +634,21 @@ The team standard is set on the campaign in the same card where it is missing: m
           fresh(ctx);
           interface State {
             groups: AdGroup[];
-            roots: Map<string, number | null>;
+            trees: Map<string, ProductTreeNode[]>;
             ads: Map<string, boolean>;
           }
           const read = async (): Promise<State> => {
             const groups = await ctx.backend.listAdGroups(ctx.accountId, c.id);
-            const roots = new Map<string, number | null>();
+            const trees = new Map<string, ProductTreeNode[]>();
             const ads = new Map<string, boolean>();
             if (shopping) {
               for (const [i, id] of created) {
                 const name = input.adGroups[i]!.name;
-                if (ctx.backend.listProductPartitions) {
-                  const tree = await ctx.backend.listProductPartitions(ctx.accountId, id, name).catch(() => []);
-                  const root = tree.find((n) => !n.parentId && !n.excluded);
-                  roots.set(id, root ? (root.bid ?? null) : null);
-                }
+                if (ctx.backend.listProductPartitions) trees.set(id, await ctx.backend.listProductPartitions(ctx.accountId, id, name).catch(() => []));
                 if (ctx.backend.createProductAd) ads.set(id, (await ctx.backend.listAds(ctx.accountId, id).catch(() => [])).some((a) => a.type === 'Product'));
               }
             }
-            return { groups, roots, ads };
+            return { groups, trees, ads };
           };
           const checks: LineCheck<State>[] = input.adGroups.flatMap((g, i) => {
             const row = rows[i]!;
@@ -660,11 +673,32 @@ The team standard is set on the campaign in the same card where it is missing: m
                 verify: (s) => {
                   const found = find(s);
                   if (!found) return 'annoncegruppen findes ikke';
-                  if (shopping && ctx.backend.listProductPartitions) {
-                    const bid = s.roots.get(found.id);
-                    return near(bid, g.cpcBid) ? null : bid == null ? '"Alle produkter" mangler' : money(bid, ctx.currency);
+                  if (shopping && ctx.backend.listProductPartitions && row.items.length) {
+                    const units = (s.trees.get(found.id) ?? []).filter((n) => n.parentId && !n.excluded && n.attribute);
+                    const off = units.find((n) => !near(n.bid, g.cpcBid));
+                    return off ? `${off.attribute}: ${money(off.bid, ctx.currency)}` : null;
                   }
                   return near(found.cpcBid, g.cpcBid) ? null : money(found.cpcBid, ctx.currency);
+                },
+              });
+            }
+            if (row.products !== null && ctx.backend.listProductPartitions) {
+              out.push({
+                line: lines[row.products]!,
+                index: row.products,
+                verify: (s) => {
+                  const found = find(s);
+                  if (!found) return 'annoncegruppen findes ikke';
+                  const tree = s.trees.get(found.id) ?? [];
+                  const root = tree.find((n) => !n.parentId);
+                  if (!root) return 'ingen produktgrupper';
+                  if (root.unit) return root.excluded ? 'Alle produkter udelukket' : 'byder på alle produkter';
+                  const children = tree.filter((n) => n.parentId === root.id);
+                  const other = children.find((n) => !n.attribute);
+                  if (!other?.excluded) return 'alt andet bydes på';
+                  const shown = new Set(children.filter((n) => n.attribute && !n.excluded).map((n) => n.attribute.toLowerCase()));
+                  const missing = row.items.filter((x) => !shown.has(x.toLowerCase()));
+                  return missing.length ? `mangler ${missing.slice(0, 5).join(', ')}` : null;
                 },
               });
             }

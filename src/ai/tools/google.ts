@@ -379,7 +379,7 @@ export const googleTools = [
     name: 'edit_product_groups',
     kind: 'write',
     description:
-      'Change product groups in ONE Microsoft ad group exactly as the user asks – exclude item ids, bid on item ids, change the bid of item ids (or "alt andet"), or remove an item\'s own product group (it falls under "everything else") – e.g. "ekskludér 2515012108 & 2392163005 under Flipover", "sæt buddet på 2392164005 til 12 kr.". Shopping: an ad group. Performance Max: an asset group (adGroupId = the asset group id; listing groups have no bids – exclude, include and remove only). Works whether the group takes "Alle produkter" (split by item id, the rest stays as it is) or is already split. Get ids from list_product_groups or find_campaigns_and_ad_groups. Shows a card the user approves; sent to Microsoft in one call for the group and read back. Never use microsoft_ads_api for product groups. Only Microsoft is changed.',
+      'Change product groups in ONE Microsoft ad group exactly as the user asks – exclude item ids, bid on item ids, change the bid of item ids (or "alt andet"), remove an item\'s own product group (it falls under "everything else"), or exclude "Alle produkter" / "alt andet" (everythingElse: exclude – then only the item ids bid on show) – e.g. "ekskludér 2515012108 & 2392163005 under Flipover", "sæt buddet på 2392164005 til 12 kr.". Shopping: an ad group. Performance Max: an asset group (adGroupId = the asset group id; listing groups have no bids – exclude, include and remove only). Works whether the group takes "Alle produkter" (split by item id, the rest stays as it is) or is already split. Get ids from list_product_groups or find_campaigns_and_ad_groups. Shows a card the user approves; sent to Microsoft in one call for the group and read back. Never use microsoft_ads_api for product groups. Only Microsoft is changed.',
     schema: z.object({
       campaignId: z.string().describe('The Microsoft Shopping or Performance Max campaign.'),
       adGroupId: z.string().describe('The ad group (Shopping) or asset group (Performance Max) whose product groups change.'),
@@ -388,6 +388,10 @@ export const googleTools = [
       remove: z.array(z.string().min(1).max(100)).max(500).optional().describe('Item ids whose own product group is removed (they fall under "everything else").'),
       setBid: z.array(z.string().min(1).max(100)).max(500).optional().describe('Item ids already bid on whose bid becomes `bid` ("alt andet" = everything else). Shopping only.'),
       bid: z.number().positive().max(1000).optional().describe('CPC bid – for setBid, and for the item ids bid on when the user names one (default: the bid the group\'s items use most). Shopping only.'),
+      everythingElse: z
+        .enum(['exclude', 'bid'])
+        .optional()
+        .describe('exclude = exclude "Alle produkter" / "alt andet" so only the item ids bid on show (Microsoft keeps "Alle produkter" split with "alt andet" excluded); bid = bid on "alt andet" again.'),
       bids: z.record(z.string(), z.number().positive().max(1000)).optional().describe('Leave out – set on the card.'),
       skip: z.array(z.string()).max(2000).optional().describe('Leave out – filled in from what the user ticks off on the card.'),
       reason: z.string().describe('Why, in Danish – shown on the approval card.'),
@@ -399,7 +403,8 @@ export const googleTools = [
       if (c.type !== 'Shopping' && !pmax) throw new Error(`"${c.name}" er en ${c.type}-kampagne – produktgrupper findes kun i Shopping- og Performance Max-kampagner.`);
       if (pmax ? !ctx.backend.applyAssetGroupListingGroupActions || !ctx.backend.listAssetGroupListingGroups : !ctx.backend.applyProductPartitionActions || !ctx.backend.listProductPartitions)
         throw new Error('Produktgrupper kan kun ændres på den rigtige Microsoft-konto (ikke demo).');
-      if (!input.exclude?.length && !input.include?.length && !input.remove?.length && !input.setBid?.length) throw new Error('Angiv hvilke varenumre der skal udelukkes, bydes på, have nyt bud eller fjernes.');
+      if (!input.exclude?.length && !input.include?.length && !input.remove?.length && !input.setBid?.length && !input.everythingElse)
+        throw new Error('Angiv hvilke varenumre der skal udelukkes, bydes på, have nyt bud eller fjernes – eller om "alt andet" skal udelukkes.');
       // The group and its tree: an ad group's product groups, or an asset group's listing groups.
       let ag: { id: string; name: string; cpcBid?: number | null };
       let nodes: DListingNode[];
@@ -417,7 +422,7 @@ export const googleTools = [
         ag = { id: found.id, name: found.name, cpcBid: found.cpcBid };
         nodes = toListingNodes(await ctx.backend.listProductPartitions!(ctx.accountId, found.id, found.name));
       }
-      const planned = planEdit(nodes, ag, { exclude: input.exclude, include: input.include, remove: input.remove, setBid: input.setBid, bid: input.bid, noBids: pmax });
+      const planned = planEdit(nodes, ag, { exclude: input.exclude, include: input.include, remove: input.remove, setBid: input.setBid, bid: input.bid, noBids: pmax, everythingElse: input.everythingElse });
       if (planned.status === 'unsupported') throw new Error(planned.reason);
       const group: MirrorGroup = { ...planned, bid: pmax ? null : (input.bids?.[ag.id] ?? planned.bid) };
       const skip = new Set(input.skip ?? []);
