@@ -290,7 +290,13 @@ describe('the request that failed: nine Shopping ad groups, devices and an ad sc
  */
 function fakeMicrosoft() {
   const groups: { Id: number; Name: string; Status: string; CpcBid: { Amount: number } | null; Language?: string }[] = [];
-  const roots = new Map<number, number>();
+  type Node = {
+    Id: number;
+    Type: string;
+    Criterion: { Type: string; Condition: { Operand: string; Attribute: string | null }; ParentCriterionId: number | null; PartitionType: string };
+    CriterionBid?: { Type: string; Amount: number | null } | null;
+  };
+  const trees = new Map<number, Node[]>();
   const ads = new Map<number, string[]>();
   const criterions: { Id: number; Type: string; Criterion: Record<string, unknown>; CriterionBid: { Type: string; Multiplier: number } }[] = [];
   let next = 1000;
@@ -307,20 +313,43 @@ function fakeMicrosoft() {
       return { AdGroupIds: [Id], PartialErrors: [] };
     }
     if (path === 'ProductPartitionActions/Apply') {
-      const a = (body.CriterionActions as { AdGroupCriterion: { AdGroupId: number; Criterion: { Condition: { Operand: string } }; CriterionBid: { Amount: number } } }[])[0]!;
-      if (a.AdGroupCriterion.Criterion.Condition.Operand !== 'All') return { PartialErrors: [{ Index: 0, Message: 'Root must be All' }] };
-      roots.set(a.AdGroupCriterion.AdGroupId, a.AdGroupCriterion.CriterionBid.Amount);
-      return { AdGroupCriterionIds: [next++], PartialErrors: [] };
+      // Microsoft's rules (ApplyProductPartitionActions): a biddable "All" root, a bid on every biddable unit,
+      // an "everything else" (Attribute null) under every subdivision, and all actions or none.
+      type Action = { Action: string; AdGroupCriterion: Node & { AdGroupId: number } };
+      const actions = body.CriterionActions as Action[];
+      const groupId = actions[0]!.AdGroupCriterion.AdGroupId;
+      const tree = [...(trees.get(groupId) ?? [])];
+      const temp = new Map<number, number>();
+      const ids: number[] = [];
+      for (const a of actions) {
+        const c = a.AdGroupCriterion;
+        if (a.Action === 'Delete') {
+          const drop = (id: number) => {
+            for (const child of tree.filter((n) => n.Criterion.ParentCriterionId === id)) drop(child.Id);
+            tree.splice(tree.findIndex((n) => n.Id === id), 1);
+          };
+          drop(Number(c.Id));
+          continue;
+        }
+        const Id = next++;
+        if (c.Id !== undefined && Number(c.Id) < 0) temp.set(Number(c.Id), Id);
+        const parent = c.Criterion.ParentCriterionId;
+        const node: Node = { ...c, Id, Criterion: { ...c.Criterion, ParentCriterionId: parent === null ? null : (temp.get(parent) ?? parent) } };
+        tree.push(node);
+        ids.push(Id);
+      }
+      const root = tree.filter((n) => n.Criterion.ParentCriterionId === null);
+      const fail = (Message: string) => ({ PartialErrors: [{ Index: 0, Message }] });
+      if (root.length !== 1 || root[0]!.Type !== 'BiddableAdGroupCriterion' || root[0]!.Criterion.Condition.Operand !== 'All') return fail('The root must be a biddable "All" node.');
+      for (const n of tree) {
+        if (n.Criterion.PartitionType === 'Unit' && n.Type === 'BiddableAdGroupCriterion' && !n.CriterionBid?.Amount) return fail('Every biddable unit needs a bid.');
+        if (n.Criterion.PartitionType === 'Subdivision' && !tree.some((x) => x.Criterion.ParentCriterionId === n.Id && x.Criterion.Condition.Attribute === null))
+          return fail('Every subdivision needs an "everything else" node.');
+      }
+      trees.set(groupId, tree);
+      return { AdGroupCriterionIds: ids, PartialErrors: [] };
     }
-    if (path === 'AdGroupCriterions/QueryByIds') {
-      const bid = roots.get(Number(body.AdGroupId));
-      return {
-        AdGroupCriterions:
-          bid === undefined
-            ? []
-            : [{ Id: 1, Type: 'BiddableAdGroupCriterion', Criterion: { Type: 'ProductPartition', Condition: { Operand: 'All', Attribute: null }, ParentCriterionId: null, PartitionType: 'Unit' }, CriterionBid: { Type: 'FixedBid', Amount: bid } }],
-      };
-    }
+    if (path === 'AdGroupCriterions/QueryByIds') return { AdGroupCriterions: trees.get(Number(body.AdGroupId)) ?? [] };
     if (path === 'Ads' && method === 'POST') {
       const id = Number(body.AdGroupId);
       ads.set(id, [...(ads.get(id) ?? []), ...(body.Ads as { Type: string }[]).map((a) => a.Type)]);
@@ -353,7 +382,7 @@ function fakeMicrosoft() {
     }
     throw new Error(`Uventet kald i testen: ${method} ${path}`);
   });
-  return { backend, calls, groups, roots, ads, criterions };
+  return { backend, calls, groups, trees, ads, criterions };
 }
 
 describe('live: the same request against Microsoft’s rules', () => {
@@ -363,11 +392,23 @@ describe('live: the same request against Microsoft’s rules', () => {
     c.accountId = '5';
     const tool = getTool('create_ad_group')!;
     if (tool.kind !== 'write') throw new Error('unexpected');
-    const planned = await tool.plan(tool.schema.parse({ campaignId: '900', adGroups: [{ name: 'Palleløftere', cpcBid: 10.05 }, { name: 'Pallestablere', cpcBid: 15.05 }], reason: 'x' }), c);
+    const planned = await tool.plan(
+      tool.schema.parse({ campaignId: '900', adGroups: [{ name: 'Palleløftere', cpcBid: 10.05, items: ['2515012108', '2392163005'] }, { name: 'Pallestablere', cpcBid: 15.05 }], reason: 'x' }),
+      c,
+    );
+    expect(planned.plan!.changes.filter((l) => l.field.startsWith('Produktgrupper')).map((l) => l.after)).toEqual([
+      '2 varenumre (2515012108, 2392163005) · alt andet udelukket',
+      'Alle produkter udelukket – tilføj varenumre bagefter',
+    ]);
     const exec = await planned.execute();
     expect(exec.summary).toMatch(/^Bekræftet hos Microsoft/);
+    expect((exec.result as { confirmed: string[] }).confirmed.filter((x) => x.startsWith('Produktgrupper'))).toHaveLength(2);
     expect(ms.groups.map((g) => `${g.Name} ${g.Language} ${g.CpcBid?.Amount}`)).toEqual(['Palleløftere Danish 10.05', 'Pallestablere Danish 15.05']);
-    expect([...ms.roots.values()]).toEqual([10.05, 15.05]);
+    // "Alle produkter" split: the items with the bid, "alt andet" excluded – never all products.
+    const shape = (id: number) =>
+      (ms.trees.get(id) ?? []).map((n) => `${n.Criterion.PartitionType} ${n.Criterion.Condition.Operand}:${n.Criterion.Condition.Attribute ?? '*'} ${n.Type === 'NegativeAdGroupCriterion' ? 'udelukket' : (n.CriterionBid?.Amount ?? '')}`.trim());
+    expect(shape(ms.groups[0]!.Id)).toEqual(['Subdivision All:*', 'Unit Id:2515012108 10.05', 'Unit Id:2392163005 10.05', 'Unit Id:* udelukket']);
+    expect(shape(ms.groups[1]!.Id)).toEqual(['Subdivision All:*', 'Unit Id:* udelukket']);
     expect([...ms.ads.values()]).toEqual([['Product'], ['Product']]);
     // Devices: one "Targets" call with all three; 42 schedule blocks; Denmark + the two regions the file knows.
     const types = ms.criterions.map((x) => String(x.Criterion.Type));
@@ -376,5 +417,29 @@ describe('live: the same request against Microsoft’s rules', () => {
     expect(types.filter((t) => t === 'LocationCriterion')).toHaveLength(3);
     expect(ms.calls.filter((x) => x.path === 'CampaignCriterions').every((x) => x.body.CriterionType === 'Targets')).toBe(true);
     expect(ms.criterions.find((x) => x.Criterion.DeviceName === 'Smartphones')!.CriterionBid.Multiplier).toBe(-90);
+  });
+});
+
+describe('excluding "Alle produkter" in existing ad groups', () => {
+  it('splits a group that bids on all products and excludes "alt andet" – as Microsoft allows', async () => {
+    const ms = fakeMicrosoft();
+    const c = ctx(ms.backend as unknown as DemoBackend);
+    c.accountId = '5';
+    // An ad group that bids on all products (as the earlier version created them).
+    ms.groups.push({ Id: 50, Name: 'Palleløftere', Status: 'Paused', CpcBid: { Amount: 10.05 }, Language: 'Danish' });
+    ms.trees.set(50, [{ Id: 51, Type: 'BiddableAdGroupCriterion', Criterion: { Type: 'ProductPartition', Condition: { Operand: 'All', Attribute: null }, ParentCriterionId: null, PartitionType: 'Unit' }, CriterionBid: { Type: 'FixedBid', Amount: 10.05 } }]);
+    const tool = getTool('edit_product_groups')!;
+    if (tool.kind !== 'write') throw new Error('unexpected');
+    const planned = await tool.plan(tool.schema.parse({ campaignId: '900', adGroupId: '50', everythingElse: 'exclude', reason: 'Udeluk alle produkter' }), c);
+    const exec = await planned.execute();
+    expect(exec.summary).toMatch(/Bekræftet/);
+    const tree = ms.trees.get(50)!;
+    expect(tree.map((n) => `${n.Criterion.PartitionType} ${n.Criterion.Condition.Attribute ?? '*'} ${n.Type}`)).toEqual(['Subdivision * BiddableAdGroupCriterion', 'Unit * NegativeAdGroupCriterion']);
+
+    // Then an item id to bid on: added under the split, "alt andet" stays excluded.
+    const more = await tool.plan(tool.schema.parse({ campaignId: '900', adGroupId: '50', include: ['2392164005'], bid: 12, reason: 'Byd på varenummer' }), { ...c, memo: new Map() });
+    await more.execute();
+    const after = ms.trees.get(50)!.map((n) => `${n.Criterion.PartitionType} ${n.Criterion.Condition.Attribute ?? '*'} ${n.Type === 'NegativeAdGroupCriterion' ? 'udelukket' : (n.CriterionBid?.Amount ?? '')}`.trim());
+    expect(after.sort()).toEqual(['Subdivision *', 'Unit * udelukket', 'Unit 2392164005 12'].sort());
   });
 });
