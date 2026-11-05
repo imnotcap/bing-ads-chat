@@ -4,7 +4,7 @@
  * turned into deterministic daily metrics by ./simulate.ts.
  */
 import { addDays, today } from '@/lib/format';
-import type { Account, Ad, AdGroup, Campaign, Keyword, NegativeKeyword } from '../types';
+import type { Account, Ad, AdGroup, Campaign, CampaignTargets, Keyword, NegativeKeyword } from '../types';
 
 export const DEMO_ACCOUNTS: Account[] = [
   { id: '1000001', name: 'Nordlys Interiør', number: 'F120A7B9', customerId: '2000001', currency: 'DKK', status: 'Active', timeZone: 'BrusselsCopenhagenMadridParis' },
@@ -41,6 +41,8 @@ export interface DemoState {
   bornOn: Record<string, string>;
   /** Campaign id → budget changes over time. */
   budgetLog: Record<string, { date: string; budget: number }[]>;
+  /** Campaign id → devices, ad schedule and locations. */
+  targets?: Record<string, CampaignTargets>;
   nextId: number;
 }
 

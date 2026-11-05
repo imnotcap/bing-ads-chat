@@ -22,7 +22,7 @@ function liveWith(reply: (path: string, body: Record<string, unknown>) => unknow
     return reply(path, body);
   };
   client.download = async () => new TextEncoder().encode('Location Id,Bing Display Name,Location Type,Replaces,Status,AdWords Location Id\n59,Denmark,Country,,Active,2208\n').buffer as ArrayBuffer;
-  localStorage.removeItem('bac.ms-country-ids');
+  localStorage.removeItem('bac.ms-geo-locations');
   return { backend, calls };
 }
 
