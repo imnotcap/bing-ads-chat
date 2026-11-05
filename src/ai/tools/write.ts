@@ -499,7 +499,7 @@ A campaign shows no ads until it has ad groups: follow up with create_ad_group (
   defineWrite({
     name: 'create_ad_group',
     kind: 'write',
-    description: `Create one or more ad groups in ONE Search or Shopping campaign – all on one approval card (e.g. nine ad groups with their bids in one call). cpcBid per group is required when the campaign uses Enhanced/Manual CPC (without it Microsoft sets the minimum bid and the group gets almost no traffic) and is not allowed under automated bid strategies in Search campaigns.
+    description: `Create one or more ad groups in ONE Search or Shopping campaign – all on one approval card (e.g. nine ad groups with their bids in one call). cpcBid per group is required when bids are used (Enhanced/Manual CPC, and always in Shopping) and is not allowed under automated bid strategies in Search campaigns. The bid is the user's choice: when they haven't given one for a group, ASK them before calling (list the groups missing a bid) – never pick or estimate a bid yourself. Under automated bidding don't ask.
 Shopping: each ad group gets a product ad, and its product groups are "Alle produkter" split by item id – the item ids in \`items\` are bid on with the group's cpcBid, and "alt andet" (everything else) is ALWAYS excluded, so only those items show. Without items nothing shows until item ids are added with edit_product_groups (include). Put the user's item ids for each group in \`items\`.
 When the campaign has no language, each ad group gets Danish (Microsoft requires a language on one of them).
 The team standard is set on the campaign in the same card where it is missing: mobile and tablet -90 %, the standard ad schedule (if the campaign has none) and Denmark with its five regions (if the campaign has no locations).`,
@@ -529,7 +529,7 @@ The team standard is set on the campaign in the same card where it is missing: m
       for (const g of input.adGroups) {
         if (!shopping && ignored && g.cpcBid) throw new Error(`Ikke sendt: ${ignored} Opret annoncegrupperne uden cpcBid.`);
         if ((shopping || !ignored) && !g.cpcBid) {
-          throw new Error(`"${g.name}" mangler et CPC-bud. ${shopping ? 'I Shopping får varenumrene buddet' : `"${c.name}" bruger ${bidLabel(c.bidStrategy)}`} – uden bud sætter Microsoft minimumsbuddet, og gruppen får stort set ingen trafik.`);
+          throw new Error(`Ikke sendt: "${g.name}" mangler et CPC-bud, og ${shopping ? 'i Shopping får varenumrene buddet' : `"${c.name}" bruger ${bidLabel(c.bidStrategy)}, så buddet bruges`}. Spørg brugeren om CPC-buddet for ${input.adGroups.filter((x) => !x.cpcBid).map((x) => `"${x.name}"`).join(', ')} – find ikke selv på et bud – og kald så igen med buddene.`);
         }
         if (!shopping && g.items?.length) throw new Error(`Varenumre hører til Shopping – "${c.name}" er en ${c.type}-kampagne.`);
         const dup = (g.items ?? []).map((x) => x.trim().toLowerCase()).find((x, i, all) => all.indexOf(x) !== i);

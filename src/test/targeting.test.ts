@@ -443,3 +443,17 @@ describe('excluding "Alle produkter" in existing ad groups', () => {
     expect(after.sort()).toEqual(['Subdivision *', 'Unit * udelukket', 'Unit 2392164005 12'].sort());
   });
 });
+
+describe('a missing CPC bid is asked for, never guessed', () => {
+  beforeEach(() => DemoBackend.reset());
+
+  it('stops before anything is sent and names the groups without a bid', async () => {
+    const backend = new DemoBackend(0);
+    const res = await backend.createCampaign('1000001', { name: 'Shopping | Bud', type: 'Shopping', dailyBudget: 100, bidStrategy: { type: 'EnhancedCpc' }, languages: ['Danish'], status: 'Paused' });
+    const tool = getTool('create_ad_group')!;
+    if (tool.kind !== 'write') throw new Error('unexpected');
+    const input = tool.schema.parse({ campaignId: res.ids![0], adGroups: [{ name: 'Palleløftere', cpcBid: 10 }, { name: 'Pallestablere' }, { name: 'Værkstedsvogne' }], reason: 'x' });
+    await expect(tool.plan(input, ctx(backend))).rejects.toThrow(/Spørg brugeren om CPC-buddet for "Pallestablere", "Værkstedsvogne" – find ikke selv på et bud/);
+    expect((await backend.listAdGroups('1000001', res.ids![0]!)).length).toBe(0);
+  });
+});
