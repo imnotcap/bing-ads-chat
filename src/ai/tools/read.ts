@@ -723,6 +723,7 @@ Rows contain dimensions plus impressions, clicks, spend, conversions, revenue, c
             maxTotalDailyBudget: r.maxTotalDailyBudget,
             maxBudgetIncreasePct: r.maxBudgetIncreasePct,
             maxCpcBid: r.maxCpcBid,
+            minCpcBid: r.minCpcBid,
             allowCreateCampaigns: r.allowCreateCampaigns,
             allowDelete: r.allowDelete,
             newEntitiesPaused: r.newEntitiesPaused,

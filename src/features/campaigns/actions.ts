@@ -40,6 +40,7 @@ export async function userUpdateCampaigns(campaigns: Campaign[], patches: Campai
       summary,
       changes,
       status: 'success',
+      campaignIds: [...new Set(changes.map((c) => c.entityId).filter((x): x is string => !!x))],
       undo: undo.length ? { tool: 'update_campaigns', input: { changes: undo, reason: 'Fortryd' } } : undefined,
     });
     invalidateSpendCache();

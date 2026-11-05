@@ -23,10 +23,52 @@ import { applyOp, boardOfOp, canSeeBoard, dataFor, isBoardData, mayApply, member
 import { INVENTARLAND_URL, INVENTARLAND_VIEWS, type AdsAccess, type CompanyInfo, type Invitation, type Role, type InventarlandView, type SharedKeyName, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
 import { LIMIT_BRANCH_IDS, cleanLimits, isLimitBranchId, type StoredLimits } from '../../src/ai/branchLimits';
 import { BRANCH_IDS, MAX_SECTION_CHARS, SECTION_IDS, cleanSections, defaultPlaybook, isBranchId, type PlaybookSections, type SectionId, type StoredPlaybook } from '../../src/ai/playbooks';
-import { CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isConnectorId, type ConnectorId, type ConnectorSaveResult } from '../../src/workspace/connectors';
+import { ACTIVE_CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isArchivedConnector, isConnectorId, type ConnectorId, type ConnectorSaveResult } from '../../src/workspace/connectors';
 import { AuthError, type MicrosoftIdentity } from './auth';
-import { AdsKeyError, adsProbe, adsRefresh, mergeAdsKeys, type AdsKeys } from './microsoftAds';
+import { AdsKeyError, adsAccountCustomers, adsProbe, adsRefresh, mergeAdsKeys, type AdsKeys } from './microsoftAds';
 import { clearCampaigns, initAdsCache, readCampaigns, writeCampaigns } from './adsCache';
+import { changeAudit, parseOp, readAudits } from './audit';
+import { appendNotes, readSheet, type NoteInput, type NoteSheet } from './notesheet';
+import { DETAIL_PARTS } from '../../src/features/audit/detail';
+import {
+  GoogleAdsError,
+  GoogleAdsReader,
+  digits,
+  accessTokenFor,
+  authIdentity,
+  parseServiceAccountKey,
+  readAccount as readGoogleAccount,
+  readAds as readGoogleAds,
+  readCampaigns as readGoogleCampaigns,
+  readListingGroups as readGoogleListingGroups,
+  readNegatives as readGoogleNegatives,
+  readSearchTerms as readGoogleSearchTerms,
+  readStructure as readGoogleStructure,
+  type GoogleAccount,
+  type GoogleAuth,
+  type GoogleCampaign,
+  type OAuthCredentials,
+  type ServiceAccountKey,
+} from './googleAds';
+import {
+  TRAILING_DAYS,
+  activeJob,
+  clearDaily,
+  copenhagen,
+  coverageOf,
+  enqueue,
+  initAdsDaily,
+  knownAccounts,
+  nextJob,
+  officeHours,
+  planSync,
+  recordError,
+  stateOf,
+  stepJob,
+  validRange,
+  viewOf,
+} from './adsDaily';
+import { addDays, type DateRange } from '../../src/lib/format';
 import { clearProducts, initProductCache, readProducts, writeProducts } from './productCache';
 import { allPurchases, billingState, buyPack, initBilling, recordUsage } from './billing';
 import type { Directory } from './directory';
@@ -73,6 +115,55 @@ interface InventarlandConnection {
   error: string | null;
 }
 
+/**
+ * Google Ads for the audit – read only (googleAds.ts). Signed in with a service account's
+ * key, or – as in Inventarland Dashboard – an OAuth client and a refresh token. The secrets
+ * stay here; the app is only told which account and which way.
+ */
+interface GoogleConnection {
+  key?: ServiceAccountKey;
+  oauth?: OAuthCredentials;
+  customerId: string;
+  loginCustomerId: string | null;
+  version: string | null;
+  account: GoogleAccount;
+  connectedBy: string;
+  connectedAt: number;
+}
+
+/** Google's campaigns for one period, read at most once a day unless someone asks again. */
+interface GoogleCampaignsCache {
+  fetchedAt: number;
+  account: GoogleAccount;
+  campaigns: GoogleCampaign[];
+}
+
+/** How a stored connection signs in (connections saved before OAuth had only a key). */
+function googleAuthOf(conn: GoogleConnection): GoogleAuth | null {
+  if (conn.oauth) return { kind: 'oauth', oauth: conn.oauth };
+  return conn.key ? { kind: 'service_account', key: conn.key } : null;
+}
+
+/** The team's notes sheet: where it is, and – when the audit is signed in with OAuth – the service account's own key. */
+interface NoteSheetConnection {
+  sheet: NoteSheet;
+  key?: ServiceAccountKey;
+}
+
+/** A row from the app, checked: short texts, a few topics. */
+function cleanNote(raw: unknown): NoteInput | null {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const text = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const comment = text(o.comment, 1000);
+  if (!comment) return null;
+  const topics = Array.isArray(o.topics) ? o.topics.map((t) => text(t, 60)).filter(Boolean).slice(0, 4) : [];
+  return { campaign: text(o.campaign, 300), adGroup: text(o.adGroup, 300), topics, comment };
+}
+
+const GOOGLE_FRESH_MS = 24 * 3600_000;
+const GOOGLE_REFRESH_MIN_MS = 10 * 60_000;
+const GOOGLE_KEEP_MS = 3 * 24 * 3600_000;
+
 interface BoardMeta {
   version: number;
 }
@@ -114,6 +205,7 @@ export class Workspace extends DurableObject<Env> {
   private adsToken: { value: string; expiresAt: number } | null = null;
   private adsPending: Promise<string> | null = null;
   private invCache = new Map<string, { at: number; body: string }>();
+  private googleToken: { value: string; expiresAt: number; who: string } | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -121,6 +213,7 @@ export class Workspace extends DurableObject<Env> {
     void this.ctx.blockConcurrencyWhile(async () => {
       initAdsCache(this.ctx.storage.sql);
       initProductCache(this.ctx.storage.sql);
+      initAdsDaily(this.ctx.storage.sql);
       initBilling(this.ctx.storage.sql);
       this.boardMeta = (await this.ctx.storage.get<BoardMeta>('boards:meta')) ?? { version: 0 };
       this.boards = (await this.ctx.storage.get<BoardData>('boards:data')) ?? null;
@@ -274,6 +367,8 @@ export class Workspace extends DurableObject<Env> {
         this.adsToken = { value: probe.accessToken, expiresAt: Date.now() + probe.expiresIn * 1000 };
         clearCampaigns(this.ctx.storage.sql);
         clearProducts(this.ctx.storage.sql);
+        clearDaily(this.ctx.storage.sql);
+        await this.ctx.storage.delete('ads:customers');
       } catch (e) {
         if (e instanceof AdsKeyError) return fail(e.message, 400);
         throw e;
@@ -285,6 +380,8 @@ export class Workspace extends DurableObject<Env> {
       this.adsToken = null;
       clearCampaigns(this.ctx.storage.sql);
       clearProducts(this.ctx.storage.sql);
+      clearDaily(this.ctx.storage.sql);
+      await this.ctx.storage.delete('ads:customers');
       return json(await this.info());
     }
     // The campaigns of the connected account, cached here (adsCache.ts).
@@ -317,6 +414,19 @@ export class Workspace extends DurableObject<Env> {
       const error = writeProducts(this.ctx.storage, accountId, String(body.period ?? ''), Number(body.fetchedAt), Number(body.scanned), body.products);
       return error ? fail(error, 400) : json({ ok: true });
     }
+    // The account's days (adsDaily.ts): always answered from here at once; whatever is
+    // missing or out of date is fetched by the Worker in the background. POST = Opdatér.
+    if ((path === '/workspace/ads/daily' && method === 'GET') || (path === '/workspace/ads/daily/refresh' && method === 'POST')) {
+      const ads = await this.ctx.storage.get<AdsConnection>('ads');
+      if (!ads) return fail('Microsoft Advertising er ikke forbundet.', 409);
+      const accountId = url.searchParams.get('account') ?? '';
+      if (!/^\d+$/.test(accountId)) return fail('Ugyldigt konto-id.', 400);
+      if (ads.accountId && accountId !== ads.accountId) return fail('Kun den forbundne konto kan hentes.', 403);
+      const range = validRange(url.searchParams.get('from'), url.searchParams.get('to'));
+      if (!range) return fail('Ugyldig periode.', 400);
+      await this.planDaily(accountId, range, method === 'POST', ads);
+      return json(viewOf(this.ctx.storage.sql, accountId, range, Date.now()));
+    }
     if (path === '/workspace/ads/token' && method === 'POST') {
       const ads = await this.ctx.storage.get<AdsConnection>('ads');
       if (!ads) return fail('Microsoft Advertising er ikke forbundet. Forbind den under Indstillinger → Forbindelser.', 409);
@@ -325,12 +435,196 @@ export class Workspace extends DurableObject<Env> {
       return json(body);
     }
 
+    /* ------------------------- Google Ads (audit, read only) ------------------------- */
+    // Connected by an administrator with the service account's JSON key, tested before it
+    // is saved. Only ever read (googleAds.ts → readOnlyFetch).
+    if (path === '/workspace/google' && method === 'PUT') {
+      if (user.role !== 'admin') return fail('Kun administratorer kan forbinde Google Ads.', 403);
+      const body = (await req.json()) as {
+        method?: 'oauth' | 'service_account';
+        key?: string;
+        clientId?: string;
+        clientSecret?: string;
+        refreshToken?: string;
+        customerId?: string;
+        loginCustomerId?: string | null;
+      };
+      const old = await this.ctx.storage.get<GoogleConnection>('google');
+      const customerId = digits(body.customerId);
+      const loginCustomerId = digits(body.loginCustomerId) || null;
+      if (customerId.length !== 10) return fail('Google Ads-kundenummeret skal have 10 cifre (fx 123-456-7890).', 400);
+      if (loginCustomerId && loginCustomerId.length !== 10) return fail('Administratorkontoens (MCC) ID skal have 10 cifre.', 400);
+      try {
+        let auth: GoogleAuth;
+        if (body.method === 'oauth') {
+          // Empty fields keep what is stored (secrets are never sent back to the app).
+          const oauth: OAuthCredentials = {
+            clientId: body.clientId?.trim() || old?.oauth?.clientId || '',
+            clientSecret: body.clientSecret?.trim() || old?.oauth?.clientSecret || '',
+            refreshToken: body.refreshToken?.trim() || old?.oauth?.refreshToken || '',
+          };
+          if (!oauth.clientId || !oauth.clientSecret || !oauth.refreshToken) return fail('Udfyld OAuth client ID, client secret og refresh token.', 400);
+          auth = { kind: 'oauth', oauth };
+        } else {
+          const key = body.key?.trim() ? parseServiceAccountKey(body.key) : old?.key;
+          if (!key) return fail('Vælg service-kontoens JSON-nøgle.', 400);
+          // Once connected with a service account, only a new key for the very same one is accepted.
+          if (old?.key && key.clientEmail !== old.key.clientEmail)
+            return fail(`Audit'en er forbundet med ${old.key.clientEmail}. Kun en nøgle til den samme service-konto kan gemmes.`, 400);
+          auth = { kind: 'service_account', key };
+        }
+        this.googleToken = null;
+        const reader = this.googleReader({ auth, customerId, loginCustomerId, version: old?.version ?? null });
+        const account = await readGoogleAccount(reader, customerId);
+        const conn: GoogleConnection = {
+          ...(auth.kind === 'oauth' ? { oauth: auth.oauth } : { key: auth.key }),
+          customerId,
+          loginCustomerId,
+          version: reader.version,
+          account,
+          connectedBy: user.name,
+          connectedAt: Date.now(),
+        };
+        await this.ctx.storage.put('google', conn);
+        await this.clearGoogleCache(0);
+      } catch (e) {
+        if (e instanceof GoogleAdsError) return fail(e.message, 400);
+        throw e;
+      }
+      return json(await this.info());
+    }
+    if (path === '/workspace/google' && method === 'DELETE') {
+      if (user.role !== 'admin') return fail('Kun administratorer kan fjerne Google Ads.', 403);
+      await this.ctx.storage.delete('google');
+      this.googleToken = null;
+      await this.clearGoogleCache(0);
+      return json(await this.info());
+    }
+    /* ------------------- the notes sheet (Google Sheets, append only) ------------------- */
+    // Connected by an administrator with a link to the sheet; the service account (gsc-chat)
+    // must be an editor of it. Rows are only ever added (notesheet.ts → assertSheetCall).
+    if (path === '/workspace/notesheet' && method === 'PUT') {
+      if (user.role !== 'admin') return fail('Kun administratorer kan forbinde notatarket.', 403);
+      const body = (await req.json()) as { url?: string; key?: string };
+      const [google, old] = await Promise.all([this.ctx.storage.get<GoogleConnection>('google'), this.ctx.storage.get<NoteSheetConnection>('notesheet')]);
+      try {
+        const own = body.key?.trim() ? parseServiceAccountKey(body.key) : old?.key;
+        const key = own ?? google?.key;
+        if (!key) return fail('Notatarket skrives med service-kontoen gsc-chat. Vælg dens JSON-nøgle (Google Ads er forbundet uden den).', 400);
+        const sheet = await readSheet(fetch, key, body.url ?? '', Date.now(), user.name);
+        await this.ctx.storage.put('notesheet', { sheet, ...(own ? { key: own } : {}) } satisfies NoteSheetConnection);
+      } catch (e) {
+        if (e instanceof GoogleAdsError) return fail(e.message, 400);
+        throw e;
+      }
+      return json(await this.info());
+    }
+    if (path === '/workspace/notesheet' && method === 'DELETE') {
+      if (user.role !== 'admin') return fail('Kun administratorer kan fjerne notatarket.', 403);
+      await this.ctx.storage.delete('notesheet');
+      return json(await this.info());
+    }
+    if (path === '/workspace/notesheet/rows' && method === 'POST') {
+      const [conn, google] = await Promise.all([this.ctx.storage.get<NoteSheetConnection>('notesheet'), this.ctx.storage.get<GoogleConnection>('google')]);
+      if (!conn) return fail('Notatarket er ikke forbundet.', 409);
+      const key = conn.key ?? google?.key;
+      if (!key) return fail('Notatarket mangler service-kontoens nøgle – forbind det igen under Indstillinger → Forbindelser.', 409);
+      const body = (await req.json()) as { notes?: unknown };
+      const notes = Array.isArray(body.notes) ? body.notes.slice(0, 30).map(cleanNote).filter((n): n is NoteInput => !!n) : [];
+      if (!notes.length) return fail('Ingen rækker at skrive.', 400);
+      try {
+        const sheet = await appendNotes(fetch, key, conn.sheet, notes, user.name, Date.now());
+        await this.ctx.storage.put('notesheet', { ...conn, sheet });
+        return json({ written: notes.length });
+      } catch (e) {
+        if (!(e instanceof GoogleAdsError)) throw e;
+        await this.ctx.storage.put('notesheet', { ...conn, sheet: { ...conn.sheet, error: e.message } });
+        return fail(e.message, 502);
+      }
+    }
+
+    if (path === '/workspace/google/campaigns' && method === 'GET') {
+      const conn = await this.ctx.storage.get<GoogleConnection>('google');
+      if (!conn) return fail('Google Ads er ikke forbundet til audit.', 409);
+      const range = validRange(url.searchParams.get('from'), url.searchParams.get('to'));
+      if (!range) return fail('Ugyldig periode.', 400);
+      const cacheKey = `gads:campaigns:${conn.customerId}:${range.from}:${range.to}`;
+      const cached = await this.ctx.storage.get<GoogleCampaignsCache>(cacheKey);
+      const age = cached ? Date.now() - cached.fetchedAt : Infinity;
+      const refresh = url.searchParams.get('refresh') === '1';
+      if (cached && (age < GOOGLE_REFRESH_MIN_MS || (!refresh && age < GOOGLE_FRESH_MS))) return json(cached);
+      try {
+        const reader = this.googleReader({ ...conn, auth: googleAuthOf(conn) });
+        const campaigns = await readGoogleCampaigns(reader, range.from, range.to);
+        const fresh: GoogleCampaignsCache = { fetchedAt: Date.now(), account: conn.account, campaigns };
+        if (reader.version !== conn.version) await this.ctx.storage.put('google', { ...conn, version: reader.version });
+        await this.clearGoogleCache(GOOGLE_KEEP_MS);
+        await this.ctx.storage.put(cacheKey, fresh);
+        return json(fresh);
+      } catch (e) {
+        // Google not answering: the last copy is better than nothing – the app shows its age.
+        if (e instanceof GoogleAdsError) return cached ? json({ ...cached, error: e.message }) : fail(e.message, 502);
+        throw e;
+      }
+    }
+
+    // One Google campaign's insides for the audit (detail.ts), one part at a time – each
+    // read at most once a day, like the campaigns.
+    if (path === '/workspace/google/campaign' && method === 'GET') {
+      const conn = await this.ctx.storage.get<GoogleConnection>('google');
+      if (!conn) return fail('Google Ads er ikke forbundet til audit.', 409);
+      const id = url.searchParams.get('id') ?? '';
+      const part = url.searchParams.get('part') ?? '';
+      if (!/^\d{1,20}$/.test(id)) return fail('Ugyldigt kampagne-id.', 400);
+      if (!(DETAIL_PARTS as string[]).includes(part)) return fail('Ukendt del.', 400);
+      const range = validRange(url.searchParams.get('from'), url.searchParams.get('to'));
+      if (!range) return fail('Ugyldig periode.', 400);
+      const pmax = url.searchParams.get('pmax') === '1';
+      const dated = part === 'structure' || part === 'searchterms';
+      const cacheKey = `gads:detail3:${conn.customerId}:${id}:${part}${pmax ? ':pmax' : ''}${dated ? `:${range.from}:${range.to}` : ''}`;
+      const cached = await this.ctx.storage.get<{ fetchedAt: number; data: unknown }>(cacheKey);
+      const age = cached ? Date.now() - cached.fetchedAt : Infinity;
+      const refresh = url.searchParams.get('refresh') === '1';
+      if (cached && (age < GOOGLE_REFRESH_MIN_MS || (!refresh && age < GOOGLE_FRESH_MS))) return json(cached);
+      try {
+        const reader = this.googleReader({ ...conn, auth: googleAuthOf(conn) });
+        const data =
+          part === 'structure'
+            ? await readGoogleStructure(reader, id, range.from, range.to)
+            : part === 'negatives'
+              ? await readGoogleNegatives(reader, id)
+              : part === 'products'
+                ? await readGoogleListingGroups(reader, conn.customerId, id, pmax)
+                : part === 'searchterms'
+                  ? await readGoogleSearchTerms(reader, id, range.from, range.to)
+                  : await readGoogleAds(reader, id);
+        const fresh = { fetchedAt: Date.now(), data };
+        if (reader.version !== conn.version) await this.ctx.storage.put('google', { ...conn, version: reader.version });
+        await this.clearGoogleCache(GOOGLE_KEEP_MS);
+        // A very large part is answered but not kept (a stored value has a size limit).
+        if (JSON.stringify(fresh).length < 100_000) await this.ctx.storage.put(cacheKey, fresh);
+        return json(fresh);
+      } catch (e) {
+        if (e instanceof GoogleAdsError) return cached ? json({ ...cached, error: e.message }) : fail(e.message, 502);
+        throw e;
+      }
+    }
+
+    /* ---------------------------------- audit ---------------------------------- */
+    if (path === '/workspace/audit' && method === 'GET') return json({ audits: await readAudits(this.ctx.storage) });
+    if (path === '/workspace/audit' && method === 'POST') {
+      const op = parseOp(await req.json());
+      if (typeof op === 'string') return fail(op, 400);
+      return json({ audit: await changeAudit(this.ctx.storage, op, user.name, Date.now()) });
+    }
+
     /* ------------------------------- data sources ------------------------------- */
     if (path === '/connections' && method === 'GET') {
-      const rows = await this.ctx.storage.get<ConnState>(CONNECTOR_IDS.map((id) => `conn:${id}`));
-      return json({ connectors: CONNECTOR_IDS.map((id) => toSummary(id, rows.get(`conn:${id}`))) });
+      const rows = await this.ctx.storage.get<ConnState>(ACTIVE_CONNECTOR_IDS.map((id) => `conn:${id}`));
+      return json({ connectors: ACTIVE_CONNECTOR_IDS.map((id) => toSummary(id, rows.get(`conn:${id}`))) });
     }
     const cm = path.match(/^\/connections\/([a-z0-9_]+)(\/test|\/login\/start|\/login\/complete)?$/);
+    if (cm && isArchivedConnector(cm[1]!)) return fail('Forbindelsen er arkiveret.', 410);
     if (cm && isConnectorId(cm[1]!)) return this.connectionRoute(req, cm[1], cm[2] ?? '', user);
 
     /* ------------------------- budget and limits per branch ------------------------- */
@@ -512,11 +806,37 @@ export class Workspace extends DurableObject<Env> {
 
   /* --------------------------- shared connections --------------------------- */
 
+  /** A reader of the Google Ads account; the access token is kept here until shortly before it runs out. */
+  private googleReader(conn: { auth: GoogleAuth | null; customerId: string; loginCustomerId: string | null; version: string | null }): GoogleAdsReader {
+    const fetchFn = (input: string, init?: RequestInit) => fetch(input, init);
+    const auth = conn.auth;
+    if (!auth) throw new GoogleAdsError('Google Ads-forbindelsen mangler sine nøgler – forbind den igen.', 'auth');
+    const who = authIdentity(auth);
+    const token = async () => {
+      const t = this.googleToken;
+      if (t && t.who === who && t.expiresAt - 300_000 > Date.now()) return t.value;
+      const fresh = await accessTokenFor(fetchFn, auth, Date.now());
+      this.googleToken = { ...fresh, who };
+      return fresh.value;
+    };
+    return new GoogleAdsReader(fetchFn, token, conn);
+  }
+
+  /** Drops stored Google reads older than `keepMs` (0 = all of them). */
+  private async clearGoogleCache(keepMs: number) {
+    const stored = await this.ctx.storage.list<GoogleCampaignsCache>({ prefix: 'gads:' });
+    const old = [...stored].filter(([, v]) => !keepMs || Date.now() - (v?.fetchedAt ?? 0) > keepMs).map(([k]) => k);
+    // At most 128 keys per delete.
+    for (let i = 0; i < old.length; i += 128) await this.ctx.storage.delete(old.slice(i, i + 128));
+  }
+
   private async info(): Promise<WorkspaceInfo> {
-    const [ads, keys, inv] = await Promise.all([
+    const [ads, keys, inv, google, notes] = await Promise.all([
       this.ctx.storage.get<AdsConnection>('ads'),
       this.ctx.storage.get<Keys>('keys'),
       this.ctx.storage.get<InventarlandConnection>('inventarland'),
+      this.ctx.storage.get<GoogleConnection>('google'),
+      this.ctx.storage.get<NoteSheetConnection>('notesheet'),
     ]);
     const keyInfo = (k?: { value: string; by: string; at: number }) => (k ? { hint: hint(k.value), by: k.by, at: k.at } : null);
     return {
@@ -544,7 +864,138 @@ export class Workspace extends DurableObject<Env> {
         connectedAt: inv?.connectedAt ?? null,
         error: inv?.error ?? null,
       },
+      google: google
+        ? {
+            connected: true,
+            method: google.oauth ? ('oauth' as const) : ('service_account' as const),
+            serviceAccount: google.key?.clientEmail ?? null,
+            projectId: google.key?.projectId ?? null,
+            customerId: google.customerId,
+            loginCustomerId: google.loginCustomerId,
+            accountName: google.account.name,
+            currency: google.account.currency,
+            timeZone: google.account.timeZone,
+            connectedBy: google.connectedBy,
+            connectedAt: google.connectedAt,
+          }
+        : { connected: false, method: null, serviceAccount: null, projectId: null, customerId: null, loginCustomerId: null, accountName: null, currency: null, timeZone: null, connectedBy: null, connectedAt: null },
+      notesheet: notes
+        ? {
+            connected: true,
+            name: notes.sheet.name,
+            tab: notes.sheet.title,
+            url: `https://docs.google.com/spreadsheets/d/${notes.sheet.spreadsheetId}/edit#gid=${notes.sheet.sheetId}`,
+            serviceAccount: (notes.key ?? google?.key)?.clientEmail ?? null,
+            columns: Object.keys(notes.sheet.columns),
+            connectedBy: notes.sheet.connectedBy,
+            connectedAt: notes.sheet.connectedAt,
+            lastWrite: notes.sheet.lastWrite ?? null,
+            error: notes.sheet.error ?? null,
+          }
+        : { connected: false, name: null, tab: null, url: null, serviceAccount: google?.key?.clientEmail ?? null, columns: [], connectedBy: null, connectedAt: null, lastWrite: null, error: null },
     };
+  }
+
+  /* ------------------------------ the stored days ------------------------------ */
+
+  /** Plans the one report an account needs now, if any (adsDaily.ts → planSync), and wakes the alarm for it. */
+  private async planDaily(accountId: string, want: DateRange, manual: boolean, ads: AdsConnection) {
+    const sql = this.ctx.storage.sql;
+    const now = Date.now();
+    const cph = copenhagen(now);
+    const state = stateOf(sql, accountId);
+    const plan = planSync({
+      now,
+      today: cph.date,
+      office: officeHours(cph),
+      want,
+      coverage: coverageOf(sql, accountId),
+      state,
+      active: !!activeJob(sql, accountId, now),
+      blocked: !!ads.error,
+      manual,
+    });
+    if (!plan) return;
+    let customerId = state?.customerId ?? null;
+    if (!customerId) {
+      try {
+        customerId = await this.adsCustomerOf(accountId, ads);
+      } catch (e) {
+        recordError(sql, accountId, e instanceof Error ? e.message : 'Kontoen kunne ikke findes hos Microsoft.', now);
+        return;
+      }
+    }
+    if (enqueue(this.ctx.storage, { accountId, customerId, ...plan }, now)) await this.wakeDaily(now);
+  }
+
+  /** The morning schedule: the last 30 days of every account that has stored days. */
+  private async planDailyAll(): Promise<number> {
+    const ads = await this.ctx.storage.get<AdsConnection>('ads');
+    if (!ads) return 0;
+    const today = copenhagen(Date.now()).date;
+    let planned = 0;
+    for (const { accountId } of knownAccounts(this.ctx.storage.sql)) {
+      if (ads.accountId && accountId !== ads.accountId) continue;
+      if (!coverageOf(this.ctx.storage.sql, accountId)) continue;
+      await this.planDaily(accountId, { from: addDays(today, -TRAILING_DAYS), to: today }, false, ads);
+      planned++;
+    }
+    return planned;
+  }
+
+  /**
+   * The customer an ad account belongs to (a report has to name both). From the stored
+   * Konto-ID/Kunde-ID when they match, else looked up once and kept for a day – and an
+   * account that was not there is not looked up again for an hour.
+   */
+  private async adsCustomerOf(accountId: string, ads: AdsConnection): Promise<string> {
+    if (ads.accountId === accountId && ads.customerId) return ads.customerId;
+    const cached = await this.ctx.storage.get<{ at: number; map: Record<string, string> }>('ads:customers');
+    const age = cached ? Date.now() - cached.at : Infinity;
+    const hit = cached?.map[accountId];
+    if (hit && age < 24 * 3600_000) return hit;
+    if (!hit && age < 3600_000) throw new AuthError(`Konto ${accountId} findes ikke for den forbundne Microsoft-bruger.`, 404);
+    const token = await this.adsAccessToken(false);
+    let map: Map<string, string>;
+    try {
+      map = await adsAccountCustomers((input, init) => fetch(input, init), ads, token);
+    } catch (e) {
+      if (e instanceof AdsKeyError) throw new AuthError(e.message, e.kind === 'auth' ? 409 : 502);
+      throw e;
+    }
+    await this.ctx.storage.put('ads:customers', { at: Date.now(), map: Object.fromEntries(map) });
+    const found = map.get(accountId);
+    if (!found) throw new AuthError(`Konto ${accountId} findes ikke for den forbundne Microsoft-bruger.`, 404);
+    return found;
+  }
+
+  private async wakeDaily(at: number) {
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || current > at) await this.ctx.storage.setAlarm(at);
+  }
+
+  /** One step of the next due report (adsDaily.ts → stepJob), then the alarm for the step after. */
+  override async alarm() {
+    const sql = this.ctx.storage.sql;
+    const job = nextJob(sql);
+    if (!job) return;
+    if (job.nextAt <= Date.now()) {
+      await stepJob(
+        this.ctx.storage,
+        {
+          fetch: (input, init) => fetch(input, init),
+          now: () => Date.now(),
+          access: async (fresh) => {
+            const ads = await this.ctx.storage.get<AdsConnection>('ads');
+            if (!ads) throw new AuthError('Microsoft Advertising er ikke forbundet.', 409);
+            return { accessToken: await this.adsAccessToken(fresh), developerToken: ads.developerToken };
+          },
+        },
+        job,
+      );
+    }
+    const next = nextJob(sql);
+    if (next) await this.ctx.storage.setAlarm(Math.max(next.nextAt, Date.now()));
   }
 
   /** A Microsoft Advertising access token from the shared sign-in (refreshed here). */
@@ -655,7 +1106,10 @@ export class Workspace extends DurableObject<Env> {
     const results: Record<string, string> = {};
     // Microsoft Advertising: a refresh keeps the token alive (it lapses after 90 unused days).
     if (await this.ctx.storage.get('ads')) results.microsoft_ads = await this.adsAccessToken(true).then(() => 'ok', (e: unknown) => (e instanceof Error ? e.message : 'fejl'));
-    for (const id of CONNECTOR_IDS) {
+    // The day's first sync of the stored days, so the first person in has fresh numbers at once.
+    if (results.microsoft_ads === 'ok') results.daily = String(await this.planDailyAll());
+    // Archived connectors are not tested: no call goes out for a channel nobody uses.
+    for (const id of ACTIVE_CONNECTOR_IDS) {
       const state = await this.ctx.storage.get<ConnState>(`conn:${id}`);
       if (!state || state.status === 'not_connected' || (state.status === 'needs_login' && !state.secrets.refreshToken && connectorDef(id).oauth)) continue;
       if (connectorDef(id).paidTest) continue;

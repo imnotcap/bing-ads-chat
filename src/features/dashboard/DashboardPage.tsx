@@ -22,10 +22,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { campaignMenuItems } from '@/features/campaigns/campaignMenu';
 import { startChat } from '@/features/chat/startChat';
 import { computeAlerts } from '@/features/insights/alerts';
-import { useCampaigns, usePeriodTrend, type CampaignRow } from '@/hooks/useAdsData';
+import { refreshAdsData, useCampaigns, usePeriodTrend, type CampaignRow } from '@/hooks/useAdsData';
 import { fmtCompact, fmtDate, fmtMoney, fmtNumber, fmtPercent } from '@/lib/format';
 import { saveExport } from '@/lib/platform';
-import { queryClient } from '@/lib/queryClient';
 import { cn, errorMessage } from '@/lib/utils';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
 import { useUi } from '@/stores/ui';
@@ -35,12 +34,8 @@ import { axisLabels, periodOf, type Granularity, type Period } from './period';
 
 const COLORS = ['#6d5cf6', '#14b8a6', '#8b5cf6', '#f59e0b', '#c4c4d0'];
 
-const CHANNELS: { id: string; label: string; brand: Brand; live: boolean }[] = [
-  { id: 'microsoft_ads', label: 'Microsoft Ads', brand: 'microsoft_ads', live: true },
-  { id: 'google_ads', label: 'Google Ads', brand: 'google_ads', live: false },
-  { id: 'meta', label: 'Meta Ads', brand: 'meta', live: false },
-  { id: 'linkedin', label: 'LinkedIn Ads', brand: 'linkedin', live: false },
-];
+// Google Ads, Meta and LinkedIn are archived while the focus is the Microsoft Ads assistant.
+const CHANNELS: { id: string; label: string; brand: Brand; live: boolean }[] = [{ id: 'microsoft_ads', label: 'Microsoft Ads', brand: 'microsoft_ads', live: true }];
 
 const TYPE_LABEL: Record<string, string> = { Search: 'Søgning', Shopping: 'Shopping', Audience: 'Audience', PerformanceMax: 'Performance Max' };
 
@@ -125,6 +120,11 @@ function PeriodPicker({ period, granularity, onGranularity, onStep }: { period: 
           <ChevronRight className="size-3.5" />
         </button>
       </div>
+      {period.untilToday && (
+        <Tooltip content="Dagens tal kommer stadig ind, så i dag ser lavere ud end den samme dag i perioden før, indtil dagen er slut.">
+          <span className="text-[12px] text-muted">Til og med i dag – dagen er ikke slut</span>
+        </Tooltip>
+      )}
     </>
   );
 }
@@ -493,12 +493,14 @@ export function DashboardPage() {
       currency,
       granularity,
       current: period.current,
+      onlyToday: period.untilToday && period.range.from === period.range.to,
+      untilToday: period.untilToday,
     });
-  }, [t, campaigns.data, previousCampaigns.data, period.range, period.current, currency, granularity]);
+  }, [t, campaigns.data, previousCampaigns.data, period.range, period.current, period.untilToday, currency, granularity]);
 
   const ask = (prompt: string) => {
     go('chat');
-    startChat(prompt);
+    startChat(prompt, [], { fresh: true });
   };
   const exportSummary = async () => {
     if (!kpis || !campaigns.data) return;
@@ -534,10 +536,10 @@ export function DashboardPage() {
               }}
               onStep={(d) => setOffset((o) => Math.max(0, o + d))}
             />
-            <ChannelPicker value={channel} onChange={setChannel} />
+            {CHANNELS.length > 1 && <ChannelPicker value={channel} onChange={setChannel} />}
             <div className="ml-auto flex items-center gap-2">
               <Tooltip content="Hent tallene igen">
-                <Button variant="secondary" size="icon-sm" aria-label="Opdatér" onClick={() => void queryClient.invalidateQueries()}>
+                <Button variant="secondary" size="icon-sm" aria-label="Opdatér" onClick={() => void refreshAdsData()}>
                   <RefreshCw className={cn(fetching && 'animate-spin')} />
                 </Button>
               </Tooltip>

@@ -9,7 +9,7 @@ export interface ChangeLine {
   before?: string | number | null;
   after?: string | number | null;
   /** The value can be corrected by the user on the approval card. */
-  edit?: { path: (string | number)[]; maxLength?: number };
+  edit?: { path: (string | number)[]; maxLength?: number; kind?: 'money' };
   /**
    * A position the text is pinned to (responsive search ads), changeable on the card:
    * "" = any position. `locked`: shown but fixed, with the reason.
@@ -19,6 +19,10 @@ export interface ChangeLine {
   suggestion?: { value: string; reason: string };
   /** Extra columns when the plan is shown as a pick table (ChangePlan.pick). */
   cells?: Record<string, string | number | null>;
+  /** Pick table with ChangePlan.pick.skipPath: what the row is remembered by when ticked off. */
+  pickKey?: string;
+  /** Pick table: the row starts unticked (e.g. a removal the user must choose). */
+  pickOff?: boolean;
 }
 
 /** Inverse operation that restores the previous state (when the change is reversible). */
@@ -39,6 +43,8 @@ export interface ActivityEntry {
   status: 'success' | 'failed' | 'rejected' | 'blocked';
   error?: string;
   conversationId?: string;
+  /** The campaigns the change is about (for the notes sheet's Kampagne column). */
+  campaignIds?: string[];
   undo?: UndoSpec;
   undone?: boolean;
 }

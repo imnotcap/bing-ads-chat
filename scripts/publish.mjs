@@ -11,14 +11,16 @@
  *   cloudflare/public/XavierOS-Setup.exe             download page installer
  *   cloudflare/public/Bing-Ads-Chat-Setup.exe        same file under the old name (old links)
  *   cloudflare/public/version.json                   shown on the download page
+ *   cloudflare/public/app/                           the web app (bundleDir/app, from pnpm build:web)
  * and deploys the Worker with wrangler (needs CLOUDFLARE_API_TOKEN, and BING_ADS_CHAT_SITE_URL +
  * CLOUDFLARE_ACCOUNT_ID from scripts/resolve-site.mjs).
  * Release notes come from RELEASE_NOTES (CI: the commit message).
  */
 import { execSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { releaseNotes } from '../src/lib/releaseNotes.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -31,16 +33,8 @@ const sig = files.find((f) => /_x64-setup\.exe\.sig$/.test(f));
 if (!setup || !sig) throw new Error(`Mangler den signerede installer (*_x64-setup.exe + .sig) i ${bundleDir}`);
 const version = /_(\d+\.\d+\.\d+)_x64-setup\.exe$/.exec(setup)[1];
 
-/** Commit message → short release notes (no co-author/session trailers). */
-function notesFrom(message) {
-  const lines = (message ?? '')
-    .split('\n')
-    .filter((l) => !/^(Co-Authored-By|Claude-Session|Signed-off-by):/i.test(l.trim()))
-    .join('\n')
-    .trim();
-  return lines.slice(0, 1500) || 'Forbedringer og fejlrettelser.';
-}
-const notes = notesFrom(process.env.RELEASE_NOTES);
+// The commit message, unwrapped and cut at a whole paragraph (the same code the app shows it with).
+const notes = releaseNotes(process.env.RELEASE_NOTES);
 const pubDate = new Date().toISOString();
 if (!process.env.BING_ADS_CHAT_SITE_URL) throw new Error('BING_ADS_CHAT_SITE_URL mangler – kør scripts/resolve-site.mjs først.');
 const site = process.env.BING_ADS_CHAT_SITE_URL.replace(/\/$/, '');
@@ -72,6 +66,12 @@ copyFileSync(join(bundleDir, setup), join(pub, 'XavierOS-Setup-klassisk.exe'));
 const sizeMb = (statSync(join(bundleDir, themed ?? setup)).size / 1048576).toFixed(1).replace('.', ',');
 writeFileSync(join(pub, 'version.json'), `${JSON.stringify({ version, date: pubDate, notes, sizeMb }, null, 2)}\n`);
 
+// The web app (app.xavieros.dk, and /app/ on every address) – same version as the desktop app.
+const webApp = join(bundleDir, 'app');
+rmSync(join(pub, 'app'), { recursive: true, force: true });
+if (existsSync(join(webApp, 'index.html'))) cpSync(webApp, join(pub, 'app'), { recursive: true });
+else console.log('::warning::Web-appen mangler i udgivelsen (pnpm build:web) – kun desktop-appen udgives.');
+
 if (deploy) {
   if (!process.env.CLOUDFLARE_API_TOKEN) throw new Error('CLOUDFLARE_API_TOKEN mangler – tilføj den som GitHub-secret (se docs/RELEASE.md).');
   // The workspace accepts Microsoft logins made with the app's own registration.
@@ -79,18 +79,28 @@ if (deploy) {
   const clientId = (process.env.MS_CLIENT_ID ?? '').trim();
   if (!clientId) throw new Error('MS_CLIENT_ID mangler – tilføj den som GitHub-secret (se docs/RELEASE.md). Intet er udgivet.');
   if (!/^[0-9a-f-]{36}(,[0-9a-f-]{36})*$/i.test(clientId)) throw new Error('MS_CLIENT_ID ligner ikke et Application (client) ID. Intet er udgivet.');
+  const run = (cmd) => execSync(cmd, { cwd: root, stdio: 'inherit', env: { ...process.env, CI: '1' } });
+  const deployCmd = `npx --yes wrangler@4 deploy --config cloudflare/wrangler.jsonc --var MS_CLIENT_ID:${clientId}`;
   // The app's own domain (e.g. app.xavieros.dk), when its zone is active on the account (resolve-site.mjs).
   const domain = (process.env.BING_ADS_CHAT_APP_DOMAIN ?? '').trim();
-  const domainFlag = /^[a-z0-9.-]+$/i.test(domain) ? ` --domain ${domain}` : '';
-  execSync(`npx --yes wrangler@4 deploy --config cloudflare/wrangler.jsonc --var MS_CLIENT_ID:${clientId}${domainFlag}`, {
-    cwd: root,
-    stdio: 'inherit',
-    env: { ...process.env, CI: '1' },
-  });
+  if (/^[a-z0-9.-]+$/i.test(domain)) {
+    try {
+      run(`${deployCmd} --domain ${domain}`);
+    } catch {
+      // Cloudflare would not take the domain (typically an old DNS record on it). The update feed
+      // and the download page matter more than the address, so publish on workers.dev instead and
+      // say why – the next release tries the domain again.
+      console.log(`::warning::Cloudflare tog ikke imod ${domain} til appen (fx en gammel DNS-post på ${domain}) – appen udgives på workers.dev i stedet. Se docs/RELEASE.md → Eget domæne.`);
+      run(deployCmd);
+    }
+  } else {
+    run(deployCmd);
+  }
 }
 
 console.log(`
 ✔ XavierOS ${version} er udgivet.
   Download-side:   ${site}
   Opdateringsfeed: ${site}/updates/latest.json
+  Web-app:         ${site}/app/
 `);

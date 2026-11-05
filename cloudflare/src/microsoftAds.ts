@@ -122,6 +122,27 @@ async function customer<T>(fetchFn: FetchLike, keys: AdsKeys, accessToken: strin
 }
 
 /**
+ * Every ad account the keys can see, with the customer it belongs to – the CustomerId a
+ * report for that account has to be sent with. The same two calls as the test below.
+ */
+export async function adsAccountCustomers(fetchFn: FetchLike, keys: AdsKeys, accessToken: string): Promise<Map<string, string>> {
+  const me = await customer<{ User?: { Id?: number | string } }>(fetchFn, keys, accessToken, 'User/Query', { UserId: null });
+  const res = await customer<{ Accounts?: Record<string, unknown>[] }>(fetchFn, keys, accessToken, 'Accounts/Search', {
+    Predicates: [{ Field: 'UserId', Operator: 'Equals', Value: String(me.User?.Id ?? '') }],
+    Ordering: null,
+    PageInfo: { Index: 0, Size: 1000 },
+    ReturnAdditionalFields: null,
+  });
+  const out = new Map<string, string>();
+  for (const a of res.Accounts ?? []) {
+    const id = String(a.Id ?? '');
+    const parent = String(a.ParentCustomerId ?? '');
+    if (/^\d+$/.test(id) && /^\d+$/.test(parent)) out.set(id, parent);
+  }
+  return out;
+}
+
+/**
  * Tests the keys. With Konto-ID and Kunde-ID it reads that account (Account/Query – the
  * same test as Inventarland Dashboard); without, who the keys sign in as and their accounts.
  */

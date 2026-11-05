@@ -113,6 +113,53 @@ export interface NegativeKeyword {
 
 export type NegativeEntityType = 'Campaign' | 'AdGroup';
 
+/**
+ * One change to a Shopping ad group's product tree (ApplyProductPartitionActions). A new
+ * subdivision gets a negative `tempId` that its children use as `parentId`; an excluded
+ * unit is a NegativeAdGroupCriterion, everything else a BiddableAdGroupCriterion.
+ * `attribute: null` is the "everything else" node of a subdivision.
+ */
+export type PartitionAction =
+  | {
+      action: 'Add';
+      adGroupId: string;
+      tempId?: number;
+      parentId: string | number | null;
+      kind: 'subdivision' | 'unit';
+      operand: string;
+      attribute: string | null;
+      excluded: boolean;
+      bid?: number | null;
+    }
+  | { action: 'Delete'; adGroupId: string; id: string; excluded: boolean };
+
+/** A shared negative keyword list a campaign uses (GetSharedEntityAssociationsByEntityIds). */
+export interface NegativeKeywordList {
+  id: string;
+  name: string;
+  keywords: NegativeKeyword[];
+}
+
+/**
+ * One node of a product tree: a Shopping ad group's product partition, or a Performance
+ * Max asset group's listing group. `operand` is Microsoft's (Id, Brand, ProductType1,
+ * CustomLabel0, CategoryL1, Condition, All …); an empty `attribute` is "everything else".
+ */
+export interface ProductTreeNode {
+  id: string;
+  parentId: string | null;
+  /** The ad group or asset group the tree belongs to. */
+  group: string;
+  groupId?: string;
+  /** A biddable unit's CPC bid. */
+  bid?: number | null;
+  /** Null when Microsoft did not say (worked out from the tree instead). */
+  unit: boolean | null;
+  excluded: boolean;
+  operand: string;
+  attribute: string;
+}
+
 /* ---------------- mutations ---------------- */
 
 export interface CampaignPatch {
@@ -340,6 +387,18 @@ export interface ProductStatus {
 }
 
 /** One product with its performance in a period and the period before. */
+/** A product that showed in a campaign: the item id as Microsoft reports it, and where. */
+export interface ShownProduct {
+  itemId: string;
+  /** The ad group (Shopping) or asset group (Performance Max). */
+  adGroupId: string | null;
+  impressions: number;
+  clicks?: number;
+  spend?: number;
+  conversions?: number;
+  revenue?: number;
+}
+
 export interface ProductPerformance {
   /** The merchant's product id (offer id). */
   id: string;
@@ -370,6 +429,19 @@ export interface AdsBackend {
   listAds(accountId: string, adGroupId: string): Promise<Ad[]>;
   /** `campaignId`: the campaign the entity belongs to (Microsoft needs it for ad groups). */
   listNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, campaignId: string): Promise<NegativeKeyword[]>;
+  /** The shared negative keyword lists the campaign uses, with their keywords (live only). */
+  listNegativeKeywordLists?(accountId: string, campaignId: string): Promise<NegativeKeywordList[]>;
+  /** A Shopping ad group's product partitions – which are bid on and which are excluded (live only). */
+  listProductPartitions?(accountId: string, adGroupId: string, adGroupName: string): Promise<ProductTreeNode[]>;
+  /**
+   * Changes one Shopping ad group's product tree in a single call (all actions for the same
+   * ad group). Microsoft applies such a call as a whole: if one action fails, none is made.
+   */
+  applyProductPartitionActions?(accountId: string, actions: PartitionAction[]): Promise<MutationResult>;
+  /** A Performance Max campaign's listing groups, for all its asset groups (live only). */
+  listAssetGroupListingGroups?(accountId: string, campaignId: string): Promise<ProductTreeNode[]>;
+  /** Performance Max listing groups of ONE asset group, all or nothing (adGroupId = the asset group). No bids. */
+  applyAssetGroupListingGroupActions?(accountId: string, actions: PartitionAction[]): Promise<MutationResult>;
 
   updateCampaigns(accountId: string, patches: CampaignPatch[]): Promise<MutationResult>;
   createCampaign(accountId: string, spec: NewCampaign): Promise<MutationResult>;
@@ -380,6 +452,7 @@ export interface AdsBackend {
   updateKeywords(accountId: string, adGroupId: string, patches: KeywordPatch[]): Promise<MutationResult>;
   deleteKeywords(accountId: string, adGroupId: string, keywordIds: string[]): Promise<MutationResult>;
   addNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, keywords: NegativeKeyword[]): Promise<MutationResult>;
+  deleteNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, ids: string[]): Promise<MutationResult>;
   createResponsiveSearchAd(accountId: string, adGroupId: string, ad: NewResponsiveSearchAd): Promise<MutationResult>;
   updateAds(accountId: string, adGroupId: string, patches: AdPatch[]): Promise<MutationResult>;
 
@@ -390,6 +463,8 @@ export interface AdsBackend {
    * products worth showing happens in bing/products.ts.
    */
   productPerformance?(accountId: string, range: DateRange, signal?: AbortSignal): Promise<ProductPerformance[]>;
+  /** The products one campaign showed in the period (impressions per item id and ad group / asset group). */
+  shownProducts?(accountId: string, campaignId: string, range: DateRange, signal?: AbortSignal): Promise<ShownProduct[]>;
   /** `location`: a country name in English (default Denmark). */
   keywordIdeas(accountId: string, input: { queries: string[]; url?: string; language?: string; location?: string; limit?: number }): Promise<KeywordIdea[]>;
   budgetOpportunities(accountId: string, campaignId?: string): Promise<BudgetOpportunity[]>;

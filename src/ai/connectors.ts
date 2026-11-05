@@ -28,7 +28,7 @@ export const CONNECTORS: Connector[] = [
   { id: 'msads_read', label: 'Microsoft Advertising · data', description: 'Kampagner, søgeord, rapporter og forbrug', icon: Search, brand: 'microsoft_ads', defaultOn: true },
   { id: 'msads_write', label: 'Microsoft Advertising · ændringer', description: 'Budgetter, bud, søgeord, annoncer – du godkender hver ændring', icon: PenLine, brand: 'microsoft_ads', defaultOn: true },
   { id: 'msads_api', label: 'Avanceret API-adgang', description: 'Direkte kald til Microsoft Advertising REST API (kræver altid godkendelse)', icon: Terminal, brand: 'microsoft_ads', defaultOn: true },
-  { id: 'inventarland', label: 'Inventarland · webshop og kanaler', description: 'Webshoppens salg og produkter, Google Ads, Meta og Daisycon', icon: ShoppingBag, defaultOn: true },
+  { id: 'inventarland', label: 'Inventarland · webshop', description: 'Webshoppens salg og produkter', icon: ShoppingBag, defaultOn: true },
   { id: 'visuals', label: 'Grafer og tabeller', description: 'Nøgletal, grafer og tabeller i svarene', icon: BarChart3, defaultOn: true },
   { id: 'web', label: 'Websøgning', description: 'Søg og læs på nettet: landingssider, priser, konkurrenter og trends (koster lidt ekstra pr. søgning)', icon: Globe, defaultOn: true, providers: ['anthropic'] },
 ];

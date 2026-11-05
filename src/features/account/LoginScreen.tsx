@@ -14,7 +14,7 @@ import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
 import { MicrosoftLogo } from '@/features/settings/SignInDialog';
-import { isTauri } from '@/lib/platform';
+import { isTauri, OAuthCancelled } from '@/lib/platform';
 import { errorMessage } from '@/lib/utils';
 import { useAccount } from '@/stores/account';
 import { createCompany, devSignIn, restoreSession, signIn, signOut } from '@/workspace/account';
@@ -108,29 +108,26 @@ function SignInView() {
         <p className="mt-1.5 text-[14px] leading-relaxed text-muted">Brug din Microsoft-konto. Appen ser aldrig din adgangskode.</p>
       </div>
       {reason && <p className="mt-5 rounded-xl bg-warning-bg px-3.5 py-2.5 text-[12.5px] text-warning">{reason}</p>}
-      {isTauri ? (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              const user = await signIn();
-              if (user?.status === 'active') toast.success(`Velkommen, ${user.name}`);
-            } catch (e) {
-              toast.error('Login mislykkedes', { description: errorMessage(e), duration: 12_000 });
-            } finally {
-              setBusy(false);
-            }
-          }}
-          className="mt-6 flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-line bg-white text-[15px] font-semibold text-ink shadow-sm transition-[border-color,box-shadow] hover:border-black/15 hover:shadow-pop disabled:opacity-60"
-        >
-          {busy ? <Loader2 className="size-5 animate-spin text-muted" /> : <MicrosoftLogo className="size-5" />}
-          {busy ? 'Fuldfør login i browservinduet …' : 'Log ind med Microsoft'}
-        </button>
-      ) : (
-        <p className="mt-6 rounded-xl bg-line-2 px-3.5 py-2.5 text-[12.5px] text-muted">Login med Microsoft virker i desktop-appen.</p>
-      )}
+      <button
+        type="button"
+        // In the browser the login runs in a pop-up the user may close – a new click starts over.
+        disabled={busy && isTauri}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            const user = await signIn();
+            if (user?.status === 'active') toast.success(`Velkommen, ${user.name}`);
+          } catch (e) {
+            if (e instanceof OAuthCancelled) return;
+            toast.error('Login mislykkedes', { description: errorMessage(e), duration: 12_000 });
+          }
+          setBusy(false);
+        }}
+        className="mt-6 flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-line bg-white text-[15px] font-semibold text-ink shadow-sm transition-[border-color,box-shadow] hover:border-black/15 hover:shadow-pop disabled:opacity-60"
+      >
+        {busy ? <Loader2 className="size-5 animate-spin text-muted" /> : <MicrosoftLogo className="size-5" />}
+        {busy ? (isTauri ? 'Fuldfør login i browservinduet …' : 'Fuldfør login i pop-up-vinduet …') : 'Log ind med Microsoft'}
+      </button>
       {!isTauri && devLogin && (
         <div className="mt-4">
           <DevLogin />

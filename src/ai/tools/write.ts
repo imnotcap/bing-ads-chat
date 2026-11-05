@@ -11,6 +11,8 @@
  *  3. verify  – read the entities back and only report what Microsoft now shows.
  */
 import { z } from 'zod';
+import { issueLines, reviewAd } from '../adCopy';
+import { adReviewContext, evidenceSchema } from './adReview';
 import { blockedBy } from './searchTerms';
 import { presetRange } from '@/lib/format';
 import { activeDailyBudget } from '@/bing/spend';
@@ -337,7 +339,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
     async plan(input, ctx) {
       const type = input.type ?? 'Search';
       if (type !== 'Search') {
-        throw new Error(`${type}-kampagner kræver ekstra indstillinger (fx butik/produktfeed, asset groups eller målgrupper), som dette værktøj ikke sætter. Brug microsoft_ads_api med de nødvendige Settings, eller opret den i Microsoft Advertising.`);
+        throw new Error(`${type}-kampagner kræver ekstra indstillinger (fx butik/produktfeed, asset groups eller målgrupper), som dette værktøj ikke sætter. Opret den med microsoft_ads_api (POST campaign/Campaigns med CampaignType og Settings – Shopping: ShoppingSetting med StoreId; slå felterne op med find_api_operation), og læs den tilbage bagefter. Nye kampagner oprettes på pause.`);
       }
       const problem = bidStrategyProblem({ name: input.name, type }, input.bidStrategy);
       if (problem) throw new Error(problem);
@@ -481,7 +483,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
         { entity: 'Annoncegruppe', field: 'kampagne', after: c.name },
         { entity: 'Annoncegruppe', field: 'Navn', after: input.name, edit: { path: ['name'], maxLength: 256 } },
         { entity: 'Annoncegruppe', field: 'status', after: statusLabel(status) },
-        ...(input.cpcBid ? [{ entity: 'Annoncegruppe', field: 'CPC-bud', after: input.cpcBid }] : []),
+        ...(input.cpcBid ? [{ entity: 'Annoncegruppe', field: 'CPC-bud', after: input.cpcBid, edit: { path: ['cpcBid'], kind: 'money' as const } }] : []),
       ];
       return {
         plan: {
@@ -559,7 +561,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
           if (ch.status === 'Active') increases = true;
         }
         if (ch.cpcBid !== undefined && !near(ch.cpcBid, g.cpcBid)) {
-          const line: ChangeLine = { entity: 'Annoncegruppe', entityId: g.id, field: `${g.name} · CPC-bud`, before: g.cpcBid, after: ch.cpcBid };
+          const line: ChangeLine = { entity: 'Annoncegruppe', entityId: g.id, field: `${g.name} · CPC-bud`, before: g.cpcBid, after: ch.cpcBid, edit: { path: ['changes', index, 'cpcBid'], kind: 'money' } };
           lines.push(line);
           checks.push({ line, index, verify: (s) => (near(find(s)?.cpcBid, ch.cpcBid) ? null : money(find(s)?.cpcBid, ctx.currency)) });
           if (g.cpcBid) inv.cpcBid = g.cpcBid;
@@ -761,7 +763,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
         }
         if (ch.bid !== undefined && !near(ch.bid, k.bid ?? g.cpcBid)) {
           const prev = k.bid ?? g.cpcBid;
-          const line: ChangeLine = { entity: 'Søgeord', entityId: k.id, field: `${label} · bud`, before: prev, after: ch.bid };
+          const line: ChangeLine = { entity: 'Søgeord', entityId: k.id, field: `${label} · bud`, before: prev, after: ch.bid, edit: { path: ['changes', index, 'bid'], kind: 'money' } };
           lines.push(line);
           checks.push({ line, index, verify: (s) => (near(find(s)?.bid, ch.bid) ? null : money(find(s)?.bid ?? null, ctx.currency)) });
           if (prev) inv.bid = prev;
@@ -910,11 +912,66 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
     },
   }),
 
+  defineWrite({
+    name: 'remove_negative_keywords',
+    kind: 'write',
+    description:
+      'Remove negative keywords from a campaign (omit adGroupId) or an ad group – e.g. when a negative blocks searches that should show ads. Name them by text (and match type, if the same text exists as both). The tool finds them, shows what goes, removes them and reads the negatives back. Can be undone (adds them again).',
+    schema: z.object({
+      campaignId: z.string(),
+      adGroupId: z.string().optional(),
+      keywords: z.array(z.object({ text: z.string().min(1).max(100), matchType: z.enum(['Exact', 'Phrase']).optional() })).min(1).max(500),
+      reason,
+    }),
+    label: (i) => `Fjerner ${i.keywords.length} negative søgeord`,
+    async plan(input, ctx) {
+      const c = await getCampaign(ctx, input.campaignId);
+      const g = input.adGroupId ? await getAdGroup(ctx, c.id, input.adGroupId) : null;
+      const target = g ? `annoncegruppen ${g.name}` : `kampagnen ${c.name}`;
+      const entityType = g ? 'AdGroup' : 'Campaign';
+      const entityId = g ? g.id : c.id;
+      const existing = await ctx.backend.listNegativeKeywords(ctx.accountId, entityType, entityId, c.id);
+      const found: NegativeKeyword[] = [];
+      const missing: string[] = [];
+      for (const k of input.keywords) {
+        const hits = existing.filter((n) => normalizeKeyword(n.text) === normalizeKeyword(k.text) && (!k.matchType || n.matchType === k.matchType) && !found.includes(n));
+        if (hits.length) found.push(...hits);
+        else missing.push(`"${k.text}"${k.matchType ? ` (${MATCH_LABELS[k.matchType]})` : ''}`);
+      }
+      if (!found.length) throw new Error(`Ingen af dem er negative søgeord på ${target}: ${missing.join(', ')}. Se dem med list_negative_keywords.`);
+      const lines: ChangeLine[] = found.map((n) => ({ entity: 'Negativt søgeord', entityId, field: `Fjern negativt søgeord · ${MATCH_LABELS[n.matchType]}`, before: n.text, after: 'Fjernet' }));
+      const checks: LineCheck<NegativeKeyword[]>[] = found.map((n, index) => ({
+        line: lines[index]!,
+        index,
+        verify: (s) => (s.some((x) => x.id === n.id) ? 'findes stadig ved genlæsning' : null),
+      }));
+      return {
+        plan: {
+          kind: 'update',
+          title: `Fjern negative søgeord fra ${target}`,
+          reason: input.reason,
+          changes: lines,
+          dailyBudgetDelta: 0,
+          increasesSpend: true,
+          campaignIds: [c.id],
+          notes: [...(missing.length ? [`Ikke fundet på ${target}: ${missing.join(', ')}.`] : []), 'Søgninger, de stoppede, kan igen vise annoncer.'],
+          undo: { tool: 'add_negative_keywords', input: { campaignId: c.id, ...(g ? { adGroupId: g.id } : {}), keywords: found.map((n) => ({ text: n.text, matchType: n.matchType })), reason: 'Fortryd' } },
+        },
+        execute: async () => {
+          const res = await ctx.backend.deleteNegativeKeywords(ctx.accountId, entityType, entityId, found.map((n) => n.id!).filter(Boolean));
+          fresh(ctx);
+          const state = await readBack(() => ctx.backend.listNegativeKeywords(ctx.accountId, entityType, entityId, c.id), checks, failedIndexes(res));
+          return report(verify(checks, res, state), { noun: 'negative søgeord fjernet' });
+        },
+      };
+    },
+  }),
+
   /* ------------------------------------------------------------------------ ads */
   defineWrite({
     name: 'propose_negative_keywords',
     kind: 'write',
-    description: `Propose negative keywords for ONE campaign, found in its search terms, as a table the user ticks on/off (all ticked to start with) – they can also add their own. Use this – not add_negative_keywords – whenever you suggest negatives from search terms. Never mix campaigns in one table: if the user didn't name a campaign, ask which one (or suggest the one with the most wasted spend) before proposing. Get the candidates from get_search_terms (every term of the campaign or ad group at once) and put EVERY negative you find in this one call – up to 300; the user unticks what they want to keep, so never hold some back for a later round. Typical negatives: spend or clicks without conversions, irrelevant intent (jobs, free, used, DIY, competitors, other products than the ad group sells). Never propose a term that converts well or matches a product the business sells. Keep each candidate short: text, matchType, adGroupId and a 2–6 word reason – the app fills in the clicks, spend and conversions itself.`,
+    description: `Propose negative keywords for ONE campaign – found in its search terms, or the ones compare_with_google finds missing compared with Google (use the Microsoft ad group it names for each, or the campaign) – as a table the user ticks on/off (all ticked to start with) – they can also add their own. Use this – not add_negative_keywords – whenever you suggest negatives from search terms. Never mix campaigns in one table: if the user didn't name a campaign, ask which one (or suggest the one with the most wasted spend) before proposing. Get the candidates from get_search_terms (every term of the campaign or ad group at once) and put EVERY negative you find in this one call – up to 300; the user unticks what they want to keep, so never hold some back for a later round. Typical negatives: spend or clicks without conversions, irrelevant intent (jobs, free, used, DIY, competitors, other products than the ad group sells). Never propose a term that converts well or matches a product the business sells. Keep each candidate short: text, matchType, adGroupId and a 2–6 word reason – the app fills in the clicks, spend and conversions itself.`,
     schema: z.object({
       campaignId: z.string().describe('The one campaign all the negatives are for.'),
       candidates: z
@@ -991,6 +1048,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
           notes,
           pick: {
             path: ['candidates'],
+            group: 'target',
             tag: 'matchType',
             note: 'why',
             columns: [
@@ -1046,19 +1104,20 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
     name: 'create_responsive_search_ad',
     kind: 'write',
     description:
-      'Create a responsive search ad in a Search campaign. keywordHeadline is the ad group\'s main search keyword standing alone (e.g. "Butiksinventar" or "{KeyWord:Butiksinventar}") – it always becomes headline 1, pinned to position 1. Then 2–14 other unique headlines (max 30 characters each) that don\'t repeat the keyword alone, 2–4 unique descriptions (max 90 characters each), final URL (https), optional display paths (max 15 characters each, no spaces; path2 needs path1). Pin other headlines/descriptions only when there is a reason (e.g. a brand or offer that must always show in position 2); unpinned texts let Microsoft test combinations. The user can change every pin on the approval card. Write in the language of the campaign (Danish by default) and follow the tone of voice from the business profile. New ads go through Microsoft editorial review before they serve – the tool reads the ad back and reports its editorial status.',
+      'Create a responsive search ad in a Search campaign. Run review_ad_copy on the draft first and fix what it flags. keywordHeadline is the ad group\'s main search keyword standing alone (e.g. "Butiksinventar" or "{KeyWord:Butiksinventar}") – it always becomes headline 1, pinned to position 1. Then 7–14 other unique headlines (max 30 characters each, several of them 20 or shorter) that don\'t repeat the keyword alone – at least 8 in all, each saying something different (keyword variants, offer, proof, call to action) – 3–4 unique descriptions (max 90 characters each), final URL (https), optional display paths (max 15 characters each, no spaces; path2 needs path1). Pin as little as possible (the keyword headline and, at most, one or two texts that must always show); never pin descriptions without a reason. Pass `evidence` for every factual claim (price, free shipping, delivery time, guarantee): a quote from the landing page that contains the number and unit. The tool refuses an ad that cannot serve (e.g. every headline pinned to one position) and shows warnings on the approval card. The user can change every pin on the approval card. Write in the language of the campaign (Danish by default) and follow the tone of voice from the business profile. New ads go through Microsoft editorial review before they serve – the tool reads the ad back and reports its editorial status.',
     schema: z.object({
       campaignId: z.string(),
       adGroupId: z.string(),
       keywordHeadline: adText(30, 'Søgeordsoverskriften').describe('The main search keyword alone – always headline 1, pinned to position 1.'),
-      headlines: z.array(adText(30, 'Overskrift')).min(2).max(14).describe('The other headlines (headline 2 onwards).'),
+      headlines: z.array(adText(30, 'Overskrift')).min(2).max(14).describe('The other headlines (headline 2 onwards) – together with the keyword headline at least 8.'),
       headlinePins: z
         .array(z.enum(['', '1', '2', '3']))
         .max(14)
         .optional()
         .describe('Per entry in headlines: "" = any position (default), "1"–"3" = always in that position.'),
       descriptions: z.array(adText(90, 'Beskrivelse')).min(2).max(4),
-      descriptionPins: z.array(z.enum(['', '1', '2'])).max(4).optional().describe('Per description: "" = any position (default), "1" or "2".'),
+      descriptionPins: z.array(z.enum(['', '1', '2'])).max(4).optional().describe('Per description: "" = any position (default), "1" or "2". Leave empty unless a text must always show.'),
+      evidence: evidenceSchema,
       finalUrl: z.string().url(),
       path1: z.string().max(1000).refine((t) => finalLength(t) <= 15, 'Visningssti må højst være 15 tegn').optional(),
       path2: z.string().max(1000).refine((t) => finalLength(t) <= 15, 'Visningssti må højst være 15 tegn').optional(),
@@ -1080,11 +1139,11 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
       if (input.path2 && !input.path1) throw new Error('Visningssti 2 kræver visningssti 1.');
       for (const p of [input.path1, input.path2]) if (p && p.includes('/')) throw new Error(`Visningsstien "${p}" må ikke indeholde skråstreg – brug path1 og path2 til hver sin del.`);
       const notes = await servingBlockers(ctx, c, g);
-      if (headlines.some((h) => h.includes('!'))) notes.push('Microsofts redaktionelle regler tillader ikke udråbstegn i overskrifter – overskrifter med "!" risikerer at blive afvist.');
-      if (headlines.length < 8) notes.push(`Kun ${headlines.length} overskrifter – med 8–15 forskellige har Microsoft flere kombinationer at teste.`);
-      const alsoFirst = input.headlines.filter((_, i) => headlinePins[i + 1] === 1);
-      if (alsoFirst.length) notes.push(`Også fastgjort til position 1: ${alsoFirst.map((h) => `"${h}"`).join(', ')} – så skiftes de med søgeordet, og søgeordet vises ikke altid først.`);
-      if (headlinePins.filter(Boolean).length === headlines.length) notes.push('Alle overskrifter er fastgjort – så kan Microsoft ikke teste kombinationer.');
+      // The same review the assistant ran on the draft: an ad that cannot serve is refused, warnings go on the card.
+      const review = reviewAd({ headlines, headlinePins, descriptions: input.descriptions, descriptionPins, evidence: input.evidence, ...(await adReviewContext(ctx, c.id, g.id)) });
+      const errors = issueLines(review, ['error']);
+      if (errors.length) throw new Error(`Annoncen kan ikke oprettes som skrevet: ${errors.join(' ')}`);
+      notes.push(...issueLines(review, ['warning']), ...review.issues.filter((i) => i.code === 'shared_position_1').map((i) => i.text));
       const host = (() => {
         try {
           return new URL(input.finalUrl).hostname.replace(/^www\./, '');
@@ -1171,6 +1230,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
               pinnedHeadlines: headlines.flatMap((h, i) => (headlinePins[i] ? [{ headline: h, position: headlinePins[i] }] : [])),
               ...(pinsLost.length ? { pinsNotConfirmed: pinsLost } : {}),
               warnings: [...notes, ...(editorial ? [editorial] : [])],
+              tips: issueLines(review, ['tip']),
               instruction: 'The ad exists in Microsoft Advertising. Tell the user its editorial status – an ad under review (Inactive) does not serve yet.',
             },
             summary: `Annonce oprettet og bekræftet${editorial ? ' · afventer/afvist redaktionelt' : ''}`,
@@ -1261,7 +1321,7 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
   defineWrite({
     name: 'microsoft_ads_api',
     kind: 'write',
-    description: `Call any Microsoft Advertising REST API v13 operation directly – for everything the other tools do not cover (ad extensions/assets such as sitelinks and callouts, location and device targeting criteria and bid adjustments, audiences, conversion goals, UET tags, shared budgets and negative keyword lists, labels, Bulk …). Use the dedicated tools for campaigns, ad groups, keywords, negatives and ads – they check feasibility and verify the result.
+    description: `Call any Microsoft Advertising REST API v13 operation directly – for everything the other tools do not cover (ad extensions/assets such as sitelinks and callouts, location and device targeting criteria and bid adjustments, audiences, conversion goals, UET tags, shared budgets and negative keyword lists, labels, Bulk …). Use the dedicated tools for campaigns, ad groups, keywords, negatives, ads and product groups – they check feasibility and verify the result. Product groups (product partitions, listing groups) are refused here: read them with list_product_groups, change them with edit_product_groups or match_product_groups_to_google.
 ALWAYS look the operation up with find_api_operation first and use exactly the method and path it returns – paths do not always follow a pattern (e.g. GetNegativeKeywordsByEntityIds is POST 'NegativeKeywords/QueryByEntityIds'), and calls to operations that do not exist are refused. The JSON body uses the request element names it lists. Polymorphic objects need a "Type" field with the class name (e.g. BiddingScheme {"Type": "MaxConversionsBiddingScheme"}; ads use the ad type, e.g. "ResponsiveSearch"). Flag combinations are comma-separated. CustomerId and CustomerAccountId headers are added automatically.
 Reads (POST to …/Query…, …/Search, or GET) run immediately; every other call needs the user's approval. Writes are NOT verified automatically: after a write, read the entity back with a Query call before telling the user it is done. Account, user and billing administration (customer/billing services) is not allowed. Live accounts only.`,
     schema: z.object({
@@ -1283,6 +1343,19 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
       }
       const readOnly = isReadOperation(op);
       const missing = missingRequired(op, input.body);
+      // Product groups only change as a whole tree per ad group (ApplyProductPartitionActions);
+      // one raw call per item breaks the tree or does something else than it says.
+      if (/ProductPartition|ListingGroup/i.test(`${path} ${JSON.stringify(input.body ?? {})}`)) {
+        throw new Error(
+          readOnly
+            ? 'Produktgrupper læses med list_product_groups (Shopping) eller compare_with_google (også Performance Max) – ikke med det direkte API.'
+            : 'Produktgrupper ændres ikke med det direkte API. Brug edit_product_groups (bestemte varenumre i én annoncegruppe) eller match_product_groups_to_google (som i Google) – sendt samlet pr. annoncegruppe og læst tilbage. Performance Max-listinggrupper også med edit_product_groups (asset group).',
+        );
+      }
+      // A read without the ids/types Microsoft requires only comes back as an error ("The request message is null").
+      const missingKeys = missing.filter((m) => /(Id|Ids|Type)$/.test(m));
+      if (readOnly && missingKeys.length)
+        throw new Error(`${op.op} kræver ${missingKeys.join(', ')} i body (null er tilladt, hvor listen kan være tom). Kaldet er ikke sendt – tilføj felterne og prøv igen.`);
       const run = async () => {
         const result = await ctx.backend.rawRequest(ctx.accountId, input.service as MsService, op.path, op.method as 'GET' | 'POST' | 'PUT' | 'DELETE', input.body).catch((e: unknown) => {
           if (missing.length && e instanceof Error) e.message += ` (Dokumentationen for ${op.op} kræver også: ${missing.join(', ')}.)`;

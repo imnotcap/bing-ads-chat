@@ -137,6 +137,46 @@ export function inventarland<T>(view: InventarlandView, params: Record<string, s
   return api<T>(`/inventarland/${view}?${query}`);
 }
 
+/* ------------------------- Google Ads (audit, read only) ------------------------- */
+
+/**
+ * Connects the Google Ads account the audit compares with – read only. Either the way
+ * Inventarland Dashboard does it (OAuth client + refresh token) or with a service account's
+ * JSON key. The secrets are sent once, checked against Google and kept on Cloudflare only;
+ * empty ones keep what is stored. Administrators only.
+ */
+export async function connectGoogleAudit(opts: {
+  method: 'oauth' | 'service_account';
+  key?: string;
+  clientId?: string;
+  clientSecret?: string;
+  refreshToken?: string;
+  customerId: string;
+  loginCustomerId?: string;
+}) {
+  applyWorkspace(await api<WorkspaceInfo>('/workspace/google', { method: 'PUT', body: JSON.stringify(opts) }));
+}
+
+export async function disconnectGoogleAudit() {
+  applyWorkspace(await api<WorkspaceInfo>('/workspace/google', { method: 'DELETE' }));
+}
+
+/* ------------------------------ the notes sheet ------------------------------ */
+
+/** Connects the team's notes sheet (a link to the tab); the service account must be an editor of it. */
+export async function connectNotesheet(url: string, key?: string) {
+  applyWorkspace(await api<WorkspaceInfo>('/workspace/notesheet', { method: 'PUT', body: JSON.stringify({ url, ...(key ? { key } : {}) }) }));
+}
+
+export async function disconnectNotesheet() {
+  applyWorkspace(await api<WorkspaceInfo>('/workspace/notesheet', { method: 'DELETE' }));
+}
+
+/** Adds rows at the bottom of the notes sheet's table (the Worker only ever appends). */
+export async function writeNotes(notes: { campaign: string; adGroup: string; topics: string[]; comment: string }[]) {
+  return api<{ written: number }>('/workspace/notesheet/rows', { method: 'POST', body: JSON.stringify({ notes }) });
+}
+
 /* ------------------------------ moving old keys ------------------------------ */
 
 /**

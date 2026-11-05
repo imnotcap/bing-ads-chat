@@ -40,15 +40,30 @@ export function reportUsage(costUsd: number) {
 /** What is left this month (included use + credits), minus requests not confirmed yet. */
 export function remainingUsd(): number | null {
   const { state, pending } = useBilling.getState();
-  return state ? state.remainingUsd - pending : null;
+  if (!state || typeof state.remainingUsd !== 'number' || !Number.isFinite(state.remainingUsd)) return null;
+  return state.remainingUsd - pending;
 }
 
-/** Null when the assistant may run; otherwise the message to show. */
+/**
+ * Null when the assistant may run; otherwise the message to show.
+ *
+ * Only a number we can trust blocks the chat. Anything else – an older Worker, a reply
+ * that did not carry the pool, a request that never arrived – lets the assistant run:
+ * being unable to read the usage pool must never be the reason nobody can write.
+ */
 export function usageBlocked(): string | null {
   const left = remainingUsd();
   const state = useBilling.getState().state;
   if (left === null || !state || left > 0) return null;
-  return `Virksomhedens AI-forbrug for ${new Date(`${state.month}-01`).toLocaleDateString('da-DK', { month: 'long' })} er brugt (${fmtUsd(state.includedUsd)} inkluderet${state.purchases.length ? ' + ekstra credits' : ''}). En administrator kan købe ekstra forbrug i Brug-ringen nederst til højre i chatfeltet: ${fmtUsd(state.pack.priceUsd)} giver ${fmtUsd(state.pack.creditUsd)} ekstra.`;
+  // Only a real YYYY-MM is named. Date() accepts enough nonsense to turn a broken value
+  // into a confident, wrong month ("nonsense-01" parses as January).
+  const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(state.month ?? '') ? new Date(`${state.month}-01`) : null;
+  const monthName = month ? month.toLocaleDateString('da-DK', { month: 'long' }) : 'denne måned';
+  const extra = state.purchases?.length ? ' + ekstra credits' : '';
+  const pack = state.pack
+    ? ` En administrator kan købe ekstra forbrug i Brug-ringen nederst til højre i chatfeltet: ${fmtUsd(state.pack.priceUsd)} giver ${fmtUsd(state.pack.creditUsd)} ekstra.`
+    : ' En administrator kan købe ekstra forbrug i Brug-ringen nederst til højre i chatfeltet.';
+  return `Virksomhedens AI-forbrug for ${monthName} er brugt (${fmtUsd(state.includedUsd)} inkluderet${extra}).${pack}`;
 }
 
 export async function buyExtraUsage(): Promise<BillingState> {

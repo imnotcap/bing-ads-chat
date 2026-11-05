@@ -36,6 +36,7 @@ import type {
   ReportRow,
   ReportSpec,
   SearchVolume,
+  ShownProduct,
 } from '../types';
 import { demoProducts } from './products';
 import { DEMO_ACCOUNTS, createSeedState, type DemoState } from './seed';
@@ -355,6 +356,21 @@ export class DemoBackend implements AdsBackend {
     return {};
   }
 
+  async deleteNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, ids: string[]): Promise<MutationResult> {
+    await this.delay();
+    if (entityType === 'Campaign') this.campaign(accountId, entityId);
+    else this.adGroup(accountId, entityId);
+    const key = `${entityType}:${entityId}`;
+    const list = this.state.negatives[key] ?? [];
+    const failed: ItemError[] = [];
+    ids.forEach((id, index) => {
+      if (!list.some((n) => n.id === id)) failed.push({ index, message: `Negativt søgeord ${id} findes ikke her.`, code: 'NegativeKeywordNotFound' });
+    });
+    this.state.negatives[key] = list.filter((n) => !ids.includes(n.id ?? ''));
+    this.commit();
+    return batchOutcome(ids.filter((_, i) => !failed.some((f) => f.index === i)), failed, ids.length);
+  }
+
   async addNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, keywords: NegativeKeyword[]): Promise<MutationResult> {
     await this.delay();
     if (entityType === 'Campaign') this.campaign(accountId, entityId);
@@ -522,6 +538,12 @@ export class DemoBackend implements AdsBackend {
    * The Shopping and Performance Max traffic split over the demo catalogue, as rows of
    * Microsoft's product report – then the same aggregation as with a real account.
    */
+  async shownProducts(accountId: string, campaignId: string, range: DateRange): Promise<ShownProduct[]> {
+    return (await this.productPerformance(accountId, range)).flatMap((p) =>
+      p.placements.filter((x) => x.campaignId === campaignId && x.metrics.impressions > 0).map((x) => ({ itemId: p.id, adGroupId: x.adGroupId, ...x.metrics })),
+    );
+  }
+
   async productPerformance(accountId: string, range: DateRange): Promise<ProductPerformance[]> {
     await sleep(this.latencyMs * 3);
     const catalogue = demoProducts();

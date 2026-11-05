@@ -4,7 +4,10 @@
  * Docs: https://learn.microsoft.com/advertising/guides/request-download-report
  */
 import { derive } from './metrics';
+import { msDate, normalizeReportDate, toNumber } from './reportBasics';
 import type { ReportKind, ReportRow, ReportSpec } from './types';
+
+export { msDate, normalizeReportDate, toNumber };
 
 const METRIC_COLUMNS = ['Impressions', 'Clicks', 'Spend', 'Conversions', 'Revenue'];
 
@@ -51,11 +54,6 @@ export const REPORT_DEFS: Record<ReportKind, ReportDef> = {
   },
 };
 
-export function msDate(iso: string) {
-  const [y, m, d] = iso.split('-').map(Number);
-  return { Day: d, Month: m, Year: y };
-}
-
 /** Builds the ReportRequest body for GenerateReport/Submit. */
 export function buildReportRequest(accountId: string, spec: ReportSpec): Record<string, unknown> {
   const def = REPORT_DEFS[spec.kind];
@@ -90,20 +88,6 @@ export function buildReportRequest(accountId: string, spec: ReportSpec): Record<
       ReportTimeZone: 'BrusselsCopenhagenMadridParis',
     },
   };
-}
-
-export function toNumber(v: string | undefined): number {
-  if (!v) return 0;
-  const n = Number(v.replace(/[%,\s]/g, ''));
-  return Number.isFinite(n) ? n : 0;
-}
-
-/** Accepts "2026-10-07" or "10/7/2026" (format depends on report locale). */
-export function normalizeReportDate(value: string): string {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value);
-  if (m) return `${m[3]}-${m[1]?.padStart(2, '0')}-${m[2]?.padStart(2, '0')}`;
-  return value;
 }
 
 /** Microsoft's DayOfWeek aggregation numbers the days 1–7 starting with Sunday. */

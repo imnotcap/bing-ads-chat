@@ -1,0 +1,10 @@
+{
+  // The XavierOS website (xavieros.dk): static files only, a Worker of its own next to the
+  // app's server (cloudflare/, app.xavieros.dk). Deployed with every release by
+  // scripts/publish-website.mjs (GitHub Actions → publish job); xavieros.dk and
+  // www.xavieros.dk are attached once the domain is active on the Cloudflare account.
+  "name": "xavieros-website",
+  "compatibility_date": "2025-09-01",
+  "workers_dev": true,
+  "assets": { "directory": "./dist", "not_found_handling": "single-page-application" }
+}

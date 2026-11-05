@@ -71,10 +71,30 @@ describe('tools', () => {
   it('treats raw API query calls as read-only', async () => {
     const tool = getTool('microsoft_ads_api')!;
     if (tool.kind !== 'write') throw new Error('unexpected');
-    const read = await tool.plan(tool.schema.parse({ service: 'campaign', path: 'AdExtensions/QueryByIds', method: 'POST', body: {}, reason: 'x' }), ctx());
+    const read = await tool.plan(tool.schema.parse({ service: 'campaign', path: 'AdExtensions/QueryByIds', method: 'POST', body: { AccountId: 1, AdExtensionIds: [2], AdExtensionType: 'SitelinkAdExtension' }, reason: 'x' }), ctx());
     expect(read.plan).toBeNull();
     const write = await tool.plan(tool.schema.parse({ service: 'campaign', path: 'CampaignCriterions', method: 'POST', body: { CampaignId: 105 }, reason: 'x' }), ctx());
     expect(write.plan?.kind).toBe('raw');
     expect(write.plan?.campaignIds).toEqual(['105']);
+  });
+});
+
+describe('remove_negative_keywords', () => {
+  it('finds the negatives by text, removes them, reads back, and can be undone', async () => {
+    const c = ctx();
+    await c.backend.addNegativeKeywords(c.accountId, 'Campaign', '102', [
+      { text: 'gratis', matchType: 'Phrase' },
+      { text: 'brugt', matchType: 'Exact' },
+    ]);
+    const tool = getTool('remove_negative_keywords')!;
+    if (tool.kind !== 'write') throw new Error('unexpected');
+    const { plan, execute } = await tool.plan(tool.schema.parse({ campaignId: '102', keywords: [{ text: 'Gratis' }, { text: 'findes ikke' }], reason: 'Blokerer gode søgninger' }), c);
+    expect(plan!.changes.map((l) => [l.before, l.after])).toEqual([['gratis', 'Fjernet']]);
+    expect(plan!.notes!.join(' ')).toMatch(/Ikke fundet.*"findes ikke"/);
+    expect(plan!.undo).toMatchObject({ tool: 'add_negative_keywords', input: { keywords: [{ text: 'gratis', matchType: 'Phrase' }] } });
+    await execute();
+    const left = await c.backend.listNegativeKeywords(c.accountId, 'Campaign', '102', '102');
+    expect(left.map((n) => n.text)).not.toContain('gratis');
+    expect(left.map((n) => n.text)).toContain('brugt');
   });
 });

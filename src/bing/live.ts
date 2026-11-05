@@ -6,7 +6,7 @@ import { sleep } from '@/lib/utils';
 import { MsAdsClient, MsApiError, extractErrorMessages, type MsCredentials } from './client';
 import { parseCsv } from './csv';
 import { buildReportRequest, normalizeReportRows } from './reports';
-import { aggregateProducts, buildProductReportRequest, offerIdOf, productStatuses, type CatalogOffer } from './products';
+import { aggregateProducts, buildProductReportRequest, buildShownProductsRequest, offerIdOf, productStatuses, shownProductsOf, type CatalogOffer } from './products';
 import { previousRange, type DateRange } from '@/lib/format';
 import type {
   ProductPerformance,
@@ -31,6 +31,9 @@ import type {
   MutationResult,
   NegativeEntityType,
   NegativeKeyword,
+  NegativeKeywordList,
+  PartitionAction,
+  ProductTreeNode,
   NewAdGroup,
   NewCampaign,
   NewKeyword,
@@ -39,6 +42,7 @@ import type {
   ReportRow,
   ReportSpec,
   SearchVolume,
+  ShownProduct,
 } from './types';
 import { extractFirstFile } from './zip';
 import { CampaignCache, type CampaignStore } from './campaignCache';
@@ -111,6 +115,50 @@ function mapCampaign(c: Json): Campaign {
     experimentId: Number(c.ExperimentId) > 0 ? str(c.ExperimentId) : null,
     languages: arr<string>(c.Languages),
     timeZone: str(c.TimeZone) || undefined,
+  };
+}
+
+/** One product tree change as Microsoft's REST API takes it (AdGroupCriterionAction). */
+export function partitionActionJson(a: PartitionAction): Json {
+  if (a.action === 'Delete') {
+    return { Action: 'Delete', AdGroupCriterion: { Type: a.excluded ? 'NegativeAdGroupCriterion' : 'BiddableAdGroupCriterion', Id: Number(a.id), AdGroupId: Number(a.adGroupId) } };
+  }
+  const criterion = {
+    Type: 'ProductPartition',
+    Condition: { Operand: a.operand, Attribute: a.attribute },
+    ParentCriterionId: a.parentId === null ? null : Number(a.parentId),
+    PartitionType: a.kind === 'subdivision' ? 'Subdivision' : 'Unit',
+  };
+  const base: Json = { AdGroupId: Number(a.adGroupId), Criterion: criterion, ...(a.tempId !== undefined ? { Id: a.tempId } : {}) };
+  if (a.excluded) return { Action: 'Add', AdGroupCriterion: { Type: 'NegativeAdGroupCriterion', ...base } };
+  // A subdivision carries no bid; a biddable unit always does.
+  return {
+    Action: 'Add',
+    AdGroupCriterion: {
+      Type: 'BiddableAdGroupCriterion',
+      Status: 'Active',
+      ...base,
+      CriterionBid: a.kind === 'subdivision' ? null : { Type: 'FixedBid', Amount: a.bid ?? null },
+    },
+  };
+}
+
+/** A listing group id as Microsoft knows it (the app prefixes the asset group: "gid~id"). */
+const ownId = (id: string | number) => (typeof id === 'number' ? id : Number(String(id).split('~').pop()));
+
+/** A product tree action as Performance Max's AssetGroupListingGroupAction (no bids). */
+export function listingGroupActionJson(a: PartitionAction): Json {
+  if (a.action === 'Delete') return { Action: 'Delete', ListingGroup: { AssetGroupId: Number(a.adGroupId), Id: ownId(a.id) } };
+  return {
+    Action: 'Add',
+    ListingGroup: {
+      AssetGroupId: Number(a.adGroupId),
+      ...(a.tempId !== undefined ? { Id: a.tempId } : {}),
+      ParentListingGroupId: a.parentId === null ? null : ownId(a.parentId),
+      ListingGroupType: a.kind === 'subdivision' ? 'Subdivision' : 'Unit',
+      IsExcluded: a.excluded,
+      Dimension: { Operand: a.operand, Attribute: a.attribute },
+    },
   };
 }
 
@@ -313,6 +361,105 @@ export class LiveBackend implements AdsBackend {
     );
   }
 
+  async listNegativeKeywordLists(accountId: string, campaignId: string): Promise<NegativeKeywordList[]> {
+    const assoc = await this.cm<Json>(accountId, 'SharedEntityAssociations/QueryByEntityIds', 'POST', {
+      EntityIds: [Number(campaignId)],
+      EntityType: 'Campaign',
+      SharedEntityType: 'NegativeKeywordList',
+    });
+    const ids = [...new Set(arr<Json>(assoc.Associations).map((a) => str(a.SharedEntityId)).filter(Boolean))];
+    if (!ids.length) return [];
+    const all = await this.cm<Json>(accountId, 'SharedEntities/Query', 'POST', { SharedEntityType: 'NegativeKeywordList' });
+    const names = new Map(arr<Json>(all.SharedEntities).map((e) => [str(e.Id), str(e.Name)]));
+    const lists: NegativeKeywordList[] = [];
+    for (const id of ids) {
+      const items = await this.cm<Json>(accountId, 'ListItems/QueryBySharedList', 'POST', { SharedList: { Type: 'NegativeKeywordList', Id: Number(id) } });
+      lists.push({
+        id,
+        name: names.get(id) ?? '',
+        keywords: arr<Json>(items.ListItems).map((n) => ({ id: str(n.Id) || undefined, text: str(n.Text), matchType: (str(n.MatchType) || 'Phrase') as NegativeKeyword['matchType'] })),
+      });
+    }
+    return lists;
+  }
+
+  async listProductPartitions(accountId: string, adGroupId: string, adGroupName: string): Promise<ProductTreeNode[]> {
+    // GetAdGroupCriterionsByIds with no ids: every product partition of the ad group.
+    const res = await this.cm<Json>(accountId, 'AdGroupCriterions/QueryByIds', 'POST', { AdGroupCriterionIds: null, AdGroupId: Number(adGroupId), CriterionType: 'ProductPartition' });
+    return arr<Json>(res.AdGroupCriterions).map((c) => {
+      const criterion = (c.Criterion ?? {}) as Json;
+      const condition = (criterion.Condition ?? {}) as Json;
+      const parent = str(criterion.ParentCriterionId);
+      return {
+        id: str(c.Id),
+        parentId: parent && parent !== '0' ? parent : null,
+        group: adGroupName,
+        groupId: adGroupId,
+        bid: amount(((c.CriterionBid ?? {}) as Json).Amount ?? null),
+        unit: criterion.PartitionType ? str(criterion.PartitionType) === 'Unit' : null,
+        excluded: str(c.Type) === 'NegativeAdGroupCriterion',
+        operand: str(condition.Operand),
+        attribute: str(condition.Attribute),
+      };
+    });
+  }
+
+  async applyProductPartitionActions(accountId: string, actions: PartitionAction[]): Promise<MutationResult> {
+    const groups = new Set(actions.map((a) => a.adGroupId));
+    if (groups.size !== 1) throw new Error('Ændringer af produktgrupper skal sendes én annoncegruppe ad gangen.');
+    if (actions.length > 5000) throw new Error('Højst 5.000 ændringer af produktgrupper pr. annoncegruppe ad gangen.');
+    const res = (await this.cm<Json>(accountId, 'ProductPartitionActions/Apply', 'POST', { CriterionActions: actions.map(partitionActionJson) })) ?? {};
+    const errors = arr<Json>(res.PartialErrors);
+    // Microsoft makes all of a call's actions or none of them.
+    if (errors.length) {
+      const messages = [...new Set(errors.flatMap((e) => extractErrorMessages(e)))];
+      throw new MsApiError(`Microsoft Advertising afviste ændringen af produktgrupperne – intet blev ændret: ${messages.slice(0, 3).join(' · ') || 'ukendt fejl'}`, 400, errors);
+    }
+    return { ids: arr<unknown>(res.AdGroupCriterionIds).map((v) => str(v)).filter(Boolean) };
+  }
+
+  async listAssetGroupListingGroups(accountId: string, campaignId: string): Promise<ProductTreeNode[]> {
+    const groups = await this.cm<Json>(accountId, 'AssetGroups/QueryByCampaignId', 'POST', { CampaignId: Number(campaignId) });
+    const out: ProductTreeNode[] = [];
+    for (const g of arr<Json>(groups.AssetGroups)) {
+      const gid = str(g.Id);
+      const res = await this.cm<Json>(accountId, 'AssetGroupListingGroups/QueryByIds', 'POST', { AssetGroupId: Number(gid), AssetGroupListingGroupIds: null });
+      for (const l of arr<Json>(res.AssetGroupListingGroups)) {
+        const dimension = (l.Dimension ?? {}) as Json;
+        const parent = str(l.ParentListingGroupId);
+        const type = str(l.ListingGroupType ?? l.GroupNodeListingType);
+        out.push({
+          id: `${gid}~${str(l.Id)}`,
+          parentId: parent && parent !== '0' ? `${gid}~${parent}` : null,
+          group: str(g.Name),
+          groupId: gid,
+          unit: type ? type === 'Unit' : null,
+          excluded: l.IsExcluded === true || str(l.IsExcluded).toLowerCase() === 'true',
+          operand: str(dimension.Operand),
+          attribute: str(dimension.Attribute),
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Performance Max listing groups (ApplyAssetGroupListingGroupActions): the same tree as a
+   * Shopping ad group's product groups, without bids. One asset group per call; Microsoft
+   * applies all of a call's actions or none.
+   */
+  async applyAssetGroupListingGroupActions(accountId: string, actions: PartitionAction[]): Promise<MutationResult> {
+    const groups = new Set(actions.map((a) => a.adGroupId));
+    if (groups.size !== 1) throw new Error('Ændringer af listinggrupper skal sendes én asset group ad gangen.');
+    const res = (await this.cm<Json>(accountId, 'AssetGroupListingGroupActions/Apply', 'POST', { ListingGroupActions: actions.map(listingGroupActionJson) })) ?? {};
+    const errors = arr<Json>(res.PartialErrors);
+    if (errors.length) {
+      const messages = [...new Set(errors.flatMap((e) => extractErrorMessages(e)))];
+      throw new MsApiError(`Microsoft Advertising afviste ændringen af listinggrupperne – intet blev ændret: ${messages.slice(0, 3).join(' · ') || 'ukendt fejl'}`, 400, errors);
+    }
+    return { ids: arr<unknown>(res.AssetGroupListingGroupIds).map((v) => str(v)).filter(Boolean) };
+  }
+
   /* ------------------------------- mutations ------------------------------- */
 
   async updateCampaigns(accountId: string, patches: CampaignPatch[]): Promise<MutationResult> {
@@ -414,6 +561,14 @@ export class LiveBackend implements AdsBackend {
     return batchResult(res, keywords.length);
   }
 
+  /** DeleteNegativeKeywordsFromEntities – by id, on one campaign or ad group. */
+  async deleteNegativeKeywords(accountId: string, entityType: NegativeEntityType, entityId: string, ids: string[]): Promise<MutationResult> {
+    const res = await this.cm(accountId, 'EntityNegativeKeywords', 'DELETE', {
+      EntityNegativeKeywords: [{ EntityId: Number(entityId), EntityType: entityType, NegativeKeywords: ids.map((id) => ({ Type: 'NegativeKeyword', Id: Number(id) })) }],
+    });
+    return batchResult(res, ids.length);
+  }
+
   async createResponsiveSearchAd(accountId: string, adGroupId: string, ad: NewResponsiveSearchAd): Promise<MutationResult> {
     // AssetLink.PinnedField: Headline1–3 / Description1–2; left out = any position.
     const asset = (kind: 'Headline' | 'Description', pins?: PinPosition[]) => (text: string, i: number) => ({
@@ -505,6 +660,10 @@ export class LiveBackend implements AdsBackend {
     const products = aggregateProducts(current, previous);
     const active = campaigns ? campaigns.filter((c) => (c.type === 'Shopping' || c.type === 'PerformanceMax') && c.status === 'Active').length : null;
     return productStatuses(products, catalog?.offers ?? null, catalog?.issues ?? null, active);
+  }
+
+  async shownProducts(accountId: string, campaignId: string, range: DateRange, signal?: AbortSignal): Promise<ShownProduct[]> {
+    return shownProductsOf(await this.reportCsv(accountId, buildShownProductsRequest(accountId, campaignId, range), signal, PRODUCT_POLL_ATTEMPTS));
   }
 
   /**

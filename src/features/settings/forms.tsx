@@ -1,19 +1,20 @@
 /** Forms shared by the settings page and onboarding. */
-import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Eye, EyeOff, KeyRound, Loader2, LogIn, PlugZap, ShieldCheck, Unplug, Users } from '@/components/icons';
-import { useState } from 'react';
+import { AlertTriangle, CheckCircle2, ChevronDown, Copy, ExternalLink, Eye, EyeOff, FileSpreadsheet, FileUp, KeyRound, Loader2, LogIn, PlugZap, ShieldCheck, Unplug, Users } from '@/components/icons';
+import { useRef, useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
 import { fmtRelative } from '@/lib/format';
 import { openExternal } from '@/lib/platform';
 import { cn, errorMessage } from '@/lib/utils';
-import { useAccount } from '@/stores/account';
+import { isAdmin, useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
-import { connectInventarland, disconnectInventarland, disconnectSharedAds, goDemo, goLive, saveSharedAds } from '@/workspace/shared';
+import { connectInventarland, connectNotesheet, disconnectInventarland, disconnectNotesheet, disconnectSharedAds, goDemo, goLive, saveSharedAds } from '@/workspace/shared';
 import { INVENTARLAND_URL, type SharedKeyInfo } from '@/workspace/types';
 import { removeAnthropicKey, saveAnthropicKey, testAnthropicKey } from './connection';
+import { draftTestNote } from '@/ai/notes';
 
-function SecretInput({ value, onChange, placeholder, id }: { value: string; onChange: (v: string) => void; placeholder?: string; id?: string }) {
+export function SecretInput({ value, onChange, placeholder, id }: { value: string; onChange: (v: string) => void; placeholder?: string; id?: string }) {
   const [show, setShow] = useState(false);
   return (
     <div className="relative">
@@ -363,6 +364,164 @@ export function InventarlandForm() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** The service account the notes sheet is written with, when the workspace has no key yet. */
+const NOTES_ACCOUNT = 'gsc-chat@search-console-mcp-505407.iam.gserviceaccount.com';
+
+/**
+ * The team's notes sheet in Google Sheets: after a confirmed change the card shows the rows
+ * for it, and they are added at the bottom of the table when the user says so. Only an
+ * administrator connects it; the service account must be an editor of the sheet.
+ */
+export function NotesheetForm() {
+  const ns = useAccount((s) => s.workspace?.notesheet ?? null);
+  const admin = useAccount((s) => isAdmin(s.user));
+  const [url, setUrl] = useState('');
+  const [key, setKey] = useState<{ name: string; text: string } | null>(null);
+  const [busy, setBusy] = useState<'save' | 'off' | null>(null);
+  const [editing, setEditing] = useState(false);
+  const file = useRef<HTMLInputElement>(null);
+  const connected = !!ns?.connected;
+  const showForm = admin && (!connected || editing);
+  const account = ns?.serviceAccount ?? NOTES_ACCOUNT;
+  const needsKey = !ns?.serviceAccount;
+
+  const save = async () => {
+    setBusy('save');
+    try {
+      await connectNotesheet(url.trim(), key?.text);
+      setEditing(false);
+      setKey(null);
+      toast.success('Notatarket er forbundet', { description: 'Efter hver ændring kan du rette rækken og skrive den i arket.' });
+    } catch (e) {
+      toast.error('Kunne ikke forbinde notatarket', { description: errorMessage(e), duration: 10_000 });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="grid content-start gap-4">
+      {connected && ns && (
+        <div className={cn('grid gap-1 rounded-xl px-3.5 py-2.5 text-[13px]', ns.error ? 'bg-warning-bg text-warning' : 'bg-positive-bg text-positive')}>
+          <div className="flex flex-wrap items-center gap-2">
+            {ns.error ? <AlertTriangle className="size-4" /> : <CheckCircle2 className="size-4" />}
+            <span className="font-medium">
+              {ns.name} · fanen "{ns.tab}"
+            </span>
+            {ns.url && (
+              <button type="button" onClick={() => void openExternal(ns.url!)} className="inline-flex items-center gap-1 underline-offset-2 hover:underline">
+                Åbn <ExternalLink className="size-3" />
+              </button>
+            )}
+          </div>
+          <p className="text-[12.5px] opacity-90">Kolonner fundet: {ns.columns.join(', ')}</p>
+          {ns.lastWrite && <p className="text-[12.5px] opacity-90">Sidst skrevet {fmtRelative(ns.lastWrite.at)} ({ns.lastWrite.rows} {ns.lastWrite.rows === 1 ? 'række' : 'rækker'})</p>}
+          {ns.error && <p className="text-[12.5px]">{ns.error}</p>}
+          <SharedBy by={ns.connectedBy} at={ns.connectedAt} className={ns.error ? 'text-warning/80' : 'text-positive/80'} />
+        </div>
+      )}
+      <div className="grid gap-1.5 rounded-xl border border-line bg-surface px-3.5 py-3 text-[13px] text-ink-2">
+        <p>
+          <b>1.</b> Del arket med service-kontoen som <b>redaktør</b>:
+        </p>
+        <div className="flex items-center gap-2">
+          <code className="min-w-0 flex-1 truncate rounded-md bg-line-2 px-2 py-1 text-[12px]">{account}</code>
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => {
+              void navigator.clipboard.writeText(account);
+              toast.success('Kopieret');
+            }}
+          >
+            <Copy /> Kopiér
+          </Button>
+        </div>
+        <p>
+          <b>2.</b> Indsæt linket til fanen med noterne (adressen fra browseren).
+        </p>
+        <p className="text-[12px] text-muted">Appen læser kun overskrifterne og tilføjer rækker nederst – den retter og sletter aldrig noget i arket.</p>
+      </div>
+      {!admin && !connected && <p className="text-[13px] text-muted">En administrator forbinder notatarket.</p>}
+      {showForm && (
+        <div className="grid gap-4">
+          <Field label="Link til arket" htmlFor="ns-url" hint="Fx https://docs.google.com/spreadsheets/d/…/edit#gid=0">
+            <Input id="ns-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" className="font-mono text-[13px]" />
+          </Field>
+          {needsKey && (
+            <Field label="Service-kontoens JSON-nøgle" htmlFor="ns-key" hint="Appen har ikke service-kontoens nøgle endnu (Google Ads er ikke forbundet med den), så notatarket skal have den. Gemmes kun på jeres Cloudflare.">
+              <div className="flex items-center gap-2">
+                <Button id="ns-key" variant="secondary" size="sm" onClick={() => file.current?.click()}>
+                  <FileUp /> {key ? key.name : 'Vælg JSON-fil'}
+                </Button>
+                <input
+                  ref={file}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setKey({ name: f.name, text: await f.text() });
+                  }}
+                />
+              </div>
+            </Field>
+          )}
+        </div>
+      )}
+      {admin && (
+        <div className="flex flex-wrap items-center gap-2">
+          {showForm ? (
+            <>
+              <Button variant={connected ? 'secondary' : 'gradient'} disabled={!!busy || !url.includes('/spreadsheets/d/') || (needsKey && !key)} onClick={() => void save()}>
+                {busy === 'save' ? <Loader2 className="animate-spin" /> : <PlugZap />} {connected ? 'Gem og test' : 'Forbind notatark'}
+              </Button>
+              {editing && (
+                <Button variant="ghost" onClick={() => setEditing(false)}>
+                  Annullér
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  draftTestNote(useAccount.getState().user?.name ?? '');
+                  toast('Testrækken står nederst til højre', { description: 'Ret den, hvis du vil, og tryk "Skriv i notatark". Slet rækken i arket bagefter.' });
+                }}
+              >
+                <FileSpreadsheet /> Skriv testrække
+              </Button>
+              <Button variant="ghost" onClick={() => setEditing(true)}>
+                Skift ark
+              </Button>
+              <Button
+                variant="ghost"
+                className="text-muted"
+                disabled={!!busy}
+                onClick={async () => {
+                  setBusy('off');
+                  try {
+                    await disconnectNotesheet();
+                    toast('Notatarket er afbrudt');
+                  } catch (e) {
+                    toast.error('Kunne ikke afbryde', { description: errorMessage(e) });
+                  } finally {
+                    setBusy(null);
+                  }
+                }}
+              >
+                <Unplug /> Afbryd
+              </Button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -59,7 +59,7 @@ Formats (text only): csv/tsv for spreadsheets and imports (opens in Excel – us
     name: 'suggest_next_steps',
     kind: 'display',
     description: `End your reply with this tool: it shows the user a short question and one-click buttons for the next steps (they are sent as the user's next message). Call it as the very LAST thing in a reply, alone, after your text – never write text after it and do not repeat the question in your text.
-Give 2–4 concrete, specific suggestions based on what you just did or found (e.g. apply a recommendation, dig deeper, a related optimisation). Mark the single most valuable one as primary (shown as a full-width button). Labels are short Danish imperatives (max ~50 characters); prompt is the full Danish instruction sent to you when clicked.
+Predict the user's next click: 1–4 suggestions that follow from where the work is (after an analysis: the biggest fix; after a confirmed change: the next step in the same job; after a rejection: a smaller or different version; in a matchup: the next unfixed part, with counts). Each one doable now with your tools and concrete (names, ids, amounts) – never generic ("Analysér mere", "Vis detaljer"), never what was just done or declined. Mark the one you would do yourself as primary (full-width button). Labels are short Danish imperatives (max ~50 characters); prompt is the full Danish instruction sent to you when clicked, with every name, id and number needed to act without asking again.
 After creating campaigns, the primary suggestion must be to title-optimise the new campaigns ("Titel-optimér de nye kampagner").`,
     schema: z.object({
       question: z.string().max(140).describe('Short Danish question, e.g. "Skal jeg lave flere ændringer?"'),

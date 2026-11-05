@@ -34,14 +34,20 @@ describe('budget and limits per branch', () => {
     expect(effectiveLimits({ values: { monthlyBudget: 9000 }, updatedBy: 'Casper', updatedAt: 1 })).toMatchObject({ monthlyBudget: 9000, mayPropose: true, maxRows: 200 });
   });
 
-  it("gives the chat the other branches' budgets", () => {
-    const line = otherBranchesContext({ google_ads: { values: { monthlyBudget: 40000, targetRoas: 5 }, updatedBy: null, updatedAt: null }, serper: { values: { monthlyCreditCap: 2500 }, updatedBy: null, updatedAt: null }, meta_ads: null });
-    expect(line).toContain('Google Ads: monthly budget 40000 DKK, target ROAS 5');
+  it("gives the chat the other branches' budgets – but not those of archived channels", () => {
+    const line = otherBranchesContext({
+      // Archived with Google Ads: a stored budget stays stored, but the assistant is not told about it.
+      google_ads: { values: { monthlyBudget: 40000, targetRoas: 5 }, updatedBy: null, updatedAt: null },
+      serper: { values: { monthlyCreditCap: 2500 }, updatedBy: null, updatedAt: null },
+      meta_ads: null,
+    });
     expect(line).toContain('Serper: max 2500 credits/month');
+    expect(line).not.toContain('Google Ads');
     expect(line).not.toContain('Meta');
     expect(otherBranchesContext({})).toBeNull();
+    expect(otherBranchesContext({ google_ads: { values: { monthlyBudget: 40000 }, updatedBy: null, updatedAt: null } })).toBeNull();
     const block = buildContextBlock({ account: null, mode: 'demo', periodLabel: 'x', periodRange: { from: 'a', to: 'b' }, rules: DEFAULT_SPEND_RULES, otherBranches: line });
-    expect(block).toContain('Google Ads: monthly budget 40000 DKK');
+    expect(block).toContain('Serper: max 2500 credits/month');
   });
 
   it('a read-only branch blocks every change, but can still be trained', () => {

@@ -8,6 +8,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { IconRail, sectionOf } from '@/components/layout/IconRail';
 import { useNoDefaultContextMenu } from '@/components/ui/contextMenu';
 import { DashboardSidebar } from '@/components/layout/DashboardSidebar';
+import { DownloadPromo } from '@/components/layout/DownloadPromo';
 import { TopBar, startNewConversation, toggleInsights, toggleSidebar } from '@/components/layout/TopBar';
 import { EASE } from '@/components/motion';
 import { TooltipProvider } from '@/components/ui/overlays';
@@ -15,7 +16,10 @@ import { ActivityPage } from '@/features/activity/ActivityPage';
 import { CampaignsPage } from '@/features/campaigns/CampaignsPage';
 import { ProductsPage } from '@/features/products/ProductsPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
+import { DailyPage } from '@/features/dashboard/DailyPage';
 import { BoardPage } from '@/features/board/BoardPage';
+import { AuditPage } from '@/features/audit/AuditPage';
+import { AuditSidebar } from '@/features/audit/AuditSidebar';
 import { ChatView } from '@/features/chat/ChatView';
 import { RAIL_WIDTH, SessionRail } from '@/features/chat/SessionRail';
 import { Onboarding } from '@/features/onboarding/Onboarding';
@@ -36,6 +40,10 @@ import { navigate, useNavigationHistory } from '@/hooks/useNavigationHistory';
 import { queryClient } from '@/lib/queryClient';
 import { ensureFrameless } from '@/lib/window';
 import { useAccount } from '@/stores/account';
+import { useConnection } from '@/stores/connection';
+import { getBackend } from '@/bing/backend';
+import { startNoteDrafts } from '@/ai/notes';
+import { NoteTray } from '@/features/notes/NotePreview';
 import { deleteOldConversations } from '@/stores/chat';
 import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
@@ -89,6 +97,22 @@ function Shell() {
   useNoDefaultContextMenu();
   useShortcuts();
   useEffect(ensureFrameless, []);
+  // Every change the app makes gets rows for the team's notes sheet, shown before they are written.
+  useEffect(
+    () =>
+      startNoteDrafts(
+        async (accountId, campaignId) => {
+          const b = await getBackend();
+          const list = b.listCampaignsCached ? await b.listCampaignsCached(accountId) : await b.listCampaigns(accountId);
+          return list.find((c) => c.id === campaignId)?.name ?? '';
+        },
+        () => {
+          const c = useConnection.getState();
+          return c.accounts.find((a) => a.id === c.accountId)?.currency ?? 'DKK';
+        },
+      ),
+    [],
+  );
   // Conversations are deleted 14 days after their last message (checked every hour).
   useEffect(() => {
     deleteOldConversations();
@@ -117,18 +141,24 @@ function Shell() {
               className="relative z-20 h-full shrink-0 overflow-hidden border-r border-line bg-surface"
               aria-label="Sidebar"
             >
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.div
-                  key={section}
-                  className="h-full"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2, ease: EASE }}
-                >
-                  {section === 'chat' ? <Sidebar /> : <DashboardSidebar section={section === 'planning' ? 'planning' : 'dashboard'} />}
-                </motion.div>
-              </AnimatePresence>
+              <div className="flex h-full w-[248px] flex-col">
+                <div className="min-h-0 flex-1">
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.div
+                      key={section}
+                      className="h-full"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.2, ease: EASE }}
+                    >
+                      {section === 'chat' ? <Sidebar /> : section === 'audit' ? <AuditSidebar /> : <DashboardSidebar section={section === 'planning' ? 'planning' : 'dashboard'} />}
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+                {/* Web app only: the Windows app. */}
+                <DownloadPromo />
+              </div>
             </motion.aside>
           )}
         </AnimatePresence>
@@ -152,8 +182,9 @@ function Shell() {
               <span className="ml-auto shrink-0 font-semibold underline">Åbn forbindelser</span>
             </button>
           )}
-          {/* Centred on the page itself – in the chat, not under the session rail. */}
-          <AsciiArc className="transition-[right] duration-300" style={{ right: view === 'chat' && insights ? RAIL_WIDTH : 0 }} />
+          {/* Centred on the page itself – in the chat, not under the session rail. Not behind the
+              audit: a long work list over a moving WebGL layer made every tick of the checklist slow. */}
+          {view !== 'audit' && <AsciiArc className="transition-[right] duration-300" style={{ right: view === 'chat' && insights ? RAIL_WIDTH : 0 }} />}
           <div className="relative z-[1] flex min-h-0 flex-1">
             <AnimatePresence mode="wait" initial={false}>
               {view === 'chat' && (
@@ -163,10 +194,12 @@ function Shell() {
                 </div>
               )}
               {view === 'dashboard' && <DashboardPage key="dashboard" />}
+              {view === 'daily' && <DailyPage key="daily" />}
               {view === 'campaigns' && <CampaignsPage key="campaigns" />}
               {view === 'products' && <ProductsPage key="products" />}
               {view === 'activity' && <ActivityPage key="activity" />}
               {view === 'board' && <BoardPage key="board" />}
+              {view === 'audit' && <AuditPage key="audit" />}
             </AnimatePresence>
           </div>
         </main>
@@ -193,6 +226,7 @@ export function App() {
           </ClickSpark>
           {/* Cards are drawn by components/notifications/toast.tsx. */}
           <Toaster position="top-right" offset={{ top: 52, right: 16 }} gap={8} toastOptions={{ unstyled: true }} />
+          <NoteTray />
         </TooltipProvider>
       </MotionConfig>
     </QueryClientProvider>

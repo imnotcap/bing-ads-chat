@@ -1,8 +1,11 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import type { AnyTool } from './context';
+import { adReviewTools } from './adReview';
 import { displayTools } from './display';
 import { findTools } from './find';
+import { googleTools } from './google';
+import { noteTools } from './notes';
 import { researchTools } from './research';
 export { TERMINAL_TOOLS } from './display';
 import { inventarlandTools } from './inventarland';
@@ -10,7 +13,7 @@ import { readTools } from './read';
 import { trainingTools } from './training';
 import { writeTools } from './write';
 
-export const ALL_TOOLS: AnyTool[] = [...findTools, ...researchTools, ...readTools, ...inventarlandTools, ...writeTools, ...trainingTools, ...displayTools];
+export const ALL_TOOLS: AnyTool[] = [...findTools, ...researchTools, ...adReviewTools, ...readTools, ...googleTools, ...inventarlandTools, ...writeTools, ...noteTools, ...trainingTools, ...displayTools];
 
 const byName = new Map(ALL_TOOLS.map((t) => [t.name, t]));
 

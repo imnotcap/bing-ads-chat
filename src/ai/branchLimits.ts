@@ -23,6 +23,8 @@ export interface BranchLimits {
   /** Budget increases above this share are flagged on the approval card. */
   maxBudgetIncreasePct: number | null;
   maxCpcBid: number | null;
+  /** The lowest CPC bid the team uses: lower bids are flagged on the card, with a one-click fix. */
+  minCpcBid: number | null;
   targetCpa: number | null;
   targetRoas: number | null;
   /** Daisycon: highest commission share the assistant may propose. */
@@ -51,6 +53,7 @@ export const DEFAULT_LIMITS: BranchLimits = {
   maxTotalDailyBudget: null,
   maxBudgetIncreasePct: 20,
   maxCpcBid: null,
+  minCpcBid: 10.05,
   targetCpa: null,
   targetRoas: null,
   maxCommissionPct: null,
@@ -88,7 +91,9 @@ const KIND: Record<LimitBranchId, LimitKind> = {
   pim: 'read',
 };
 
-export const LIMIT_BRANCH_IDS = Object.keys(KIND) as LimitBranchId[];
+/** Branches of the other marketing channels are archived with their connectors (workspace/connectors.ts); their limits stay stored. */
+const ARCHIVED_BRANCHES: LimitBranchId[] = ['google_ads', 'meta_ads', 'linkedin_ads', 'daisycon', 'klaviyo'];
+export const LIMIT_BRANCH_IDS = (Object.keys(KIND) as LimitBranchId[]).filter((id) => !ARCHIVED_BRANCHES.includes(id));
 export const isLimitBranchId = (v: string): v is LimitBranchId => v in KIND;
 export const limitKind = (id: LimitBranchId) => KIND[id];
 
@@ -135,6 +140,7 @@ export function limitGroups(id: LimitBranchId): LimitGroup[] {
           { key: 'maxDailyBudgetPerCampaign', label: 'Maks. dagsbudget pr. kampagne', type: 'money' },
           { key: 'maxTotalDailyBudget', label: 'Maks. samlet dagsbudget', hint: 'Summen af alle aktive kampagners dagsbudgetter.', type: 'money' },
           { key: 'maxCpcBid', label: bidLabel(id), type: 'money', step: 0.01 },
+          { key: 'minCpcBid', label: 'Mindste CPC-bud', hint: 'Bud under dette markeres på godkendelseskortet med en knap, der retter dem til mindstebuddet.', type: 'money', step: 0.01 },
           { key: 'maxBudgetIncreasePct', label: 'Advarsel ved budgetstigning over', hint: 'Større stigninger markeres med en advarsel på godkendelseskortet.', type: 'pct' },
         ],
       },
@@ -210,7 +216,7 @@ export function cleanLimits(input: unknown): Partial<BranchLimits> {
   const out: Partial<BranchLimits> = {};
   if (!input || typeof input !== 'object') return out;
   const o = input as Record<string, unknown>;
-  const money = ['monthlyBudget', 'maxDailyBudgetPerCampaign', 'maxTotalDailyBudget', 'maxCpcBid', 'targetCpa', 'targetRoas', 'maxBudgetIncreasePct', 'maxCommissionPct', 'monthlyCreditCap'] as const;
+  const money = ['monthlyBudget', 'maxDailyBudgetPerCampaign', 'maxTotalDailyBudget', 'maxCpcBid', 'minCpcBid', 'targetCpa', 'targetRoas', 'maxBudgetIncreasePct', 'maxCommissionPct', 'monthlyCreditCap'] as const;
   for (const k of money) {
     if (!(k in o)) continue;
     const v = num(o[k], 0, 100_000_000);

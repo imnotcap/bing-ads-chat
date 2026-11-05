@@ -114,6 +114,38 @@ export interface WorkspaceInfo {
     connectedAt: number | null;
     error: string | null;
   };
+  /** Google Ads for the audit – read only, with a service account (cloudflare/src/googleAds.ts). */
+  google: {
+    connected: boolean;
+    /** How it signs in: OAuth as in Inventarland Dashboard, or a service account. */
+    method: 'oauth' | 'service_account' | null;
+    /** The service account's e-mail (the private key never leaves Cloudflare). */
+    serviceAccount: string | null;
+    projectId: string | null;
+    customerId: string | null;
+    loginCustomerId: string | null;
+    accountName: string | null;
+    currency: string | null;
+    timeZone: string | null;
+    connectedBy: string | null;
+    connectedAt: number | null;
+  };
+  /**
+   * The team's notes sheet in Google Sheets: a row is added after every confirmed change
+   * (cloudflare/src/notesheet.ts – append only). `serviceAccount`: who must be an editor.
+   */
+  notesheet: {
+    connected: boolean;
+    name: string | null;
+    tab: string | null;
+    url: string | null;
+    serviceAccount: string | null;
+    columns: string[];
+    connectedBy: string | null;
+    connectedAt: number | null;
+    lastWrite: { at: number; rows: number } | null;
+    error: string | null;
+  };
 }
 
 export interface AdsAccess {

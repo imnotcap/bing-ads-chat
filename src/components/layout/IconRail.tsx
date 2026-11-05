@@ -1,27 +1,29 @@
 /**
- * The icon rail on the far left: the app's independent parts (Chat, Dashboard,
+ * The icon rail on the far left: the app's independent parts (Chat, Dashboard, Audit,
  * Planlægning, Aktivitet) – each with its own sidebar next to it – and settings and
  * the account at the bottom. The names show on hover.
  */
-import { Activity, LayoutDashboard, MessageSquare, Settings, SquareKanban, type LucideIcon } from '@/components/icons';
+import { Activity, LayoutDashboard, ListChecks, MessageSquare, Settings, SquareKanban, type LucideIcon } from '@/components/icons';
 import { Tooltip } from '@/components/ui/overlays';
 import { cn } from '@/lib/utils';
 import { useChat } from '@/stores/chat';
 import { myOpenCards, useBoard } from '@/stores/board';
 import { useUi, type View } from '@/stores/ui';
+import { DownloadRailButton } from './DownloadPromo';
 import { AccountMenu } from './Sidebar';
 
-export type Section = 'chat' | 'dashboard' | 'planning' | 'activity';
+export type Section = 'chat' | 'dashboard' | 'audit' | 'planning' | 'activity';
 
 export function sectionOf(view: View): Section {
   if (view === 'chat') return 'chat';
   if (view === 'board') return 'planning';
   if (view === 'activity') return 'activity';
+  if (view === 'audit') return 'audit';
   return 'dashboard';
 }
 
 /** Pages of the Dashboard section (the rail returns to the last one used). */
-const DASHBOARD_PAGES: View[] = ['dashboard', 'campaigns', 'products'];
+const DASHBOARD_PAGES: View[] = ['dashboard', 'daily', 'campaigns', 'products'];
 
 function RailButton({ label, icon: Icon, active, onClick, dot, badge }: { label: string; icon: LucideIcon; active: boolean; onClick: () => void; dot?: boolean; badge?: number }) {
   return (
@@ -62,9 +64,11 @@ export function IconRail() {
         active={section === 'dashboard'}
         onClick={() => go(DASHBOARD_PAGES.includes(lastDashView) && section !== 'dashboard' ? lastDashView : 'dashboard')}
       />
+      <RailButton label="Audit" icon={ListChecks} active={section === 'audit'} onClick={() => go('audit')} />
       <RailButton label="Planlægning" icon={SquareKanban} active={section === 'planning'} onClick={() => go('board')} badge={myCards} />
       <RailButton label="Aktivitet" icon={Activity} active={section === 'activity'} onClick={() => go('activity')} />
       <div className="flex-1" />
+      <DownloadRailButton />
       <RailButton label="Indstillinger" icon={Settings} active={false} onClick={() => go('settings')} />
       <AccountMenu variant="rail" />
     </nav>

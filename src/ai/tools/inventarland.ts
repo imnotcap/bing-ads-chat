@@ -72,9 +72,12 @@ function source(meta: Meta) {
   };
 }
 
-export const INVENTARLAND_TOOL_NAMES = new Set(['get_shop_sales', 'get_shop_products', 'get_channel_comparison']);
+export const INVENTARLAND_TOOL_NAMES = new Set(['get_shop_sales', 'get_shop_products']);
 
-export const inventarlandTools = [
+/** Archived with the other marketing channels: the comparison against Google Ads, Meta and Daisycon. The tool is kept below, but not given to the assistant. */
+const ARCHIVED_TOOLS = new Set(['get_channel_comparison']);
+
+const allInventarlandTools = [
   defineRead({
     name: 'get_shop_sales',
     kind: 'read',
@@ -209,3 +212,5 @@ export const inventarlandTools = [
     },
   }),
 ];
+
+export const inventarlandTools = allInventarlandTools.filter((t) => !ARCHIVED_TOOLS.has(t.name));
