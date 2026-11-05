@@ -10,10 +10,11 @@ import { researchTools } from './research';
 export { TERMINAL_TOOLS } from './display';
 import { inventarlandTools } from './inventarland';
 import { readTools } from './read';
+import { targetingTools } from './targeting';
 import { trainingTools } from './training';
 import { writeTools } from './write';
 
-export const ALL_TOOLS: AnyTool[] = [...findTools, ...researchTools, ...adReviewTools, ...readTools, ...googleTools, ...inventarlandTools, ...writeTools, ...noteTools, ...trainingTools, ...displayTools];
+export const ALL_TOOLS: AnyTool[] = [...findTools, ...researchTools, ...adReviewTools, ...readTools, ...googleTools, ...inventarlandTools, ...writeTools, ...targetingTools, ...noteTools, ...trainingTools, ...displayTools];
 
 const byName = new Map(ALL_TOOLS.map((t) => [t.name, t]));
 

@@ -178,6 +178,8 @@ export interface NewCampaign {
   languages: string[];
   status: 'Active' | 'Paused';
   timeZone?: string;
+  /** Shopping: the Merchant Center store and the country its products are sold in. */
+  shopping?: { storeId: string; salesCountryCode: string };
 }
 
 export interface NewAdGroup {
@@ -185,6 +187,52 @@ export interface NewAdGroup {
   name: string;
   cpcBid?: number | null;
   status: 'Active' | 'Paused';
+  /** Only when the campaign has no language – Microsoft then needs one per ad group (e.g. "Danish"). */
+  language?: string;
+}
+
+/* ---------------- targeting (devices, ad schedule, locations) ---------------- */
+
+export type DeviceName = 'Computers' | 'Smartphones' | 'Tablets';
+export type WeekDay = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
+
+/** One block of the ad schedule: whole hours, `to` 24 = midnight; adjustment in % (-90 … 900). */
+export interface ScheduleBlock {
+  day: WeekDay;
+  from: number;
+  to: number;
+  adjustment: number;
+}
+
+/** A campaign's bid adjustments by device, its ad schedule and its locations (each with its Microsoft criterion id). */
+export interface CampaignTargets {
+  devices: { id: string; device: DeviceName; adjustment: number }[];
+  schedule: (ScheduleBlock & { id: string })[];
+  locations: { id: string; locationId: string; name: string; adjustment: number }[];
+}
+
+export type TargetCriterion =
+  | { kind: 'device'; device: DeviceName; adjustment: number }
+  | ({ kind: 'schedule' } & ScheduleBlock)
+  | { kind: 'location'; locationId: string; adjustment: number };
+
+/** What to change in a campaign's targeting: deletes are sent first, then updates, then additions. */
+export interface TargetChanges {
+  add: TargetCriterion[];
+  update: (TargetCriterion & { id: string })[];
+  delete: string[];
+}
+
+/** A place in Microsoft's geographical locations file. */
+export interface GeoLocation {
+  locationId: string;
+  name: string;
+  type: string;
+}
+
+export interface MerchantStore {
+  id: string;
+  name: string;
 }
 
 export interface AdGroupPatch {
@@ -447,6 +495,16 @@ export interface AdsBackend {
   createCampaign(accountId: string, spec: NewCampaign): Promise<MutationResult>;
   deleteCampaigns(accountId: string, campaignIds: string[]): Promise<MutationResult>;
   createAdGroup(accountId: string, spec: NewAdGroup): Promise<MutationResult>;
+  /** A product ad in a Shopping ad group (it shows the products the ad group bids on). */
+  createProductAd?(accountId: string, adGroupId: string): Promise<MutationResult>;
+  /** Devices, ad schedule and locations of a campaign. */
+  getCampaignTargets?(accountId: string, campaignId: string): Promise<CampaignTargets>;
+  /** Sends the targeting changes as Microsoft's "Targets" criterions (deletes, then updates, then additions). */
+  applyCampaignTargets?(accountId: string, campaignId: string, changes: TargetChanges): Promise<MutationResult>;
+  /** Places by their English names (e.g. "Denmark", "Region Zealand"), from Microsoft's locations file. */
+  findLocations?(accountId: string, names: string[]): Promise<GeoLocation[]>;
+  /** The customer's Microsoft Merchant Center stores (for Shopping campaigns). */
+  listStores?(accountId: string): Promise<MerchantStore[]>;
   updateAdGroups(accountId: string, campaignId: string, patches: AdGroupPatch[]): Promise<MutationResult>;
   addKeywords(accountId: string, adGroupId: string, keywords: NewKeyword[]): Promise<MutationResult>;
   updateKeywords(accountId: string, adGroupId: string, patches: KeywordPatch[]): Promise<MutationResult>;
