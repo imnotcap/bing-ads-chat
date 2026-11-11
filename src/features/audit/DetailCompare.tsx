@@ -18,6 +18,7 @@ import { useUi } from '@/stores/ui';
 import { startChat } from '../chat/startChat';
 import { refreshDetail, useAuditUi, useBingDetail, useBingShown, useGoogleDetail, type CompareTab } from './data';
 import { byShown, compareAds, compareExclusions, compareKeywords, compareNegatives, compareSearchTerms, type Condition } from './compare';
+import { compareProductTrees, stateText, type GroupDiff, type ItemDiff, type ItemDiffKind, type ItemState } from './productMirror';
 import { SHOWN_DAYS, dimensionLabel, type DetailPart, type MatchKind } from './detail';
 import type { AuditRow } from './model';
 
@@ -26,7 +27,7 @@ import type { AuditRow } from './model';
 const MATCH: Record<MatchKind, string> = { exact: 'Eksakt', phrase: 'Sætning', broad: 'Bred' };
 
 export const TAB_LABEL: Record<CompareTab, string> = {
-  products: 'Udelukkede produkter',
+  products: 'Produktgrupper',
   negatives: 'Negative søgeord',
   keywords: 'Annoncegrupper og søgeord',
   searchterms: 'Søgetermer',
@@ -262,6 +263,87 @@ function CompareTable({ sections, same, note }: { sections: Section[]; same?: st
 }
 
 /* ---------------------------------- products ---------------------------------- */
+
+const STATUS_WORD: Record<string, string> = { active: 'Aktiv', paused: 'Pauset' };
+
+/**
+ * Shopping: the product groups ad group by ad group – which ad groups exist on one side only,
+ * and for every item id what really applies on each side (bid or excluded, on its own or via
+ * "alt andet"). The same result reached another way is not a difference.
+ */
+function ShoppingProductsTab({ row, range, currency }: { row: AuditRow; range: DateRange; currency: string }) {
+  const { google, bing } = useBoth(row, 'products', range, true);
+  const groups = useMemo(() => (google.data && bing.data ? compareProductTrees(google.data.data, bing.data) : null), [google.data, bing.data]);
+  if (!groups)
+    return <Status google={google} bing={bing} />;
+  const compared = groups.filter((g) => g.status === 'compared');
+  const where = (g: GroupDiff) => g.bingGroup ?? g.googleGroup ?? '';
+  const side = (s: ItemState) => ({ has: true, ...stateText(s, currency) });
+  const lines = (kind: ItemDiffKind, todo: (d: ItemDiff) => string) =>
+    compared.flatMap((g) =>
+      g.diffs
+        .filter((d) => d.kind === kind)
+        .map((d) => ({ item: d.itemId || 'Alle andre produkter', sub: where(g), google: side(d.google), microsoft: side(d.bing), todo: todo(d) })),
+    );
+  const ask = () =>
+    [
+      intro(row),
+      'Ret produktgrupperne i Microsoft, så de svarer til Google, annoncegruppe for annoncegruppe:',
+      ...groups.flatMap((g) =>
+        g.status === 'missing'
+          ? [`- Annoncegruppen "${g.googleGroup}" mangler i Microsoft.`]
+          : g.diffs.map((d) => `- ${where(g)}: ${d.itemId || 'alle andre produkter'} – Google: ${stateText(d.google, currency).text}, Microsoft: ${stateText(d.bing, currency).text}`),
+      ),
+      'Brug match_product_groups_to_google til produktgrupperne (den læser begge træer og bruger Googles bud), og opret manglende annoncegrupper med create_ad_group (på pause). Vis ændringerne til godkendelse, før noget sker.',
+    ].join('\n');
+  const statusDiffs = compared.filter((g) => g.googleStatus && g.bingStatus && g.googleStatus !== g.bingStatus);
+  return (
+    <>
+      <Status google={google} bing={bing} />
+      <CompareTable
+        same={`${compared.length} annoncegrupper parret · ${compared.reduce((n, g) => n + g.same, 0)} varenumre ens`}
+        sections={[
+          {
+            id: 'missing',
+            label: 'Annoncegruppe mangler',
+            tone: 'fix',
+            lines: groups
+              .filter((g) => g.status === 'missing')
+              .map((g) => ({ item: g.googleGroup!, google: { has: true, text: 'Annoncegruppe', sub: STATUS_WORD[g.googleStatus ?? ''] }, microsoft: { has: false, text: 'Mangler' }, todo: 'Opret i Microsoft' })),
+            ask,
+          },
+          { id: 'exclude', label: 'Udelukket i Google, bud i Microsoft', tone: 'fix', lines: lines('exclude', () => 'Udeluk i Microsoft'), ask },
+          { id: 'bid_on', label: 'Bud i Google, udelukket i Microsoft', tone: 'fix', lines: lines('bid_on', (d) => (d.google.bid ? `Byd ${fmtMoney(d.google.bid, currency)}` : 'Byd på den')), ask },
+          { id: 'bid', label: 'Andet bud', tone: 'check', lines: lines('bid', (d) => `Sæt bud til ${fmtMoney(d.google.bid!, currency)}`), ask },
+          {
+            id: 'status',
+            label: 'Anden status',
+            tone: 'check',
+            lines: statusDiffs.map((g) => ({
+              item: where(g),
+              google: { has: true, text: STATUS_WORD[g.googleStatus!] ?? g.googleStatus! },
+              microsoft: { has: true, text: STATUS_WORD[g.bingStatus!] ?? g.bingStatus! },
+              todo: g.googleStatus === 'active' ? 'Aktivér i Microsoft' : 'Sæt på pause i Microsoft',
+            })),
+          },
+          {
+            id: 'unsupported',
+            label: 'Sammenlign selv',
+            tone: 'check',
+            lines: groups.filter((g) => g.status === 'unsupported').map((g) => ({ item: where(g), google: { has: true, text: 'Produktgrupper' }, microsoft: { has: true, text: 'Produktgrupper' }, todo: g.reason ?? '' })),
+          },
+          {
+            id: 'extra',
+            label: 'Kun i Microsoft',
+            tone: 'none',
+            lines: groups.filter((g) => g.status === 'extra').map((g) => ({ item: g.bingGroup!, google: { has: false, text: 'Findes ikke' }, microsoft: { has: true, text: 'Annoncegruppe', sub: STATUS_WORD[g.bingStatus ?? ''] }, todo: 'Tjek – findes ikke i Google' })),
+          },
+        ]}
+        note='Pr. annoncegruppe og varenummer: det, der faktisk gælder hver side – eget bud, udelukket, eller via "Alt andet". Et varenummer, der er udelukket via "Alt andet" på den ene side og for sig på den anden, er ens. Bud uden beløb (automatisk) sammenlignes ikke.'
+      />
+    </>
+  );
+}
 
 function ProductsTab({ row, range }: { row: AuditRow; range: DateRange }) {
   const { google, bing } = useBoth(row, 'products', range, true);
@@ -641,7 +723,11 @@ export function DetailCompare({ row, range, bingCurrency, googleCurrency }: { ro
         {!matched ? (
           <p className="px-4 py-4 text-[13px] text-muted">Vælg kampagnens Google-modpart ovenfor for at sammenligne indholdet.</p>
         ) : tab === 'products' ? (
-          <ProductsTab key={row.bing.id} row={row} range={range} />
+          row.bing.type === 'Shopping' ? (
+            <ShoppingProductsTab key={row.bing.id} row={row} range={range} currency={bingCurrency} />
+          ) : (
+            <ProductsTab key={row.bing.id} row={row} range={range} />
+          )
         ) : tab === 'negatives' ? (
           <NegativesTab key={row.bing.id} row={row} range={range} />
         ) : tab === 'keywords' ? (

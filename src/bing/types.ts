@@ -178,6 +178,14 @@ export interface NewCampaign {
   languages: string[];
   status: 'Active' | 'Paused';
   timeZone?: string;
+  /** Shopping: the Microsoft Merchant Center store, the country products are sold in, and the campaign priority (0 = low). */
+  shopping?: { storeId: string; salesCountry: string; priority: 0 | 1 | 2 };
+}
+
+/** A Microsoft Merchant Center store (Shopping campaigns are tied to one). */
+export interface MerchantStore {
+  id: string;
+  name: string;
 }
 
 export interface NewAdGroup {
@@ -447,6 +455,10 @@ export interface AdsBackend {
   createCampaign(accountId: string, spec: NewCampaign): Promise<MutationResult>;
   deleteCampaigns(accountId: string, campaignIds: string[]): Promise<MutationResult>;
   createAdGroup(accountId: string, spec: NewAdGroup): Promise<MutationResult>;
+  /** The Merchant Center stores the customer can run Shopping campaigns from. */
+  listStores?(accountId: string): Promise<MerchantStore[]>;
+  /** A Shopping ad group's product ad (it shows the products of the ad group's product groups). */
+  createProductAd?(accountId: string, adGroupId: string): Promise<MutationResult>;
   updateAdGroups(accountId: string, campaignId: string, patches: AdGroupPatch[]): Promise<MutationResult>;
   addKeywords(accountId: string, adGroupId: string, keywords: NewKeyword[]): Promise<MutationResult>;
   updateKeywords(accountId: string, adGroupId: string, patches: KeywordPatch[]): Promise<MutationResult>;

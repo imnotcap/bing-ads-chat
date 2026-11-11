@@ -16,7 +16,7 @@ import type { GoogleCampaign } from '@/features/audit/data';
 import { SHOWN_DAYS, type DListingNode, type DetailPart, type ShownItems } from '@/features/audit/detail';
 import { rankCandidates, suggestMatch } from '@/features/audit/match';
 import { settingsFacts } from '@/features/audit/settings';
-import { buildActions, planEdit, planMirror, performsWell, shapeOf, statsText, verifyMirror, type MirrorAction, type MirrorGroup } from '@/features/audit/productMirror';
+import { buildActions, compareProductTrees, planEdit, planMirror, performsWell, shapeOf, stateText, statsText, verifyMirror, type ItemState, type MirrorAction, type MirrorGroup } from '@/features/audit/productMirror';
 import type { ChangeLine } from '@/stores/activity';
 import { auditGoogleMatch, googleCampaigns, googleDetail, requireGoogle } from '../googleSource';
 import { PERIOD_DESCRIPTION, defineRead, defineWrite, getAdGroups, getCampaign, getReport, memo, resolvePeriod, type ExecutionResult, type ToolContext } from './context';
@@ -177,7 +177,7 @@ const cardLine = (g: MirrorGroup, r: MirrorGroup['rows'][number], skip: Set<stri
         entityId: g.bingAdGroupId!,
         field: `${g.bingGroup} · ${r.label}`,
         after: r.itemId || (r.action === 'all' || r.action === 'collapse' ? 'Alle produkter' : 'Alt andet'),
-        cells: { group: g.bingGroup, groupId: g.bingAdGroupId, kind: TAG[r.action], why: r.label, bid: BID_ROWS.includes(r.action) ? g.bid : null },
+        cells: { group: g.bingGroup, groupId: g.bingAdGroupId, kind: TAG[r.action], why: r.label, bid: BID_ROWS.includes(r.action) ? (r.bid ?? g.bid) : null },
         pickKey: r.key,
         pickOff: r.defaultOff,
       };
@@ -287,27 +287,26 @@ export const googleTools = [
                   ...(shown.error ? { couldNotCheckShown: shown.error } : {}),
                 };
               } else {
-                const { plan, shown } = await productPlan(ctx, c, google, period);
+                const { plan, shown, google: gNodes, bing: bNodes } = await productPlan(ctx, c, google, period);
                 const unshown = plan.reduce((n, m) => n + m.unshown.length, 0);
+                const diffs = compareProductTrees(gNodes, bNodes);
+                const text = (st: ItemState) => stateText(st, ctx.currency).text + (st.via === 'else' ? ' (via alt andet)' : st.via === 'all' ? ' (alle produkter)' : '');
                 out.productGroups = {
-                  howToFix: 'match_product_groups_to_google makes these changes in Microsoft (it works the item ids out itself).',
+                  howToFix: 'match_product_groups_to_google makes Microsoft like Google (it reads both trees and uses Google\'s bids); create missing ad groups with create_ad_group.',
+                  adGroups: diffs.map((d) => ({
+                    google: d.googleGroup,
+                    microsoft: d.bingGroup,
+                    status: d.status === 'missing' ? 'missing in Microsoft' : d.status === 'extra' ? 'only in Microsoft' : d.status,
+                    ...(d.reason ? { reason: d.reason } : {}),
+                    ...(d.googleStatus && d.bingStatus && d.googleStatus !== d.bingStatus ? { adGroupStatus: { google: d.googleStatus, microsoft: d.bingStatus } } : {}),
+                    ...(d.status === 'compared'
+                      ? { differences: d.diffs.slice(0, 60).map((x) => ({ item: x.itemId || 'all other products', google: text(x.google), microsoft: text(x.bing) })), ...(d.diffs.length > 60 ? { more: d.diffs.length - 60 } : {}), same: d.same }
+                      : {}),
+                  })),
                   ...(unshown
                     ? { notShownInMicrosoft: `${unshown} item ids are excluded in Google but Microsoft has not shown them in the ad group in the last ${SHOWN_DAYS} days – excluding them changes nothing, so they are left out of the changes.` }
                     : {}),
                   ...(shown.error ? { couldNotCheckShown: shown.error } : {}),
-                  adGroups: plan.map((m: MirrorGroup) => ({
-                    google: m.googleGroup,
-                    microsoft: m.bingGroup,
-                    status: m.status,
-                    ...(m.reason ? { reason: m.reason } : {}),
-                    ...(m.rows.length
-                      ? {
-                          changes: Object.fromEntries(Object.entries(m.rows.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.action]: (acc[r.action] ?? 0) + 1 }), {}))),
-                          examples: m.rows.slice(0, 8).map((r) => r.label),
-                          splitsMicrosoftAllProducts: m.convert,
-                        }
-                      : {}),
-                  })),
                 };
               }
             } else if (part === 'searchterms') {
@@ -486,7 +485,11 @@ export const googleTools = [
       const groups = plan.filter((g) => !only || (g.bingAdGroupId && only.has(g.bingAdGroupId)));
       const skip = new Set(input.skip ?? []);
       const chosenBid = (g: MirrorGroup) => (g.bingAdGroupId && input.bids?.[g.bingAdGroupId]) || input.bid || g.bid;
-      const working = groups.filter((g) => g.status === 'changes').map((g) => ({ ...g, bid: chosenBid(g) }));
+      // A bid the user named (in the request or on the card) wins over Google's own bids for the group.
+      const named = (g: MirrorGroup) => !!((g.bingAdGroupId && input.bids?.[g.bingAdGroupId]) || input.bid);
+      const working = groups
+        .filter((g) => g.status === 'changes')
+        .map((g) => ({ ...g, bid: chosenBid(g), rows: named(g) ? g.rows.map((r) => ({ ...r, bid: undefined })) : g.rows }));
       const BIDS: MirrorAction[] = ['add_bid', 'to_bid', 'else_bid', 'all', 'collapse'];
       const bids = working.filter((g) => g.rows.some((r) => BIDS.includes(r.action) && !skip.has(r.key)));
       const lines: ChangeLine[] = working.flatMap((g) =>
@@ -502,7 +505,7 @@ export const googleTools = [
               groupId: g.bingAdGroupId,
               kind: TAG[r.action],
               why: r.label,
-              bid: BIDS.includes(r.action) ? g.bid : null,
+              bid: BIDS.includes(r.action) ? (r.bid ?? g.bid) : null,
             },
             pickKey: r.key,
             pickOff: r.defaultOff,

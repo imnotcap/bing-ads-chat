@@ -84,7 +84,11 @@ export async function bingProducts(accountId: string, campaignId: string, pmax: 
   }
   if (!b.listProductPartitions) throw new NotAvailable('Produktgrupper kan kun læses fra den rigtige konto (ikke demo).');
   const groups = await adGroups(b, accountId, campaignId);
-  return toListingNodes((await pool(groups, 4, (g) => b.listProductPartitions!(accountId, g.id, g.name))).flat());
+  const byId = new Map(groups.map((g) => [g.id, g]));
+  return toListingNodes((await pool(groups, 4, (g) => b.listProductPartitions!(accountId, g.id, g.name))).flat()).map((n) => {
+    const g = n.groupId ? byId.get(n.groupId) : undefined;
+    return g ? { ...n, groupStatus: lower(g.status), groupBid: g.cpcBid ?? null } : n;
+  });
 }
 
 export async function bingSearchTerms(accountId: string, campaignId: string, range: DateRange, backend?: AdsBackend): Promise<DSearchTerm[]> {

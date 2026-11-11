@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildActions, planEdit, planMirror, shapeOf, verifyMirror, type MirrorGroup } from '@/features/audit/productMirror';
+import { buildActions, compareProductTrees, planEdit, planMirror, shapeOf, verifyMirror, type MirrorGroup } from '@/features/audit/productMirror';
 import { listingGroupActionJson, partitionActionJson } from '@/bing/live';
 import { bingDimension, type DListingNode, type ShownItems } from '@/features/audit/detail';
 import type { PartitionAction } from '@/bing/types';
@@ -373,5 +373,79 @@ describe('what Microsoft gets for Performance Max', () => {
       ListingGroup: { AssetGroupId: 77, Id: -1, ParentListingGroupId: null, ListingGroupType: 'Subdivision', IsExcluded: false, Dimension: { Operand: 'All', Attribute: null } },
     });
     expect(listingGroupActionJson({ action: 'Add', adGroupId: '77', parentId: -1, kind: 'unit', operand: 'Id', attribute: 'SKU-1', excluded: true }).ListingGroup).toMatchObject({ ParentListingGroupId: -1, IsExcluded: true, Dimension: { Operand: 'Id', Attribute: 'SKU-1' } });
+  });
+});
+
+describe('the audit of product groups – the Stabelstole campaign from the screenshots', () => {
+  const n = (group: string, id: string, parentId: string | null, raw: string, o: Partial<DListingNode> = {}): DListingNode => ({
+    id,
+    parentId,
+    group,
+    unit: true,
+    excluded: false,
+    dim: parentId ? 'id' : 'all',
+    value: raw.toLowerCase(),
+    raw,
+    ...o,
+  });
+  // Google: Oporto bids 40,05 on c065107708, excludes 2722150408 and c067805114, "alt andet" excluded.
+  const google = [
+    n('Stabelstole | Oporto', 'g0', null, '', { unit: false }),
+    n('Stabelstole | Oporto', 'g1', 'g0', 'c065107708', { bid: 40.05 }),
+    n('Stabelstole | Oporto', 'g2', 'g0', '', { excluded: true }),
+    n('Stabelstole | Oporto', 'g3', 'g0', '2722150408', { excluded: true }),
+    n('Stabelstole | Oporto', 'g4', 'g0', 'c067805114', { excluded: true }),
+    n('Bistrostole', 'h0', null, '', { bid: 5 }),
+  ];
+  // Microsoft: 28,05 on c065107708, excludes 2722150408 and 2722220108, "everything else" excluded.
+  const bing = [
+    n('Stabelstole | Oporto', 'b0', null, '', { unit: false }),
+    n('Stabelstole | Oporto', 'b1', 'b0', '2722150408', { excluded: true }),
+    n('Stabelstole | Oporto', 'b2', 'b0', 'c065107708', { bid: 28.05 }),
+    n('Stabelstole | Oporto', 'b3', 'b0', '', { excluded: true }),
+    n('Stabelstole | Oporto', 'b4', 'b0', '2722220108', { excluded: true }),
+  ];
+  const result = compareProductTrees(google, bing);
+
+  it('finds only the real difference in Oporto: the bid – the exclusions end up the same', () => {
+    const oporto = result.find((r) => r.googleGroup === 'Stabelstole | Oporto')!;
+    expect(oporto.status).toBe('compared');
+    expect(oporto.diffs).toEqual([{ itemId: 'c065107708', kind: 'bid', google: { via: 'own', excluded: false, bid: 40.05 }, bing: { via: 'own', excluded: false, bid: 28.05 } }]);
+    // 2722150408, c067805114 (excluded via "alt andet" in Microsoft), 2722220108 (via "alt andet" in Google) and all others.
+    expect(oporto.same).toBe(4);
+  });
+
+  it('reports an ad group Microsoft lacks', () => {
+    expect(result.find((r) => r.googleGroup === 'Bistrostole')).toMatchObject({ status: 'missing', bingGroup: null });
+  });
+
+  it('catches excluded on one side and bid on on the other, through "alt andet" too', () => {
+    const g = [n('A', 'g0', null, '', { unit: false }), n('A', 'g1', 'g0', 'X1', { bid: 10 }), n('A', 'g2', 'g0', '', { excluded: true })];
+    const b = [n('A', 'b0', null, '', { unit: false }), n('A', 'b1', 'b0', 'X2', { bid: 10 }), n('A', 'b2', 'b0', '', { excluded: true })];
+    const [a] = compareProductTrees(g, b);
+    expect(a!.diffs.map((d) => [d.itemId, d.kind, d.google.via, d.bing.via])).toEqual([
+      ['X1', 'bid_on', 'own', 'else'],
+      ['X2', 'exclude', 'else', 'own'],
+    ]);
+  });
+});
+
+describe('the fix for Oporto – only what really differs', () => {
+  const n = (id: string, parentId: string | null, raw: string, o: Partial<DListingNode> = {}): DListingNode => ({ id, parentId, group: 'Oporto', unit: true, excluded: false, dim: parentId ? 'id' : 'all', value: raw.toLowerCase(), raw, ...o });
+  const google = [n('g0', null, '', { unit: false }), n('g1', 'g0', 'c065107708', { bid: 40.05 }), n('g2', 'g0', '', { excluded: true }), n('g3', 'g0', '2722150408', { excluded: true }), n('g4', 'g0', 'c067805114', { excluded: true })];
+  const bing = [n('b0', null, '', { unit: false }), n('b1', 'b0', '2722150408', { excluded: true }), n('b2', 'b0', 'c065107708', { bid: 28.05 }), n('b3', 'b0', '', { excluded: true }), n('b4', 'b0', '2722220108', { excluded: true })].map((x) => ({ ...x, groupId: '500' }));
+
+  it('proposes the bid of 40,05 kr. as in Google, and no exclusion that "alt andet" already covers', () => {
+    const [g] = planMirror(google, bing, [{ id: '500', name: 'Oporto', cpcBid: 5 }]);
+    expect(g!.rows.map((r) => [r.action, r.itemId, r.bid])).toEqual([['rebid', 'c065107708', 40.05]]);
+    const after = simulate(bing, buildActions(g!, all(g!)));
+    expect(after.find((x) => x.raw === 'c065107708')!.bid).toBe(40.05);
+    expect(verifyMirror(g!, all(g!), shapeOf(after)).missing).toEqual([]);
+  });
+
+  it('copies Google\'s bid for a new item, not the group\'s most common one', () => {
+    const g2 = [...google, n('g5', 'g0', 'c070000001', { bid: 33.5 })];
+    const [g] = planMirror(g2, bing, [{ id: '500', name: 'Oporto', cpcBid: 5 }]);
+    expect(g!.rows.find((r) => r.itemId === 'c070000001')).toMatchObject({ action: 'add_bid', bid: 33.5 });
   });
 });

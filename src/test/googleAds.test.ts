@@ -214,18 +214,20 @@ describe('reading one campaign’s insides', () => {
       [
         /FROM ad_group_criterion/,
         [
-          { adGroup: { id: '5', name: 'Alle' }, adGroupCriterion: { criterionId: '1', negative: false, listingGroup: { type: 'SUBDIVISION' } } },
-          { adGroup: { id: '5', name: 'Alle' }, adGroupCriterion: { criterionId: '2', negative: true, listingGroup: { type: 'UNIT', parentAdGroupCriterion: 'customers/1234567890/adGroupCriteria/5~1', caseValue: { productItemId: { value: 'SKU-100' } } } } },
-          { adGroup: { id: '5', name: 'Alle' }, adGroupCriterion: { criterionId: '3', negative: false, listingGroup: { type: 'UNIT', parentAdGroupCriterion: 'customers/1234567890/adGroupCriteria/5~1', caseValue: { productItemId: {} } } } },
+          { adGroup: { id: '5', name: 'Alle', status: 'ENABLED', cpcBidMicros: '5000000' }, adGroupCriterion: { criterionId: '1', negative: false, listingGroup: { type: 'SUBDIVISION' } } },
+          { adGroup: { id: '5', name: 'Alle', status: 'ENABLED', cpcBidMicros: '5000000' }, adGroupCriterion: { criterionId: '2', negative: true, listingGroup: { type: 'UNIT', parentAdGroupCriterion: 'customers/1234567890/adGroupCriteria/5~1', caseValue: { productItemId: { value: 'SKU-100' } } } } },
+          { adGroup: { id: '5', name: 'Alle', status: 'ENABLED', cpcBidMicros: '5000000' }, adGroupCriterion: { criterionId: '3', negative: false, cpcBidMicros: '40050000', listingGroup: { type: 'UNIT', parentAdGroupCriterion: 'customers/1234567890/adGroupCriteria/5~1', caseValue: { productItemId: {} } } } },
         ],
       ],
     ]);
     const nodes = await readListingGroups(reader, '1234567890', '77', false);
     expect(queries[0]).toContain("campaign.id = 77 AND ad_group_criterion.type = 'LISTING_GROUP'");
+    expect(queries[0]).toContain('ad_group_criterion.cpc_bid_micros');
+    const group = { groupId: '5', groupStatus: 'active', groupBid: 5 };
     expect(nodes).toEqual([
-      { id: '5~1', parentId: null, group: 'Alle', unit: false, excluded: false, dim: 'all', value: '' },
-      { id: '5~2', parentId: '5~1', group: 'Alle', unit: true, excluded: true, dim: 'id', value: 'sku-100', raw: 'SKU-100' },
-      { id: '5~3', parentId: '5~1', group: 'Alle', unit: true, excluded: false, dim: 'id', value: '', raw: '' },
+      { id: '5~1', parentId: null, group: 'Alle', unit: false, excluded: false, dim: 'all', value: '', bid: null, ...group },
+      { id: '5~2', parentId: '5~1', group: 'Alle', unit: true, excluded: true, dim: 'id', value: 'sku-100', raw: 'SKU-100', bid: null, ...group },
+      { id: '5~3', parentId: '5~1', group: 'Alle', unit: true, excluded: false, dim: 'id', value: '', raw: '', bid: 40.05, ...group },
     ]);
   });
 

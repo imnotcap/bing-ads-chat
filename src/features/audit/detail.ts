@@ -72,6 +72,9 @@ export interface DListingNode {
   groupId?: string;
   /** A unit's CPC bid, when the platform gave one. */
   bid?: number | null;
+  /** The ad group's status ('active', 'paused') and default CPC bid – the same on every node of the group. */
+  groupStatus?: string;
+  groupBid?: number | null;
 }
 
 export interface DSearchTerm extends DetailMetrics {

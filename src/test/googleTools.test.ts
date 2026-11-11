@@ -99,10 +99,15 @@ describe('compare_with_google', () => {
   it('reads the matched Google campaign and lists what Microsoft lacks', async () => {
     const tool = read('compare_with_google');
     const out = await tool.run(tool.schema.parse({ campaignId: '104' }), ctx());
-    const r = out.result as { google: { id: string; howMatched: string }; productGroups: { adGroups: { status: string; splitsMicrosoftAllProducts: boolean }[] }; negativeKeywords?: unknown; rules: string };
+    const r = out.result as { google: { id: string; howMatched: string }; productGroups: { adGroups: { status: string; differences: { item: string; google: string; microsoft: string }[] }[] }; negativeKeywords?: unknown; rules: string };
     expect(r.google.id).toBe('9001');
     expect(r.google.howMatched).toMatch(/Audit/);
-    expect(r.productGroups.adGroups[0]).toMatchObject({ status: 'changes', splitsMicrosoftAllProducts: true });
+    expect(r.productGroups.adGroups[0]!.status).toBe('compared');
+    expect(r.productGroups.adGroups[0]!.differences.map((d) => [d.item, d.google, d.microsoft])).toEqual([
+      ['SKU-1', expect.stringMatching(/^Bud 3,00\s?kr\.$/), expect.stringMatching(/^Bud 2,20\s?kr\. \(alle produkter\)$/)],
+      ['SKU-2', 'Udelukket', expect.stringMatching(/^Bud 2,20\s?kr\. \(alle produkter\)$/)],
+      ['all other products', expect.stringMatching(/^Bud 3,00\s?kr\. \(via alt andet\)$/), expect.stringMatching(/^Bud 2,20\s?kr\. \(alle produkter\)$/)],
+    ]);
     // Shopping: product groups only – no negative keywords or search terms.
     expect(r.negativeKeywords).toBeUndefined();
     expect(r.rules).toMatch(/never suggest changing it/);

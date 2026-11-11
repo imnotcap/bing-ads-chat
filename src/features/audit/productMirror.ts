@@ -58,6 +58,8 @@ export interface MirrorRow {
   defaultOff: boolean;
   bingNodeId?: string;
   bingNodeExcluded?: boolean;
+  /** This row's own bid (Google's for the item); none = the group's bid. */
+  bid?: number | null;
 }
 
 export interface MirrorGroup {
@@ -153,14 +155,16 @@ export function planMirror(
       out.push({ ...group, status: 'unsupported', reason: `Microsofts produkttræ ${b.why} – det ændres ikke automatisk.` });
       continue;
     }
-    const row = (action: MirrorAction, itemId: string, label: string, defaultOff = false, node?: DListingNode): MirrorRow => ({
+    const row = (action: MirrorAction, itemId: string, label: string, defaultOff = false, node?: DListingNode, rowBid?: number | null): MirrorRow => ({
       key: rowKey(bg.id, action, itemId),
       action,
       itemId,
       label,
       defaultOff,
       ...(node ? { bingNodeId: node.id, bingNodeExcluded: node.excluded } : {}),
+      ...(rowBid ? { bid: rowBid } : {}),
     });
+    const kr = (v: number) => fmtMoney(v, opts.currency ?? 'DKK', 2);
 
     if (g.kind === 'all') {
       if (b.kind === 'all') out.push({ ...group, status: 'same' });
@@ -182,9 +186,15 @@ export function planMirror(
         unshown.push(id);
         continue;
       }
-      if (!there) rows.push(row(item.excluded ? 'add_exclude' : 'add_bid', id, item.excluded ? `Udeluk varenummer ${id}` : `Byd på varenummer ${id}`));
-      else if (there.excluded !== item.excluded)
-        rows.push(row(item.excluded ? 'to_exclude' : 'to_bid', id, item.excluded ? `Udeluk varenummer ${id} (bydes på i Microsoft)` : `Byd på varenummer ${id} (udelukket i Microsoft)`, false, there));
+      const gBid = item.excluded ? null : (item.bid ?? null);
+      if (!there) {
+        // Already excluded through Microsoft's own excluded "everything else": nothing changes.
+        if (item.excluded && b.kind === 'ids' && b.other.excluded) continue;
+        rows.push(row(item.excluded ? 'add_exclude' : 'add_bid', id, item.excluded ? `Udeluk varenummer ${id}` : `Byd på varenummer ${id}${gBid ? ` – ${kr(gBid)} som i Google` : ''}`, false, undefined, gBid));
+      } else if (there.excluded !== item.excluded)
+        rows.push(row(item.excluded ? 'to_exclude' : 'to_bid', id, item.excluded ? `Udeluk varenummer ${id} (bydes på i Microsoft)` : `Byd på varenummer ${id} (udelukket i Microsoft)${gBid ? ` – ${kr(gBid)} som i Google` : ''}`, false, there, gBid));
+      else if (!item.excluded && gBid && there.bid && Math.abs(gBid - there.bid) >= 0.005)
+        rows.push(row('rebid', id, `Bud på ${id}: ${kr(there.bid)} → ${kr(gBid)} som i Google`, false, there, gBid));
     }
     if (b.kind === 'ids')
       for (const [value, node] of b.items) {
@@ -213,16 +223,20 @@ export function planMirror(
     const bingOtherExcluded = b.kind === 'ids' ? b.other.excluded : false;
     // Only exclusions that changed nothing differed: splitting "Alle produkter" for none of them is no change.
     const nothingToSplit = b.kind !== 'ids' && !rows.length && !g.other.excluded;
+    const gOtherBid = g.other.excluded ? null : (g.other.bid ?? null);
     if (!nothingToSplit && (b.kind !== 'ids' || g.other.excluded !== bingOtherExcluded))
       rows.push(
         row(
           g.other.excluded ? 'else_exclude' : 'else_bid',
           '',
-          g.other.excluded ? '"Alt andet": udeluk, så kun de nævnte varenumre vises (som i Google)' : '"Alt andet": byd på resten af produkterne (som i Google)',
+          g.other.excluded ? '"Alt andet": udeluk, så kun de nævnte varenumre vises (som i Google)' : `"Alt andet": byd på resten af produkterne (som i Google${gOtherBid ? `, ${kr(gOtherBid)}` : ''})`,
           false,
           b.kind === 'ids' ? b.other : undefined,
+          gOtherBid,
         ),
       );
+    else if (b.kind === 'ids' && !g.other.excluded && !b.other.excluded && gOtherBid && b.other.bid && Math.abs(gOtherBid - b.other.bid) >= 0.005)
+      rows.push(row('else_bid', '', `"Alt andet": bud ${kr(b.other.bid)} → ${kr(gOtherBid)} som i Google`, false, b.other, gOtherBid));
     if (!rows.length) out.push({ ...group, status: 'same', unshown });
     else out.push({ ...group, convert: b.kind !== 'ids', rows, unshown });
   }
@@ -338,9 +352,12 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
   const rows = group.rows.filter((r) => chosen.has(r.key));
   if (!rows.length) return [];
   const b = group.bing;
-  const needsBid = !group.noBids && (rows.some((r) => ['add_bid', 'to_bid', 'rebid', 'else_bid', 'all', 'collapse'].includes(r.action)) || group.convert);
+  // A bid is needed for every unit bid on that has no bid of its own (Google's), and for a new "everything else".
+  const bidRow = (r: MirrorRow) => ['add_bid', 'to_bid', 'rebid', 'else_bid', 'all', 'collapse'].includes(r.action);
+  const convertElse = group.convert && !rows.some((r) => r.action === 'else_exclude') && !rows.find((r) => r.action === 'else_bid')?.bid;
+  const needsBid = !group.noBids && (rows.some((r) => bidRow(r) && !r.bid) || convertElse);
   if (needsBid && !group.bid) throw new Error(`"${group.bingGroup}" har intet bud at gå ud fra – sæt et standardbud på annoncegruppen først.`);
-  const unit = (parentId: string | number, attribute: string | null, excluded: boolean): PartitionAction => ({
+  const unit = (parentId: string | number, attribute: string | null, excluded: boolean, bid?: number | null): PartitionAction => ({
     action: 'Add',
     adGroupId,
     parentId,
@@ -348,7 +365,7 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
     operand: ITEM,
     attribute,
     excluded,
-    ...(excluded || group.noBids ? {} : { bid: group.bid }),
+    ...(excluded || group.noBids ? {} : { bid: bid || group.bid }),
   });
 
   // The whole tree as one unit (Google bids on all products).
@@ -367,10 +384,10 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
     const actions: PartitionAction[] = [];
     if (b.kind === 'all') actions.push({ action: 'Delete', adGroupId, id: b.root.id, excluded: b.root.excluded });
     actions.push({ action: 'Add', adGroupId, tempId: -1, parentId: null, kind: 'subdivision', operand: 'All', attribute: null, excluded: false });
-    for (const r of adds) actions.push(unit(-1, r.itemId, r.action === 'add_exclude'));
+    for (const r of adds) actions.push(unit(-1, r.itemId, r.action === 'add_exclude', r.bid));
     // Unticked, "everything else" keeps what the group does today: bid on.
     const elseRow = rows.find((r) => r.action === 'else_bid' || r.action === 'else_exclude');
-    actions.push(unit(-1, null, elseRow?.action === 'else_exclude'));
+    actions.push(unit(-1, null, elseRow?.action === 'else_exclude', elseRow?.bid));
     return actions;
   }
 
@@ -384,7 +401,7 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
     switch (r.action) {
       case 'add_bid':
       case 'add_exclude':
-        adds.push(unit(parent, r.itemId, r.action === 'add_exclude'));
+        adds.push(unit(parent, r.itemId, r.action === 'add_exclude', r.bid));
         remaining++;
         break;
       case 'to_bid':
@@ -392,7 +409,7 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
       case 'rebid':
         // A unit cannot change between bid on and excluded: it is replaced (a new bid the same way).
         deletes.push({ action: 'Delete', adGroupId, id: r.bingNodeId!, excluded: !!r.bingNodeExcluded });
-        adds.push(unit(parent, r.itemId, r.action === 'to_exclude'));
+        adds.push(unit(parent, r.itemId, r.action === 'to_exclude', r.bid));
         break;
       case 'remove':
         deletes.push({ action: 'Delete', adGroupId, id: r.bingNodeId!, excluded: !!r.bingNodeExcluded });
@@ -401,7 +418,7 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
       case 'else_bid':
       case 'else_exclude':
         deletes.push({ action: 'Delete', adGroupId, id: r.bingNodeId!, excluded: !!r.bingNodeExcluded });
-        adds.push(unit(parent, null, r.action === 'else_exclude'));
+        adds.push(unit(parent, null, r.action === 'else_exclude', r.bid));
         break;
     }
   }
@@ -420,12 +437,120 @@ export function verifyMirror(group: MirrorGroup, chosen: Set<string>, after: Tre
       const node = after.items.get(r.itemId.toLowerCase());
       if (r.action === 'add_bid' || r.action === 'to_bid') ok = !!node && !node.excluded;
       else if (r.action === 'add_exclude' || r.action === 'to_exclude') ok = !!node && node.excluded;
-      else if (r.action === 'rebid') ok = !!node && !node.excluded && node.bid === group.bid;
+      else if (r.action === 'rebid') ok = !!node && !node.excluded && Math.abs((node.bid ?? 0) - (r.bid ?? group.bid ?? 0)) < 0.005;
       else if (r.action === 'remove') ok = !node;
-      else if (r.action === 'else_bid') ok = !after.other.excluded;
+      else if (r.action === 'else_bid') ok = !after.other.excluded && (!r.bid || Math.abs((after.other.bid ?? 0) - r.bid) < 0.005);
       else if (r.action === 'else_exclude') ok = after.other.excluded;
     }
     (ok ? confirmed : missing).push(r.label);
   }
   return { confirmed, missing };
+}
+
+/* ------------------------- the audit: what actually differs ------------------------- */
+
+/** What applies to an item in one tree: its own unit, "everything else", or "Alle produkter". */
+export interface ItemState {
+  via: 'own' | 'else' | 'all';
+  excluded: boolean;
+  bid: number | null;
+}
+
+export type ItemDiffKind = 'exclude' | 'bid_on' | 'bid';
+
+export interface ItemDiff {
+  /** The item id as Google writes it ('' = all other products). */
+  itemId: string;
+  kind: ItemDiffKind;
+  google: ItemState;
+  bing: ItemState;
+}
+
+export interface GroupDiff {
+  googleGroup: string | null;
+  bingGroup: string | null;
+  /** missing: only in Google · extra: only in Microsoft · unsupported: a tree split another way. */
+  status: 'compared' | 'missing' | 'extra' | 'unsupported';
+  reason?: string;
+  googleStatus?: string;
+  bingStatus?: string;
+  diffs: ItemDiff[];
+  /** Items that end up the same on both sides (also when one side gets there via "alt andet"). */
+  same: number;
+}
+
+const near = (a: number | null, b: number | null) => a === null || b === null || Math.abs(a - b) < 0.005;
+
+function stateOf(shape: TreeShape, value: string): ItemState | null {
+  if (shape.kind === 'all') return { via: 'all', excluded: shape.root.excluded, bid: shape.root.bid ?? null };
+  if (shape.kind !== 'ids') return null;
+  const own = value ? shape.items.get(value) : undefined;
+  if (own) return { via: 'own', excluded: own.excluded, bid: own.bid ?? null };
+  return { via: 'else', excluded: shape.other.excluded, bid: shape.other.bid ?? null };
+}
+
+/** How one item differs, if it does: excluded on one side only, or bid on both at different bids (when both say a bid). */
+function differs(g: ItemState, b: ItemState): ItemDiffKind | null {
+  if (g.excluded && !b.excluded) return 'exclude';
+  if (!g.excluded && b.excluded) return 'bid_on';
+  if (!g.excluded && !near(g.bid, b.bid)) return 'bid';
+  return null;
+}
+
+/**
+ * The audit of a Shopping campaign's product groups, per ad group: which ad groups exist on
+ * one side only, and for every item id either side names – and for all other products – what
+ * actually applies (bid, or excluded; via its own product group, "alt andet" or "Alle
+ * produkter"). Only real differences count: an item excluded through "alt andet" on one side
+ * and on its own on the other is the same.
+ */
+export function compareProductTrees(google: DListingNode[], bing: DListingNode[]): GroupDiff[] {
+  const byGroup = (nodes: DListingNode[]) => {
+    const m = new Map<string, DListingNode[]>();
+    for (const n of nodes) m.set(n.group, [...(m.get(n.group) ?? []), n]);
+    return m;
+  };
+  const gGroups = byGroup(google);
+  const bGroups = byGroup(bing);
+  const used = new Set<string>();
+  const out: GroupDiff[] = [];
+
+  for (const [googleGroup, gNodes] of gGroups) {
+    const name = counterparts(googleGroup, [...bGroups.keys()].filter((n) => !used.has(n)))[0];
+    const googleStatus = gNodes[0]?.groupStatus;
+    if (!name) {
+      out.push({ googleGroup, bingGroup: null, status: 'missing', googleStatus, diffs: [], same: 0 });
+      continue;
+    }
+    used.add(name);
+    const bNodes = bGroups.get(name)!;
+    const base = { googleGroup, bingGroup: name, googleStatus, bingStatus: bNodes[0]?.groupStatus, diffs: [] as ItemDiff[], same: 0 };
+    const g = shapeOf(gNodes);
+    const b = shapeOf(bNodes);
+    if (g.kind === 'other' || b.kind === 'other' || g.kind === 'none' || b.kind === 'none') {
+      const why = g.kind === 'other' ? `Googles træ ${g.why}` : b.kind === 'other' ? `Microsofts træ ${b.why}` : 'en af siderne har ingen produktgrupper';
+      out.push({ ...base, status: 'unsupported', reason: `${why} – sammenlign i hånden.` });
+      continue;
+    }
+    // Every item either side names, then all the other products.
+    const values = new Map<string, string>();
+    for (const shape of [g, b]) if (shape.kind === 'ids') for (const [v, n] of shape.items) if (!values.has(v)) values.set(v, n.raw || v);
+    if (g.kind === 'ids') for (const [v, n] of g.items) values.set(v, n.raw || v);
+    for (const [value, raw] of [...values, ['', ''] as const]) {
+      const gs = stateOf(g, value)!;
+      const bs = stateOf(b, value)!;
+      const kind = differs(gs, bs);
+      if (kind) base.diffs.push({ itemId: raw, kind, google: gs, bing: bs });
+      else base.same++;
+    }
+    out.push({ ...base, status: 'compared' });
+  }
+  for (const [bingGroup, bNodes] of bGroups) if (!used.has(bingGroup)) out.push({ googleGroup: null, bingGroup, status: 'extra', bingStatus: bNodes[0]?.groupStatus, diffs: [], same: 0 });
+  return out;
+}
+
+/** "Bud 40,05 kr." / "Udelukket", and how ("via Alt andet", "Alle produkter"). */
+export function stateText(s: ItemState, currency = 'DKK'): { text: string; sub?: string } {
+  const text = s.excluded ? 'Udelukket' : s.bid !== null ? `Bud ${fmtMoney(s.bid, currency, 2)}` : 'Bydes på';
+  return { text, ...(s.via === 'else' ? { sub: 'via "Alt andet"' } : s.via === 'all' ? { sub: 'via "Alle produkter"' } : {}) };
 }

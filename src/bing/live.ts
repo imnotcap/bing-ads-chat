@@ -43,6 +43,7 @@ import type {
   ReportSpec,
   SearchVolume,
   ShownProduct,
+  MerchantStore,
 } from './types';
 import { extractFirstFile } from './zip';
 import { CampaignCache, type CampaignStore } from './campaignCache';
@@ -490,10 +491,26 @@ export class LiveBackend implements AdsBackend {
           Status: spec.status,
           TimeZone: spec.timeZone ?? 'BrusselsCopenhagenMadridParis',
           BiddingScheme: fromBidStrategy(spec.bidStrategy),
+          ...(spec.shopping
+            ? { Settings: [{ Type: 'ShoppingSetting', StoreId: Number(spec.shopping.storeId), SalesCountryCode: spec.shopping.salesCountry, Priority: spec.shopping.priority }] }
+            : {}),
         },
       ],
     });
     return batchResult(res, 1, 'CampaignIds');
+  }
+
+  /** GetBMCStoresByCustomerId – the stores with a catalogue. */
+  async listStores(accountId: string): Promise<MerchantStore[]> {
+    const ctx = await this.ctx(accountId);
+    const res = await this.client.call<{ BMCStores?: Json[] | null }>('campaign', 'BMCStores/QueryByCustomerId', { body: {}, ...ctx });
+    return (res.BMCStores ?? []).filter((s) => s.IsActive !== false).map((s) => ({ id: str(s.Id), name: str(s.Name) || str(s.Id) }));
+  }
+
+  /** AddAds with a ProductAd – a Shopping ad group needs one to show its products. */
+  async createProductAd(accountId: string, adGroupId: string): Promise<MutationResult> {
+    const res = await this.cm(accountId, 'Ads', 'POST', { AdGroupId: Number(adGroupId), Ads: [{ Type: 'Product' }] });
+    return batchResult(res, 1, 'AdIds');
   }
 
   async deleteCampaigns(accountId: string, campaignIds: string[]): Promise<MutationResult> {

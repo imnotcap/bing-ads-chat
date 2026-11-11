@@ -565,8 +565,11 @@ export async function readListingGroups(reader: GoogleAdsReader, customerId: str
       };
     });
   }
-  const rows = await reader.rows<{ adGroup?: { id?: string; name?: string }; adGroupCriterion?: { criterionId?: string; negative?: boolean; listingGroup?: { type?: string; parentAdGroupCriterion?: string; caseValue?: CaseValue } } }>(
-    `SELECT ad_group.id, ad_group.name, ad_group_criterion.criterion_id, ad_group_criterion.negative, ad_group_criterion.listing_group.type, ad_group_criterion.listing_group.parent_ad_group_criterion, ${CASE_FIELDS('ad_group_criterion.listing_group')} FROM ad_group_criterion WHERE campaign.id = ${id} AND ad_group_criterion.type = 'LISTING_GROUP' AND ad_group_criterion.status != 'REMOVED'`,
+  const rows = await reader.rows<{
+    adGroup?: { id?: string; name?: string; status?: string; cpcBidMicros?: string };
+    adGroupCriterion?: { criterionId?: string; negative?: boolean; cpcBidMicros?: string; listingGroup?: { type?: string; parentAdGroupCriterion?: string; caseValue?: CaseValue } };
+  }>(
+    `SELECT ad_group.id, ad_group.name, ad_group.status, ad_group.cpc_bid_micros, ad_group_criterion.criterion_id, ad_group_criterion.negative, ad_group_criterion.cpc_bid_micros, ad_group_criterion.listing_group.type, ad_group_criterion.listing_group.parent_ad_group_criterion, ${CASE_FIELDS('ad_group_criterion.listing_group')} FROM ad_group_criterion WHERE campaign.id = ${id} AND ad_group_criterion.type = 'LISTING_GROUP' AND ad_group_criterion.status != 'REMOVED' AND ad_group.status != 'REMOVED'`,
   );
   return rows.map((r) => {
     const c = r.adGroupCriterion ?? {};
@@ -578,6 +581,11 @@ export async function readListingGroups(reader: GoogleAdsReader, customerId: str
       unit: lg.type === 'UNIT',
       excluded: !!c.negative,
       ...googleDimension(lg.caseValue),
+      groupId: String(r.adGroup?.id ?? ''),
+      // A unit's own bid; none (0 or missing) = the ad group's default bid or the bid strategy decides.
+      bid: lg.type === 'UNIT' && !c.negative ? micros(c.cpcBidMicros) || null : null,
+      groupStatus: statusWord(r.adGroup?.status),
+      groupBid: micros(r.adGroup?.cpcBidMicros) || null,
     };
   });
 }
