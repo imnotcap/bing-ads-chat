@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildActions, compareProductTrees, planEdit, planMirror, shapeOf, verifyMirror, type MirrorGroup } from '@/features/audit/productMirror';
+import { benchRoas, bidAdvice, buildActions, compareProductTrees, planEdit, planMirror, shapeOf, verifyMirror, type MirrorGroup } from '@/features/audit/productMirror';
 import { listingGroupActionJson, partitionActionJson } from '@/bing/live';
 import { bingDimension, type DListingNode, type ShownItems } from '@/features/audit/detail';
 import type { PartitionAction } from '@/bing/types';
@@ -517,5 +517,43 @@ describe('the fix for Oporto – only what really differs', () => {
     const g2 = [...google, n('g5', 'g0', 'c070000001', { bid: 33.5 })];
     const [g] = planMirror(g2, bing, [{ id: '500', name: 'Oporto', cpcBid: 5 }]);
     expect(g!.rows.find((r) => r.itemId === 'c070000001')).toMatchObject({ action: 'add_bid', bid: 33.5 });
+  });
+});
+
+describe('bid advice – Google\'s bid is a starting point, not a rule', () => {
+  const st = (clicks: number, spend: number, conversions: number, revenue: number) => ({ clicks, spend, conversions, revenue });
+
+  it('follows Google with too little data in Microsoft', () => {
+    expect(bidAdvice(40, 28, st(4, 30, 0, 0), 5)).toMatchObject({ verdict: 'follow', bid: 40 });
+    expect(bidAdvice(40, 28, undefined, 5).todo).toMatch(/^Hæv til 40,00/);
+  });
+
+  it('does not raise a product that gets clicks without sales', () => {
+    expect(bidAdvice(40, 28, st(60, 900, 0, 0), 5)).toMatchObject({ verdict: 'keep', bid: 28 });
+    expect(bidAdvice(20, 28, st(60, 900, 0, 0), 5)).toMatchObject({ verdict: 'follow', bid: 20 });
+  });
+
+  it('does not lower a product selling above target, and does not raise one below', () => {
+    expect(bidAdvice(20, 28, st(80, 1000, 10, 8000), 5)).toMatchObject({ verdict: 'keep' });
+    expect(bidAdvice(40, 28, st(80, 1000, 10, 8000), 5)).toMatchObject({ verdict: 'follow' });
+    expect(bidAdvice(40, 28, st(80, 1000, 2, 2000), 5)).toMatchObject({ verdict: 'keep' });
+    expect(bidAdvice(20, 28, st(80, 1000, 2, 2000), 5)).toMatchObject({ verdict: 'follow' });
+  });
+
+  it("judges against the campaign's own ROAS when there is no target", () => {
+    const shown = { from: '', to: '', all: new Set<string>(), byGroup: new Map(), stats: new Map([['1|a', st(10, 100, 1, 400)], ['1|b', st(10, 100, 1, 200)]]) };
+    expect(benchRoas(null, shown)).toBe(3);
+    expect(benchRoas(4.5, shown)).toBe(4.5);
+  });
+
+  it('starts a rebid unticked when the advice is to keep Microsoft\'s bid', () => {
+    const n = (id: string, parentId: string | null, raw: string, o: Partial<DListingNode> = {}): DListingNode => ({ id, parentId, group: 'A', unit: true, excluded: false, dim: parentId ? 'id' : 'all', value: raw.toLowerCase(), raw, ...o });
+    const google = [n('g0', null, '', { unit: false }), n('g1', 'g0', 'X1', { bid: 40 }), n('g2', 'g0', '', { bid: 5 })];
+    const bing = [n('b0', null, '', { unit: false }), n('b1', 'b0', 'X1', { bid: 28 }), n('b2', 'b0', '', { bid: 5 })].map((x) => ({ ...x, groupId: '7' }));
+    const shown = { from: '', to: '', all: new Set(['x1']), byGroup: new Map([['7', new Set(['x1'])]]), stats: new Map([['7|x1', st(80, 1000, 2, 2000)]]) };
+    const [g] = planMirror(google, bing, [{ id: '7', name: 'A', cpcBid: 5 }], shown, { targetRoas: 5 });
+    const rebid = g!.rows.find((r) => r.action === 'rebid')!;
+    expect(rebid.defaultOff).toBe(true);
+    expect(rebid.label).toMatch(/behold/);
   });
 });

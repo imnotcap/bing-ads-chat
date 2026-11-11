@@ -16,7 +16,7 @@ import type { GoogleCampaign } from '@/features/audit/data';
 import { SHOWN_DAYS, type DListingNode, type DetailPart, type ShownItems } from '@/features/audit/detail';
 import { rankCandidates, suggestMatch } from '@/features/audit/match';
 import { googleBidsByHand, settingsFacts } from '@/features/audit/settings';
-import { buildActions, compareProductTrees, planEdit, planMirror, performsWell, shapeOf, stateText, statsText, verifyMirror, type ItemState, type MirrorAction, type MirrorGroup } from '@/features/audit/productMirror';
+import { benchRoas, bidAdvice, buildActions, compareProductTrees, planEdit, planMirror, performsWell, shapeOf, stateText, statsText, verifyMirror, type ItemState, type MirrorAction, type MirrorGroup } from '@/features/audit/productMirror';
 import type { ChangeLine } from '@/stores/activity';
 import { auditGoogleMatch, googleCampaigns, googleDetail, requireGoogle } from '../googleSource';
 import { PERIOD_DESCRIPTION, defineRead, defineWrite, getAdGroups, getCampaign, getReport, memo, resolvePeriod, type ExecutionResult, type ToolContext } from './context';
@@ -69,7 +69,7 @@ async function productPlan(ctx: ToolContext, bing: Campaign, google: GoogleCampa
   ]);
   const live = groups.filter((x: AdGroup) => x.status !== 'Deleted');
   // An item Google leaves out stays when it earns at least the campaign's own ROAS target here.
-  const opts = { keepRoas: bing.bidStrategy.targetRoas ?? 1, currency: ctx.currency, bids: googleBidsByHand(google.bidStrategy) };
+  const opts = { keepRoas: bing.bidStrategy.targetRoas ?? 1, targetRoas: bing.bidStrategy.targetRoas ?? null, currency: ctx.currency, bids: googleBidsByHand(google.bidStrategy) };
   return { plan: planMirror(g.data, nodes, live.map((x) => ({ id: x.id, name: x.name, cpcBid: x.cpcBid })), shown.items, opts), shown, google: g.data, bing: nodes, bingGroups: live };
 }
 
@@ -293,7 +293,15 @@ export const googleTools = [
                 const { plan, shown, google: gNodes, bing: bNodes, bingGroups } = await productPlan(ctx, c, google, period);
                 const unshown = plan.reduce((n, m) => n + m.unshown.length, 0);
                 const bids = googleBidsByHand(google.bidStrategy);
-                const diffs = compareProductTrees(gNodes, bNodes, { bids, bingGroups: bingGroups.map((x) => ({ name: x.name, status: x.status, cpcBid: x.cpcBid ?? null })) });
+                const diffs = compareProductTrees(gNodes, bNodes, { bids, bingGroups: bingGroups.map((x) => ({ id: x.id, name: x.name, status: x.status, cpcBid: x.cpcBid ?? null })) });
+                const target = c.bidStrategy.targetRoas ?? null;
+                const bench = benchRoas(target, shown.items);
+                const advice = (d: (typeof diffs)[number], x: (typeof diffs)[number]['diffs'][number]) => {
+                  if (x.kind !== 'bid' || !x.itemId || x.google.bid === null || x.bing.bid === null || !shown.items) return undefined;
+                  const st = d.bingGroupId ? shown.items.stats?.get(`${d.bingGroupId}|${x.itemId.toLowerCase()}`) : undefined;
+                  const a = bidAdvice(x.google.bid, x.bing.bid, st, bench, ctx.currency, !!target);
+                  return { recommendation: a.todo, why: a.why, ...(st ? { microsoft90Days: statsText(st, ctx.currency) } : {}) };
+                };
                 const text = (st: ItemState) => {
                   const t = stateText(st, ctx.currency);
                   return t.sub ? `${t.text} (${t.sub})` : t.text;
@@ -301,6 +309,7 @@ export const googleTools = [
                 out.productGroups = {
                   howToFix:
                     'match_product_groups_to_google makes Microsoft like Google for trees split by item id (it reads both trees and uses Google\'s bids); edit_product_groups for anything else; create missing ad groups with create_ad_group; default bids and status with update_ad_group.',
+                  bids: 'A Google bid is a starting point, not a rule: bidAdvice judges it on what the item did in Microsoft (90 days) against the ROAS target or the campaign\'s own ROAS. Follow the advice; never tell the user to copy Google\'s bids without it.',
                   compared: 'Per ad group and per product either side names (item id, brand, product type – any level) plus all other products: what really applies on each side. Bids are the product group\'s own, else the ad group\'s default bid. The same result reached another way is not a difference.',
                   ...(bids ? {} : { bidsNotCompared: `Google bids automatically (${google.bidStrategy}), so its CPC bids are not used and not compared.` }),
                   adGroups: diffs.map((d) => ({
@@ -311,8 +320,10 @@ export const googleTools = [
                     ...(d.splits ? { splitDifferently: d.splits } : {}),
                     ...(d.googleStatus && d.bingStatus && d.googleStatus !== d.bingStatus ? { adGroupStatus: { google: d.googleStatus, microsoft: d.bingStatus } } : {}),
                     ...(d.defaultBid ? { defaultBid: d.defaultBid } : {}),
+                    ...(d.bingGroupId ? { microsoftAdGroupId: d.bingGroupId } : {}),
+                    ...(d.googleProducts && (d.status === 'missing' || d.status === 'empty') ? { googleHas: d.googleProducts.slice(0, 200).map((p) => ({ products: p.label, excluded: p.excluded, bid: p.bid })) } : {}),
                     ...(d.status === 'compared'
-                      ? { differences: d.diffs.slice(0, 80).map((x) => ({ products: x.label, kind: x.kind, google: text(x.google), microsoft: text(x.bing) })), ...(d.diffs.length > 80 ? { more: d.diffs.length - 80 } : {}), same: d.same }
+                      ? { differences: d.diffs.slice(0, 80).map((x) => ({ products: x.label, kind: x.kind, google: text(x.google), microsoft: text(x.bing), ...(advice(d, x) ? { bidAdvice: advice(d, x) } : {}) })), ...(d.diffs.length > 80 ? { more: d.diffs.length - 80 } : {}), same: d.same }
                       : {}),
                   })),
                   ...(unshown
@@ -480,6 +491,15 @@ export const googleTools = [
       campaignId: z.string().describe('The Microsoft Shopping campaign.'),
       googleCampaignId: z.string().optional().describe('The Google campaign, if not the one matched on the Audit page.'),
       adGroupIds: z.array(z.string()).max(200).optional().describe('Only these Microsoft ad groups (default: all).'),
+      itemIds: z
+        .array(z.string())
+        .max(2000)
+        .optional()
+        .describe('Only these item ids (as Google writes them; "alt andet" for "everything else") – when the user asks to fix single products. Everything else is left as it is.'),
+      only: z
+        .array(z.enum(['exclude', 'bid_on', 'bids', 'remove', 'else']))
+        .optional()
+        .describe('Only these kinds of change – exclude: exclusions · bid_on: start bidding on items · bids: change bids on items both sides bid on · remove: remove splits Google does not have · else: "everything else" and the whole tree. Default: all.'),
       includeUnshown: z.boolean().optional().describe('Also exclude item ids Microsoft has not shown in the ad group (default false – only if the user asks).'),
       bids: z
         .record(z.string(), z.number().positive().max(1000))
@@ -501,6 +521,15 @@ export const googleTools = [
       const only = input.adGroupIds?.length ? new Set(input.adGroupIds.map(String)) : null;
       const groups = plan.filter((g) => !only || (g.bingAdGroupId && only.has(g.bingAdGroupId)));
       const skip = new Set(input.skip ?? []);
+      // The user asked for single products or kinds of change: everything else stays off the card.
+      const items = input.itemIds?.length ? new Set(input.itemIds.map((i) => (/^alt andet$/i.test(i.trim()) ? '' : i.trim().toLowerCase()))) : null;
+      const KINDS: Record<string, MirrorAction[]> = { exclude: ['add_exclude', 'to_exclude'], bid_on: ['add_bid', 'to_bid'], bids: ['rebid'], remove: ['remove'], else: ['else_bid', 'else_exclude', 'all', 'collapse'] };
+      const kinds = input.only?.length ? new Set(input.only.flatMap((k) => KINDS[k] ?? [])) : null;
+      for (const g of groups)
+        for (const r of g.rows) {
+          const wholeTree = r.action === 'all' || r.action === 'collapse' || r.action === 'else_bid' || r.action === 'else_exclude';
+          if ((items && !(wholeTree ? items.has('') : items.has(r.itemId.toLowerCase()))) || (kinds && !kinds.has(r.action))) skip.add(r.key);
+        }
       const chosenBid = (g: MirrorGroup) => (g.bingAdGroupId && input.bids?.[g.bingAdGroupId]) || input.bid || g.bid;
       // A bid the user named (in the request or on the card) wins over Google's own bids for the group.
       const named = (g: MirrorGroup) => !!((g.bingAdGroupId && input.bids?.[g.bingAdGroupId]) || input.bid);

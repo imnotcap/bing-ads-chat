@@ -163,6 +163,17 @@ describe('match_product_groups_to_google', () => {
     expect(tree.some((n) => n.attribute === 'SKU-1')).toBe(true);
   });
 
+  it('fixes only the item ids and kind of change the user picked', async () => {
+    const tool = write('match_product_groups_to_google');
+    const { plan: p, execute } = await tool.plan(tool.schema.parse({ campaignId: '104', reason: 'x', itemIds: ['SKU-2'] }), ctx());
+    expect(p!.changes.map((l) => l.after)).toEqual(['SKU-2']);
+    await execute();
+    expect(tree.find((n) => n.attribute === 'SKU-2')?.excluded).toBe(true);
+    expect(tree.some((n) => n.attribute === 'SKU-1')).toBe(false);
+    const onlyBids = await tool.plan(tool.schema.parse({ campaignId: '104', reason: 'x', only: ['bid_on'] }), ctx());
+    expect(onlyBids.plan!.changes.every((l) => l.cells?.kind !== 'Udeluk')).toBe(true);
+  });
+
   it('refuses Performance Max and campaigns without product groups', async () => {
     const tool = write('match_product_groups_to_google');
     const c = ctx();

@@ -109,6 +109,56 @@ export function statsText(s: ItemStats, currency = 'DKK'): string {
   return `90 dage: ${fmtNumber(s.clicks)} klik, ${fmtMoney(s.spend, currency)}, ${fmtNumber(s.conversions, s.conversions % 1 ? 1 : 0)} konv.${roas}`;
 }
 
+/**
+ * Whether Google's bid is a good idea for Microsoft – judged on what the product actually did
+ * in Microsoft (the last 90 days) against the campaign's ROAS target, or, without one, the
+ * campaign's own ROAS. Google's bid is a starting point, not a rule: a product that sells above
+ * target is not lowered, one that does not sell is not raised.
+ */
+export interface BidAdvice {
+  /** follow: use Google's bid · keep: leave Microsoft's bid. */
+  verdict: 'follow' | 'keep';
+  /** The bid to set (Google's, or Microsoft's own when keep). */
+  bid: number;
+  /** "Hæv til 40,05 kr." · "Behold 28,05 kr." */
+  todo: string;
+  /** Why, in a sentence – from the numbers. */
+  why: string;
+}
+
+export const MIN_CLICKS_FOR_ADVICE = 10;
+
+/** The ROAS to judge against: the target, else the campaign's own over the same 90 days. */
+export function benchRoas(target: number | null | undefined, shown: ShownItems | null): number | null {
+  if (target && target > 0) return target;
+  let spend = 0;
+  let revenue = 0;
+  for (const s of shown?.stats?.values() ?? []) {
+    spend += s.spend;
+    revenue += s.revenue;
+  }
+  return spend > 0 && revenue > 0 ? revenue / spend : null;
+}
+
+export function bidAdvice(googleBid: number, bingBid: number, stats: ItemStats | undefined, bench: number | null, currency = 'DKK', targetGiven = false): BidAdvice {
+  const kr = (v: number) => fmtMoney(v, currency, 2);
+  const up = googleBid > bingBid;
+  const follow = (why: string): BidAdvice => ({ verdict: 'follow', bid: googleBid, todo: `${up ? 'Hæv' : 'Sænk'} til ${kr(googleBid)}`, why });
+  const keep = (why: string): BidAdvice => ({ verdict: 'keep', bid: bingBid, todo: `Behold ${kr(bingBid)}`, why });
+  const clicks = stats?.clicks ?? 0;
+  if (!stats || clicks < MIN_CLICKS_FOR_ADVICE) return follow(`Kun ${fmtNumber(clicks)} klik i Microsoft på 90 dage – for lidt til at vurdere, så Googles bud er det bedste udgangspunkt.`);
+  const roas = stats.spend > 0 ? stats.revenue / stats.spend : 0;
+  const goal = bench ? `${targetGiven ? 'målet' : 'kampagnens snit'} ${fmtNumber(bench, 1)}` : '';
+  if (stats.conversions <= 0)
+    return up ? keep(`${fmtNumber(clicks)} klik for ${kr(stats.spend)} uden salg i Microsoft – et højere bud betaler sig næppe.`) : follow(`${fmtNumber(clicks)} klik for ${kr(stats.spend)} uden salg i Microsoft – et lavere bud som i Google sparer penge.`);
+  if (!bench) return follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft, intet mål at holde det op mod – Googles bud er udgangspunktet.`);
+  if (roas >= bench)
+    return up ? follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft – over ${goal}, så et højere bud kan give mere salg.`) : keep(`ROAS ${fmtNumber(roas, 1)} i Microsoft – over ${goal}; et lavere bud kan koste salg.`);
+  if (roas < bench * 0.8)
+    return up ? keep(`ROAS ${fmtNumber(roas, 1)} i Microsoft – under ${goal}; et højere bud gør det dyrere.`) : follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft – under ${goal}, så et lavere bud som i Google giver mening.`);
+  return follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft – tæt på ${goal}; Googles bud er fint.`);
+}
+
 const rowKey = (bingAdGroupId: string, action: MirrorAction, itemId: string) => `${bingAdGroupId}|${action}|${itemId.toLowerCase()}`;
 
 /**
@@ -122,12 +172,13 @@ export function planMirror(
   bingGroups: { id: string; name: string; cpcBid?: number | null }[],
   shown: ShownItems | null = null,
   /** bids: false when Google bids automatically – its stored CPC bids are not used, so they are not copied over existing ones. */
-  opts: { keepRoas?: number; currency?: string; bids?: boolean } = {},
+  opts: { keepRoas?: number; currency?: string; bids?: boolean; targetRoas?: number | null } = {},
 ): MirrorGroup[] {
   const googleByGroup = new Map<string, DListingNode[]>();
   for (const n of google) googleByGroup.set(n.group, [...(googleByGroup.get(n.group) ?? []), n]);
   const used = new Map<string, string>();
   const out: MirrorGroup[] = [];
+  const bench = benchRoas(opts.targetRoas, shown);
 
   for (const [googleGroup, gNodes] of googleByGroup) {
     const g = shapeOf(gNodes);
@@ -196,8 +247,11 @@ export function planMirror(
         rows.push(row(item.excluded ? 'add_exclude' : 'add_bid', id, item.excluded ? `Udeluk varenummer ${id}` : `Byd på varenummer ${id}${gBid ? ` – ${kr(gBid)} som i Google` : ''}`, false, undefined, gBid));
       } else if (there.excluded !== item.excluded)
         rows.push(row(item.excluded ? 'to_exclude' : 'to_bid', id, item.excluded ? `Udeluk varenummer ${id} (bydes på i Microsoft)` : `Byd på varenummer ${id} (udelukket i Microsoft)${gBid ? ` – ${kr(gBid)} som i Google` : ''}`, false, there, gBid));
-      else if (opts.bids !== false && !item.excluded && gBid && there.bid && Math.abs(gBid - there.bid) >= 0.005)
-        rows.push(row('rebid', id, `Bud på ${id}: ${kr(there.bid)} → ${kr(gBid)} som i Google`, false, there, gBid));
+      else if (opts.bids !== false && !item.excluded && gBid && there.bid && Math.abs(gBid - there.bid) >= 0.005) {
+        // Google's bid is a starting point: judged on what the item did here first.
+        const advice = bidAdvice(gBid, there.bid, shown?.stats?.get(`${bg.id}|${item.value}`), bench, opts.currency, !!opts.targetRoas);
+        rows.push(row('rebid', id, `Bud på ${id}: ${kr(there.bid)} → ${kr(gBid)} (Google). ${advice.verdict === 'keep' ? 'Anbefaling: behold – ' : ''}${advice.why}`, advice.verdict === 'keep', there, gBid));
+      }
     }
     if (b.kind === 'ids')
       for (const [value, node] of b.items) {
@@ -507,6 +561,10 @@ export interface ItemDiff {
 export interface GroupDiff {
   googleGroup: string | null;
   bingGroup: string | null;
+  /** The Microsoft ad group's id, when it has one. */
+  bingGroupId?: string;
+  /** Missing or empty in Microsoft: what Google's ad group has, to create it the same way. */
+  googleProducts?: { label: string; itemId: string; excluded: boolean; bid: number | null }[];
   /**
    * missing: only in Google · extra: only in Microsoft · empty: Microsoft has the ad group but
    * no product groups in it (it shows nothing) · unsupported: a tree that cannot be read the
@@ -620,7 +678,7 @@ function pairNames(google: string[], bing: string[]): Map<string, string> {
 
 export interface CompareOptions {
   /** Microsoft's ad groups (also those with no product groups – they show nothing). */
-  bingGroups?: { name: string; status?: string; cpcBid?: number | null }[];
+  bingGroups?: { id?: string; name: string; status?: string; cpcBid?: number | null }[];
   /** False when Google bids automatically (its CPC bids are not used): bids are then not compared. */
   bids?: boolean;
 }
@@ -640,9 +698,21 @@ export function compareProductTrees(google: DListingNode[], bing: DListingNode[]
   };
   const gGroups = byGroup(google);
   const bGroups = byGroup(bing);
-  const bInfo = new Map<string, { status?: string; cpcBid?: number | null }>();
-  for (const g of opts.bingGroups ?? []) bInfo.set(g.name, { status: g.status?.toLowerCase(), cpcBid: g.cpcBid ?? null });
-  for (const [name, nodes] of bGroups) bInfo.set(name, { status: nodes[0]?.groupStatus ?? bInfo.get(name)?.status, cpcBid: nodes[0]?.groupBid ?? bInfo.get(name)?.cpcBid ?? null });
+  const bInfo = new Map<string, { id?: string; status?: string; cpcBid?: number | null }>();
+  for (const g of opts.bingGroups ?? []) bInfo.set(g.name, { id: g.id, status: g.status?.toLowerCase(), cpcBid: g.cpcBid ?? null });
+  for (const [name, nodes] of bGroups)
+    bInfo.set(name, { id: nodes[0]?.groupId ?? bInfo.get(name)?.id, status: nodes[0]?.groupStatus ?? bInfo.get(name)?.status, cpcBid: nodes[0]?.groupBid ?? bInfo.get(name)?.cpcBid ?? null });
+  // What a Google ad group holds, product by product – to create it the same way in Microsoft.
+  const productsOf = (nodes: DListingNode[]) => {
+    const t = treeOf(nodes);
+    if ('why' in t) return undefined;
+    return [...profilesOf(t), []]
+      .filter((p, i, all) => all.findIndex((q) => q.map((x) => x.value).join() === p.map((x) => x.value).join()) === i)
+      .map((path) => {
+        const st = resolve(t, new Map(path.map((x) => [x.dim, x.value])));
+        return { label: path.length ? path.map(stepText).join(' › ') : 'Alle andre produkter', itemId: path.length === 1 && path[0]!.dim === 'id' ? path[0]!.raw : '', excluded: st.excluded, bid: st.bid };
+      });
+  };
   const pairs = pairNames([...gGroups.keys()], [...bInfo.keys()]);
   const bids = opts.bids !== false;
   const out: GroupDiff[] = [];
@@ -651,16 +721,16 @@ export function compareProductTrees(google: DListingNode[], bing: DListingNode[]
     const googleStatus = gNodes[0]?.groupStatus;
     const name = pairs.get(googleGroup);
     if (!name) {
-      out.push({ googleGroup, bingGroup: null, status: 'missing', googleStatus, diffs: [], same: 0 });
+      out.push({ googleGroup, bingGroup: null, status: 'missing', googleStatus, googleProducts: productsOf(gNodes), diffs: [], same: 0 });
       continue;
     }
     const info = bInfo.get(name)!;
     const gBid = gNodes[0]?.groupBid ?? null;
-    const base: GroupDiff = { googleGroup, bingGroup: name, status: 'compared', googleStatus, bingStatus: info.status, diffs: [], same: 0 };
+    const base: GroupDiff = { googleGroup, bingGroup: name, ...(info.id ? { bingGroupId: info.id } : {}), status: 'compared', googleStatus, bingStatus: info.status, diffs: [], same: 0 };
     if (bids && gBid !== null && info.cpcBid != null && !near(gBid, info.cpcBid)) base.defaultBid = { google: gBid, bing: info.cpcBid };
     const bNodes = bGroups.get(name);
     if (!bNodes?.length) {
-      out.push({ ...base, status: 'empty', reason: 'Annoncegruppen har ingen produktgrupper i Microsoft – den viser ingen produkter.' });
+      out.push({ ...base, status: 'empty', googleProducts: productsOf(gNodes), reason: 'Annoncegruppen har ingen produktgrupper i Microsoft – den viser ingen produkter.' });
       continue;
     }
     const g = treeOf(gNodes);
