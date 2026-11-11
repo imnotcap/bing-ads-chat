@@ -17,7 +17,8 @@ import { blockedBy } from './searchTerms';
 import { presetRange } from '@/lib/format';
 import { activeDailyBudget } from '@/bing/spend';
 import { findOperation, isReadOperation, missingRequired, searchOperations } from '@/bing/msOperations';
-import type { AdGroup, BidStrategy, Campaign, Keyword, MsService, NegativeKeyword, PinPosition } from '@/bing/types';
+import type { AdGroup, Campaign, ItemError, Keyword, MsService, NegativeKeyword, PinPosition, ProductTreeNode } from '@/bing/types';
+import { applyTargeting, joinVerified, planTargeting, readTargets, standardFor } from './targeting';
 import { useActivity, type ChangeLine } from '@/stores/activity';
 import type { ChangePlan } from '../guardrails';
 import { researchKeywords } from './research';
@@ -38,7 +39,7 @@ import {
   verify,
   type LineCheck,
 } from './checks';
-import { defineWrite, getAdGroup, getAdGroups, getCampaign, getCampaigns, getKeywords, getReport, statusLabel, type PlannedChange, type ToolContext } from './context';
+import { defineWrite, getAdGroup, getAdGroups, getCampaign, getCampaigns, getKeywords, getReport, statusLabel, type ToolContext } from './context';
 
 export { bidLabel } from './checks';
 
@@ -324,15 +325,13 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
     name: 'create_campaign',
     kind: 'write',
     description:
-      'Create a new campaign. Search: the campaign only – follow up with create_ad_group, add_keywords and create_responsive_search_ad. Shopping: everything it needs to show products, in one go – the campaign with the Merchant Center store (storeId; found automatically when there is one), an ad group, its product group "Alle produkter" with productBid, and the product ad; split it by item id afterwards with edit_product_groups. Performance Max and Audience need assets/audiences – use microsoft_ads_api for those. New campaigns are created paused when the spending rules say so. The tool reads it all back and reports what Microsoft saved.',
+      `Create a new Search or Shopping campaign (always with an ad language – Danish unless told otherwise). Shopping: uses the Microsoft Merchant Center store (storeId when the customer has more than one) and products sold in Denmark; bid strategy Enhanced CPC or Maximize clicks. (Performance Max and Audience campaigns need asset/audience settings – use microsoft_ads_api for those.)
+The team standard is set in the same card: mobile and tablet -90 %, the standard ad schedule and Denmark with its five regions.
+A campaign shows no ads until it has ad groups: follow up with create_ad_group (Search: then add_keywords and create_responsive_search_ad). If the spending rules say new entities start paused, it is created paused. The tool reads the campaign back and reports what Microsoft actually saved.`,
     schema: z.object({
       name: z.string().min(1).max(128),
-      type: z.enum(['Search', 'Shopping', 'Audience', 'PerformanceMax']).optional().describe('Search (default) or Shopping.'),
-      storeId: z.string().optional().describe('Shopping: the Merchant Center store id – leave out when the account has one store.'),
-      adGroupName: z.string().min(1).max(256).optional().describe('Shopping: the first ad group (default "Alle produkter").'),
-      productBid: z.number().positive().max(1000).optional().describe('Shopping: CPC bid for "Alle produkter" (default the lowest CPC bid rule, else 1).'),
-      salesCountry: z.string().length(2).optional().describe('Shopping: the country products are sold in (default DK).'),
-      priority: z.union([z.literal(0), z.literal(1), z.literal(2)]).optional().describe('Shopping: campaign priority, 0 = low (default), 2 = high.'),
+      type: z.enum(['Search', 'Shopping', 'Audience', 'PerformanceMax']).optional().describe('Search (default) or Shopping – the others are not supported by this tool.'),
+      storeId: z.string().optional().describe('Shopping: the Merchant Center store id – only needed when the customer has more than one store.'),
       dailyBudget: z.number().positive(),
       bidStrategy: bidStrategySchema,
       languages: z.array(z.string()).optional().describe("Ad languages, e.g. ['Danish'] (default) or ['All']"),
@@ -343,9 +342,24 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
     label: (i) => `Opretter kampagne "${i.name}"`,
     async plan(input, ctx) {
       const type = input.type ?? 'Search';
-      if (type === 'Shopping') return planShoppingCampaign(input, ctx);
-      if (type !== 'Search') {
-        throw new Error(`${type}-kampagner kræver aktiver eller målgrupper, som dette værktøj ikke sætter. Opret den med microsoft_ads_api (POST campaign/Campaigns med CampaignType og Settings; slå felterne op med find_api_operation), og læs den tilbage bagefter. Nye kampagner oprettes på pause.`);
+      if (type !== 'Search' && type !== 'Shopping') {
+        throw new Error(`${type}-kampagner kræver ekstra indstillinger (asset groups eller målgrupper), som dette værktøj ikke sætter. Opret den med microsoft_ads_api (slå felterne op med find_api_operation) – med Languages ['Danish'] – og læs den tilbage bagefter. Sæt derefter standarden med set_campaign_targeting (standard: true).`);
+      }
+      // Shopping: the Merchant Center store the products come from (Microsoft: ShoppingSetting.StoreId).
+      let store: { id: string; name: string } | null = null;
+      if (type === 'Shopping') {
+        if (!ctx.backend.listStores) throw new Error('Shopping-kampagner kan ikke oprettes på denne konto.');
+        const stores = await ctx.backend.listStores(ctx.accountId);
+        store = input.storeId ? (stores.find((x) => x.id === input.storeId) ?? null) : stores.length === 1 ? stores[0]! : null;
+        if (!store) {
+          throw new Error(
+            !stores.length
+              ? 'Kunden har ingen Microsoft Merchant Center-butik – opret og forbind butikken i Microsoft Advertising først.'
+              : input.storeId
+                ? `Butikken ${input.storeId} findes ikke. Butikker: ${stores.map((x) => `${x.name} (${x.id})`).join(', ')}.`
+                : `Kunden har flere butikker – spørg hvilken, og kald igen med storeId: ${stores.map((x) => `${x.name} (${x.id})`).join(', ')}.`,
+          );
+        }
       }
       const problem = bidStrategyProblem({ name: input.name, type }, input.bidStrategy);
       if (problem) throw new Error(problem);
@@ -369,7 +383,16 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
       }
       const status = ctx.rules.newEntitiesPaused ? 'Paused' : (input.status ?? 'Paused');
       if (ctx.rules.newEntitiesPaused && input.status === 'Active') notes.push('Oprettes som pauset (forbrugsregel: nye kampagner starter pauset).');
-      notes.push('Kampagnen viser ingen annoncer, før den har en annoncegruppe med søgeord og en godkendt annonce.');
+      notes.push(
+        type === 'Shopping'
+          ? 'Kampagnen viser ingen annoncer, før den har en annoncegruppe (opret dem med create_ad_group – de får "Alle produkter" og en produktannonce).'
+          : 'Kampagnen viser ingen annoncer, før den har en annoncegruppe med søgeord og en godkendt annonce.',
+      );
+      const languages = input.languages?.length ? input.languages : ['Danish'];
+      // The team standard, set right after the campaign is created.
+      const wanted = standardFor({ devices: [], schedule: [], locations: [] });
+      const targeting = await planTargeting(ctx, wanted, { devices: [], schedule: [], locations: [] }, 'Kampagne · ');
+      notes.push(...targeting.notes);
       const plan: ChangePlan = {
         kind: 'create',
         title: 'Ny kampagne',
@@ -380,6 +403,9 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
           { entity: 'Kampagne', field: 'dagsbudget', after: input.dailyBudget },
           { entity: 'Kampagne', field: 'budstrategi', after: bidLabel(input.bidStrategy) },
           { entity: 'Kampagne', field: 'status', after: statusLabel(status) },
+          { entity: 'Kampagne', field: 'sprog', after: languages.join(', ') },
+          ...(store ? [{ entity: 'Kampagne', field: 'butik', after: `${store.name} (${store.id}) · Danmark` }] : []),
+          ...targeting.lines,
         ],
         dailyBudgetDelta: status === 'Active' ? input.dailyBudget : 0,
         increasesSpend: status === 'Active',
@@ -397,8 +423,9 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
             type,
             dailyBudget: input.dailyBudget,
             bidStrategy: input.bidStrategy,
-            languages: input.languages?.length ? input.languages : ['Danish'],
+            languages,
             status,
+            ...(store ? { shopping: { storeId: store.id, salesCountryCode: 'DK' } } : {}),
           });
           const id = res.ids?.[0];
           fresh(ctx);
@@ -408,10 +435,20 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
             { line: plan.changes[2]!, index: 0, verify: (s) => (near(find(s)?.dailyBudget, input.dailyBudget) ? null : money(find(s)?.dailyBudget, ctx.currency)) },
             { line: plan.changes[3]!, index: 0, verify: (s) => (find(s)?.bidStrategy.type === input.bidStrategy.type ? null : bidLabel(find(s)?.bidStrategy)) },
             { line: plan.changes[4]!, index: 0, verify: (s) => (statusMatches(status, find(s)?.status) ? null : statusLabel(find(s)?.status)) },
+            {
+              line: plan.changes[5]!,
+              index: 0,
+              verify: (s) => {
+                const saved = (find(s)?.languages ?? []).map((l) => l.toLowerCase());
+                return languages.every((l) => saved.includes(l.toLowerCase())) ? null : saved.join(', ') || 'intet sprog';
+              },
+            },
+            ...(type === 'Shopping' ? [{ line: plan.changes[1]!, index: 0, verify: (s: Campaign[]) => (find(s)?.type === 'Shopping' ? null : String(find(s)?.type ?? '–')) }] : []),
           ];
           const state = await readBack(() => ctx.backend.listCampaigns(ctx.accountId), checks, failedIndexes(res));
           const v = verify(checks, res, state);
-          return report(v, {
+          const standard = id && find(state) && targeting.lines.length ? await applyTargeting(ctx, id, wanted, targeting) : null;
+          return report(standard ? joinVerified(v, standard) : v, {
             noun: ['felt', 'felter'],
             warnings: notes,
             extra: { campaignId: id, status: find(state)?.status },
@@ -462,63 +499,222 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
   defineWrite({
     name: 'create_ad_group',
     kind: 'write',
-    description:
-      'Create an ad group in a Search campaign. cpcBid is required when the campaign uses Enhanced CPC (without it Microsoft sets the minimum bid and the ad group gets almost no traffic) and is not allowed under automated bid strategies (Microsoft ignores it).',
+    description: `Create one or more ad groups in ONE Search or Shopping campaign – all on one approval card (e.g. nine ad groups with their bids in one call). cpcBid per group is required when bids are used (Enhanced/Manual CPC, and always in Shopping) and is not allowed under automated bid strategies in Search campaigns. The bid is the user's choice: when they haven't given one for a group, ASK them before calling (list the groups missing a bid) – never pick or estimate a bid yourself. Under automated bidding don't ask.
+Shopping: each ad group gets a product ad, and its product groups are "Alle produkter" split by item id – the item ids in \`items\` are bid on with the group's cpcBid, and "alt andet" (everything else) is ALWAYS excluded, so only those items show. Without items nothing shows until item ids are added with edit_product_groups (include). Put the user's item ids for each group in \`items\`.
+When the campaign has no language, each ad group gets Danish (Microsoft requires a language on one of them).
+The team standard is set on the campaign in the same card where it is missing: mobile and tablet -90 %, the standard ad schedule (if the campaign has none) and Denmark with its five regions (if the campaign has no locations).`,
     schema: z.object({
       campaignId: z.string(),
-      name: z.string().min(1).max(256),
-      cpcBid: z.number().positive().optional().describe('Default CPC bid – only for Enhanced/Manual CPC campaigns'),
+      adGroups: z
+        .array(
+          z.object({
+            name: z.string().min(1).max(256),
+            cpcBid: z.number().positive().optional().describe('CPC bid (Shopping: the bid on the item ids, also those added later).'),
+            items: z.array(z.string().min(1).max(100)).max(1000).optional().describe('Shopping: item ids (varenumre) to bid on in this group – everything else is excluded.'),
+          }),
+        )
+        .min(1)
+        .max(50),
       status: onOff.optional().describe('Default Active (the campaign status still applies)'),
+      skipStandardTargeting: z.boolean().optional().describe('true when the user gives their own devices/schedule/locations in the same request (put those in set_campaign_targeting with standard: true) or says the campaign must keep its own.'),
       reason,
     }),
-    label: (i) => `Opretter annoncegruppe "${i.name}"`,
+    label: (i) => (i.adGroups?.length > 1 ? `Opretter ${i.adGroups.length} annoncegrupper` : i.adGroups?.[0]?.name ? `Opretter annoncegruppe "${i.adGroups[0].name}"` : 'Opretter annoncegrupper'),
     async plan(input, ctx) {
       const c = await getCampaign(ctx, input.campaignId);
       if (c.type === 'PerformanceMax') throw new Error(`"${c.name}" er Performance Max – den bruger asset groups, ikke annoncegrupper.`);
+      if (c.type === 'Audience') throw new Error(`"${c.name}" er en Audience-kampagne – opret annoncegrupper til den i Microsoft Advertising.`);
+      const shopping = c.type === 'Shopping';
       const ignored = bidsIgnoredReason(c);
-      if (ignored && input.cpcBid) throw new Error(`Ikke sendt: ${ignored} Opret annoncegruppen uden cpcBid.`);
-      if (!ignored && !input.cpcBid) {
-        throw new Error(`"${c.name}" bruger ${bidLabel(c.bidStrategy)}, så annoncegruppen skal have et CPC-bud – uden bud sætter Microsoft minimumsbuddet, og gruppen får stort set ingen trafik. Find et realistisk bud (fx get_keyword_ideas' foreslåede bud eller kampagnens nuværende CPC).`);
+      for (const g of input.adGroups) {
+        if (!shopping && ignored && g.cpcBid) throw new Error(`Ikke sendt: ${ignored} Opret annoncegrupperne uden cpcBid.`);
+        if ((shopping || !ignored) && !g.cpcBid) {
+          throw new Error(`Ikke sendt: "${g.name}" mangler et CPC-bud, og ${shopping ? 'i Shopping får varenumrene buddet' : `"${c.name}" bruger ${bidLabel(c.bidStrategy)}, så buddet bruges`}. Spørg brugeren om CPC-buddet for ${input.adGroups.filter((x) => !x.cpcBid).map((x) => `"${x.name}"`).join(', ')} – find ikke selv på et bud – og kald så igen med buddene.`);
+        }
+        if (!shopping && g.items?.length) throw new Error(`Varenumre hører til Shopping – "${c.name}" er en ${c.type}-kampagne.`);
+        const dup = (g.items ?? []).map((x) => x.trim().toLowerCase()).find((x, i, all) => all.indexOf(x) !== i);
+        if (dup) throw new Error(`Varenummeret ${dup} står flere gange i "${g.name}".`);
       }
+      const names = input.adGroups.map((g) => g.name.trim().toLowerCase());
+      const twice = names.filter((n, i) => names.indexOf(n) !== i);
+      if (twice.length) throw new Error(`Navnet "${twice[0]}" står flere gange.`);
       const groups = await getAdGroups(ctx, c.id);
-      if (groups.some((g) => g.name.toLowerCase() === input.name.toLowerCase())) throw new Error(`Der findes allerede en annoncegruppe med navnet "${input.name}" i "${c.name}".`);
+      const taken = input.adGroups.filter((g) => groups.some((x) => x.name.toLowerCase() === g.name.trim().toLowerCase()));
+      if (taken.length) throw new Error(`Der findes allerede annoncegrupper med navnet ${taken.map((g) => `"${g.name}"`).join(', ')} i "${c.name}".`);
       // New ad groups in a running campaign start paused when the rule is on.
       const status = ctx.rules.newEntitiesPaused && isActive(c.status) ? 'Paused' : (input.status ?? 'Active');
-      const notes = [...(await servingBlockers(ctx, c)), 'Annoncegruppen viser først annoncer, når den har søgeord og en godkendt annonce.'];
-      const lines: ChangeLine[] = [
-        { entity: 'Annoncegruppe', field: 'kampagne', after: c.name },
-        { entity: 'Annoncegruppe', field: 'Navn', after: input.name, edit: { path: ['name'], maxLength: 256 } },
-        { entity: 'Annoncegruppe', field: 'status', after: statusLabel(status) },
-        ...(input.cpcBid ? [{ entity: 'Annoncegruppe', field: 'CPC-bud', after: input.cpcBid, edit: { path: ['cpcBid'], kind: 'money' as const } }] : []),
-      ];
+      // Microsoft needs a language on the campaign or on each ad group (CampaignServiceMissingLanguage).
+      const language = c.languages?.length ? undefined : 'Danish';
+      const notes = [...(await servingBlockers(ctx, c))];
+      if (language) notes.push('Kampagnen har intet sprog, så annoncegrupperne får sproget dansk.');
+      notes.push(
+        shopping
+          ? 'Hver annoncegruppe får en produktannonce, og "Alle produkter" deles op: de angivne varenumre får buddet, og "alt andet" udelukkes – så vises kun de varenumre.'
+          : 'Annoncegrupperne viser først annoncer, når de har søgeord og en godkendt annonce.',
+      );
+      if (status === 'Paused' && input.status !== 'Paused') notes.push('Oprettes på pause (forbrugsregel: nye ting starter på pause).');
+
+      const lines: ChangeLine[] = [];
+      const rows = input.adGroups.map((g, i) => {
+        const name = lines.push({ entity: 'Annoncegruppe', field: 'Annoncegruppe', after: g.name, edit: { path: ['adGroups', i, 'name'], maxLength: 256 } }) - 1;
+        const bid = g.cpcBid ? lines.push({ entity: 'Annoncegruppe', field: `${shopping ? 'Bud på varenumre' : 'CPC-bud'} · ${g.name}`, after: g.cpcBid, edit: { path: ['adGroups', i, 'cpcBid'], kind: 'money' as const } }) - 1 : null;
+        const items = (g.items ?? []).map((x) => x.trim()).filter(Boolean);
+        const products = shopping
+          ? lines.push({
+              entity: 'Annoncegruppe',
+              field: `Produktgrupper · ${g.name}`,
+              after: items.length
+                ? `${items.length === 1 ? `Varenummer ${items[0]}` : `${items.length} varenumre (${items.slice(0, 5).join(', ')}${items.length > 5 ? ' …' : ''})`} · alt andet udelukket`
+                : 'Alle produkter udelukket – tilføj varenumre bagefter',
+            }) - 1
+          : null;
+        return { name, bid, products, items };
+      });
+
+      // The team standard on the campaign, where it is missing.
+      const current = input.skipStandardTargeting ? null : await readTargets(ctx, c.id).catch(() => null);
+      const wanted = current ? standardFor(current) : {};
+      const targeting = current ? await planTargeting(ctx, wanted, current, 'Kampagne · ') : { lines: [], notes: [], places: [] };
+      lines.push(...targeting.lines);
+      notes.push(...targeting.notes);
+
       return {
         plan: {
           kind: 'create',
-          title: 'Ny annoncegruppe',
+          title: input.adGroups.length > 1 ? `${input.adGroups.length} nye annoncegrupper · ${c.name}` : `Ny annoncegruppe · ${c.name}`,
           reason: input.reason,
           changes: lines,
           dailyBudgetDelta: 0,
           increasesSpend: isActive(c.status) && status === 'Active',
           campaignIds: [c.id],
-          newBids: input.cpcBid ? [input.cpcBid] : [],
+          newBids: input.adGroups.flatMap((g) => (g.cpcBid ? [g.cpcBid] : [])),
           notes,
         },
         execute: async () => {
-          const res = await ctx.backend.createAdGroup(ctx.accountId, { campaignId: c.id, name: input.name, cpcBid: input.cpcBid, status });
-          const id = res.ids?.[0];
+          const failed: ItemError[] = [];
+          const created = new Map<number, string>();
+          const productAds = new Set<string>();
+          for (const [i, g] of input.adGroups.entries()) {
+            const row = rows[i]!;
+            let id: string | undefined;
+            try {
+              // Shopping: the ad group bid is only a fallback – "Alle produkter" carries the real one.
+              const res = await ctx.backend.createAdGroup(ctx.accountId, { campaignId: c.id, name: g.name, cpcBid: shopping || !ignored ? g.cpcBid : undefined, status, language });
+              id = res.ids?.[0];
+              if (!id) throw new Error(res.failed?.[0]?.message ?? 'Microsoft Advertising returnerede intet id.');
+            } catch (e) {
+              const message = e instanceof Error ? e.message : String(e);
+              failed.push({ index: row.name, message }, ...(row.bid !== null ? [{ index: row.bid, message }] : []));
+              continue;
+            }
+            created.set(i, id);
+            if (!shopping) continue;
+            if (ctx.backend.applyProductPartitionActions) {
+              // Microsoft's root must stay biddable: "Alle produkter" is split by item id – the items bid on, "alt andet" excluded.
+              try {
+                await ctx.backend.applyProductPartitionActions(ctx.accountId, [
+                  { action: 'Add', adGroupId: id, tempId: -1, parentId: null, kind: 'subdivision', operand: 'All', attribute: null, excluded: false },
+                  ...row.items.map((item) => ({ action: 'Add' as const, adGroupId: id, parentId: -1, kind: 'unit' as const, operand: 'Id', attribute: item, excluded: false, bid: g.cpcBid ?? null })),
+                  { action: 'Add', adGroupId: id, parentId: -1, kind: 'unit', operand: 'Id', attribute: null, excluded: true },
+                ]);
+              } catch (e) {
+                if (row.products !== null) failed.push({ index: row.products, message: e instanceof Error ? e.message : String(e) });
+              }
+            }
+            if (ctx.backend.createProductAd) {
+              try {
+                const ad = await ctx.backend.createProductAd(ctx.accountId, id);
+                if (ad.ids?.[0]) productAds.add(id);
+                else failed.push({ index: row.name, message: `Produktannoncen: ${ad.failed?.[0]?.message ?? 'intet id'}` });
+              } catch (e) {
+                failed.push({ index: row.name, message: `Produktannoncen: ${e instanceof Error ? e.message : String(e)}` });
+              }
+            }
+          }
           fresh(ctx);
-          const find = (s: AdGroup[]) => s.find((g) => g.id === id);
-          const checks: LineCheck<AdGroup[]>[] = [
-            { line: lines[1]!, index: 0, verify: (s) => (find(s) ? null : 'annoncegruppen blev ikke fundet ved genlæsning') },
-            { line: lines[2]!, index: 0, verify: (s) => (statusMatches(status, find(s)?.status) ? null : statusLabel(find(s)?.status)) },
-            ...(input.cpcBid ? [{ line: lines[3]!, index: 0, verify: (s: AdGroup[]) => (near(find(s)?.cpcBid, input.cpcBid) ? null : money(find(s)?.cpcBid, ctx.currency)) }] : []),
-          ];
-          const state = await readBack(() => ctx.backend.listAdGroups(ctx.accountId, c.id), checks, failedIndexes(res));
-          return report(verify(checks, res, state), {
+          interface State {
+            groups: AdGroup[];
+            trees: Map<string, ProductTreeNode[]>;
+            ads: Map<string, boolean>;
+          }
+          const read = async (): Promise<State> => {
+            const groups = await ctx.backend.listAdGroups(ctx.accountId, c.id);
+            const trees = new Map<string, ProductTreeNode[]>();
+            const ads = new Map<string, boolean>();
+            if (shopping) {
+              for (const [i, id] of created) {
+                const name = input.adGroups[i]!.name;
+                if (ctx.backend.listProductPartitions) trees.set(id, await ctx.backend.listProductPartitions(ctx.accountId, id, name).catch(() => []));
+                if (ctx.backend.createProductAd) ads.set(id, (await ctx.backend.listAds(ctx.accountId, id).catch(() => [])).some((a) => a.type === 'Product'));
+              }
+            }
+            return { groups, trees, ads };
+          };
+          const checks: LineCheck<State>[] = input.adGroups.flatMap((g, i) => {
+            const row = rows[i]!;
+            const find = (s: State) => s.groups.find((x) => x.id === created.get(i));
+            const out: LineCheck<State>[] = [
+              {
+                line: lines[row.name]!,
+                index: row.name,
+                verify: (s) => {
+                  const found = find(s);
+                  if (!found) return 'annoncegruppen blev ikke fundet ved genlæsning';
+                  if (!statusMatches(status, found.status)) return statusLabel(found.status);
+                  if (shopping && ctx.backend.createProductAd && !s.ads.get(found.id)) return 'ingen produktannonce';
+                  return null;
+                },
+              },
+            ];
+            if (row.bid !== null) {
+              out.push({
+                line: lines[row.bid]!,
+                index: row.bid,
+                verify: (s) => {
+                  const found = find(s);
+                  if (!found) return 'annoncegruppen findes ikke';
+                  if (shopping && ctx.backend.listProductPartitions && row.items.length) {
+                    const units = (s.trees.get(found.id) ?? []).filter((n) => n.parentId && !n.excluded && n.attribute);
+                    const off = units.find((n) => !near(n.bid, g.cpcBid));
+                    return off ? `${off.attribute}: ${money(off.bid, ctx.currency)}` : null;
+                  }
+                  return near(found.cpcBid, g.cpcBid) ? null : money(found.cpcBid, ctx.currency);
+                },
+              });
+            }
+            if (row.products !== null && ctx.backend.listProductPartitions) {
+              out.push({
+                line: lines[row.products]!,
+                index: row.products,
+                verify: (s) => {
+                  const found = find(s);
+                  if (!found) return 'annoncegruppen findes ikke';
+                  const tree = s.trees.get(found.id) ?? [];
+                  const root = tree.find((n) => !n.parentId);
+                  if (!root) return 'ingen produktgrupper';
+                  if (root.unit) return root.excluded ? 'Alle produkter udelukket' : 'byder på alle produkter';
+                  const children = tree.filter((n) => n.parentId === root.id);
+                  const other = children.find((n) => !n.attribute);
+                  if (!other?.excluded) return 'alt andet bydes på';
+                  const shown = new Set(children.filter((n) => n.attribute && !n.excluded).map((n) => n.attribute.toLowerCase()));
+                  const missing = row.items.filter((x) => !shown.has(x.toLowerCase()));
+                  return missing.length ? `mangler ${missing.slice(0, 5).join(', ')}` : null;
+                },
+              });
+            }
+            return out;
+          });
+          const res = { ids: [...created.values()], failed };
+          const state = await readBack(read, checks, failedIndexes(res));
+          const verified = verify(checks, res, state);
+          // The campaign's standard targeting once the ad groups are there.
+          const standard = created.size && targeting.lines.length ? await applyTargeting(ctx, c.id, wanted, targeting) : null;
+          const ids = [...created.values()];
+          return report(standard ? joinVerified(verified, standard) : verified, {
             noun: ['felt', 'felter'],
             warnings: notes,
-            extra: { adGroupId: id },
-            undo: id ? { tool: 'update_ad_groups', input: { campaignId: c.id, changes: [{ adGroupId: id, status: 'Paused' }], reason: 'Fortryd: sæt ny annoncegruppe på pause' } } : undefined,
+            extra: { adGroupIds: Object.fromEntries([...created].map(([i, id]) => [input.adGroups[i]!.name, id])) },
+            undo: ids.length ? { tool: 'update_ad_groups', input: { campaignId: c.id, changes: ids.map((adGroupId) => ({ adGroupId, status: 'Paused' })), reason: 'Fortryd: sæt de nye annoncegrupper på pause' } } : undefined,
           });
         },
       };
@@ -1358,6 +1554,17 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
             : 'Produktgrupper ændres ikke med det direkte API. Brug edit_product_groups (bestemte varenumre i én annoncegruppe) eller match_product_groups_to_google (som i Google) – sendt samlet pr. annoncegruppe og læst tilbage. Performance Max-listinggrupper også med edit_product_groups (asset group).',
         );
       }
+      // Devices, ad schedule and locations have their own tool (Microsoft's "Targets" rules: all three devices at once, no overlaps …).
+      const criterionBody = JSON.stringify(input.body ?? {});
+      if (!readOnly && /^(Campaign|AdGroup)Criterions$/i.test(path) && /DeviceCriterion|DayTimeCriterion|"LocationCriterion"|"(Device|DayTime)"/i.test(criterionBody)) {
+        throw new Error('Enheder, tidsplan og lokationer sættes med set_campaign_targeting – ikke med det direkte API. Det sender dem i Microsofts format (CriterionType "Targets", alle tre enheder samlet) og læser dem tilbage.');
+      }
+      if (!readOnly && input.method === 'POST' && /^AdGroups$/i.test(path)) {
+        throw new Error('Annoncegrupper oprettes med create_ad_group (også flere på én gang og i Shopping, hvor de får "Alle produkter" og en produktannonce) – ikke med det direkte API.');
+      }
+      if (!readOnly && input.method === 'POST' && /^Campaigns$/i.test(path) && /"CampaignType"\s*:\s*"(Search|Shopping)"/i.test(criterionBody)) {
+        throw new Error('Søge- og Shopping-kampagner oprettes med create_campaign (med sprog, butik og teamets standard for enheder, tidsplan og lokationer) – ikke med det direkte API.');
+      }
       // A read without the ids/types Microsoft requires only comes back as an error ("The request message is null").
       const missingKeys = missing.filter((m) => /(Id|Ids|Type)$/.test(m));
       if (readOnly && missingKeys.length)
@@ -1411,116 +1618,6 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
   }),
 ];
 
-/**
- * A Shopping campaign that can show products: the campaign on its Merchant Center store, an
- * ad group, its product group "Alle produkter" with a bid, and the product ad – each step read
- * back. A step that fails is reported with what was made before it.
- */
-async function planShoppingCampaign(
-  input: { name: string; dailyBudget: number; bidStrategy: BidStrategy; languages?: string[]; status?: 'Active' | 'Paused'; storeId?: string; adGroupName?: string; productBid?: number; salesCountry?: string; priority?: 0 | 1 | 2; reason: string },
-  ctx: ToolContext,
-): Promise<PlannedChange> {
-  const b = ctx.backend;
-  if (!b.listStores || !b.createProductAd || !b.applyProductPartitionActions || !b.listProductPartitions)
-    throw new Error('Shopping-kampagner kan kun oprettes på den rigtige Microsoft-konto (ikke demo).');
-  const problem = bidStrategyProblem({ name: input.name, type: 'Shopping' }, input.bidStrategy);
-  if (problem) throw new Error(problem);
-  const campaigns = await getCampaigns(ctx);
-  if (campaigns.some((c) => c.name.toLowerCase() === input.name.toLowerCase())) throw new Error(`Der findes allerede en kampagne med navnet "${input.name}" – Microsoft tillader ikke to med samme navn.`);
-  const stores = await b.listStores(ctx.accountId);
-  const store = input.storeId ? stores.find((x) => x.id === String(input.storeId)) : stores.length === 1 ? stores[0] : undefined;
-  if (!store)
-    throw new Error(
-      stores.length
-        ? `Vælg butikken (storeId): ${stores.map((x) => `"${x.name}" (${x.id})`).join(', ')}.`
-        : 'Kontoen har ingen aktiv Microsoft Merchant Center-butik – Shopping-kampagner kræver en butik med produktfeed.',
-    );
-  const bid = input.productBid ?? ctx.rules.minCpcBid ?? 1;
-  const adGroupName = input.adGroupName ?? 'Alle produkter';
-  const status = ctx.rules.newEntitiesPaused ? 'Paused' : (input.status ?? 'Paused');
-  const notes = [
-    ...(ctx.rules.newEntitiesPaused && input.status === 'Active' ? ['Oprettes som pauset (forbrugsregel: nye kampagner starter pauset).'] : []),
-    'Annoncegruppen byder på alle produkter i butikken. Del den op efter varenummer bagefter (edit_product_groups), hvis nogle skal have andre bud eller udelukkes.',
-  ];
-  const plan: ChangePlan = {
-    kind: 'create',
-    title: 'Ny Shopping-kampagne',
-    reason: input.reason,
-    changes: [
-      { entity: 'Kampagne', field: 'Kampagnenavn', after: input.name, edit: { path: ['name'], maxLength: 128 } },
-      { entity: 'Kampagne', field: 'type', after: 'Shopping' },
-      { entity: 'Kampagne', field: 'butik', after: `${store.name} (${store.id}) · ${input.salesCountry ?? 'DK'}` },
-      { entity: 'Kampagne', field: 'dagsbudget', after: input.dailyBudget },
-      { entity: 'Kampagne', field: 'budstrategi', after: bidLabel(input.bidStrategy) },
-      { entity: 'Kampagne', field: 'status', after: statusLabel(status) },
-      { entity: 'Annoncegruppe', field: 'Annoncegruppe', after: adGroupName, edit: { path: ['adGroupName'], maxLength: 256 } },
-      { entity: 'Produktgruppe', field: 'Alle produkter · bud', after: bid, edit: { path: ['productBid'], kind: 'money' } },
-      { entity: 'Annonce', field: 'Produktannonce', after: 'Viser produkterne fra butikken' },
-    ],
-    dailyBudgetDelta: status === 'Active' ? input.dailyBudget : 0,
-    increasesSpend: status === 'Active',
-    campaignIds: [],
-    newDailyBudgets: [input.dailyBudget],
-    newBids: [bid],
-    notes,
-  };
-  return {
-    plan,
-    execute: async () => {
-      const done: string[] = [];
-      const steps = async () => {
-        const res = await b.createCampaign(ctx.accountId, {
-          name: input.name,
-          type: 'Shopping',
-          dailyBudget: input.dailyBudget,
-          bidStrategy: input.bidStrategy,
-          languages: input.languages?.length ? input.languages : ['Danish'],
-          status,
-          shopping: { storeId: store.id, salesCountry: (input.salesCountry ?? 'DK').toUpperCase(), priority: input.priority ?? 0 },
-        });
-        const campaignId = res.ids?.[0];
-        if (!campaignId) throw new Error('Microsoft oprettede ikke kampagnen.');
-        done.push(`kampagnen (id ${campaignId})`);
-        fresh(ctx);
-        const ag = await b.createAdGroup(ctx.accountId, { campaignId, name: adGroupName, cpcBid: bid, status: 'Active' });
-        const adGroupId = ag.ids?.[0];
-        if (!adGroupId) throw new Error('Microsoft oprettede ikke annoncegruppen.');
-        done.push(`annoncegruppen "${adGroupName}"`);
-        await b.applyProductPartitionActions!(ctx.accountId, [{ action: 'Add', adGroupId, parentId: null, kind: 'unit', operand: 'All', attribute: null, excluded: false, bid }]);
-        done.push('produktgruppen "Alle produkter"');
-        await b.createProductAd!(ctx.accountId, adGroupId);
-        done.push('produktannoncen');
-        return { campaignId, adGroupId };
-      };
-      let ids: { campaignId: string; adGroupId: string } | null = null;
-      let failure = '';
-      try {
-        ids = await steps();
-      } catch (e) {
-        failure = e instanceof Error ? e.message : String(e);
-      }
-      // What Microsoft shows afterwards.
-      const campaign = (await b.listCampaigns(ctx.accountId)).find((c) => c.name.toLowerCase() === input.name.toLowerCase());
-      const tree = ids ? await b.listProductPartitions!(ctx.accountId, ids.adGroupId, adGroupName).catch(() => []) : [];
-      const confirmed = !!campaign && !!ids && tree.length > 0 && !failure;
-      return {
-        result: {
-          outcome: confirmed ? 'confirmed' : done.length ? 'partial' : 'failed',
-          made: done,
-          ...(failure ? { failedAt: failure } : {}),
-          campaignId: campaign?.id ?? ids?.campaignId,
-          adGroupId: ids?.adGroupId,
-          status: campaign?.status,
-          instruction: confirmed
-            ? 'Microsoft confirms the campaign, ad group, product group and product ad. It is paused – say so, and suggest splitting the products by item id or adding negatives next.'
-            : 'Tell the user exactly what was made and what failed (and why). Do not create the campaign again – finish the missing step instead.',
-        },
-        summary: confirmed ? `Shopping-kampagnen "${input.name}" er oprettet (${statusLabel(campaign!.status)})` : `Delvist oprettet: ${done.join(', ') || 'intet'}`,
-        undo: campaign ? { tool: 'update_campaigns', input: { changes: [{ campaignId: campaign.id, status: 'Paused' }], reason: 'Fortryd: sæt ny kampagne på pause' } } : undefined,
-      };
-    },
-  };
-}
 
 /** Errors in a raw write response, and whether nothing at all went through. */
 export function rawErrors(result: unknown): { messages: string[]; allFailed: boolean } {

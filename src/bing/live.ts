@@ -17,6 +17,13 @@ import type {
   AdPatch,
   AdsBackend,
   AuctionCompetitor,
+  CampaignTargets,
+  DeviceName,
+  GeoLocation,
+  MerchantStore,
+  TargetChanges,
+  TargetCriterion,
+  WeekDay,
   BidStrategy,
   BudgetOpportunity,
   Campaign,
@@ -43,7 +50,6 @@ import type {
   ReportSpec,
   SearchVolume,
   ShownProduct,
-  MerchantStore,
 } from './types';
 import { extractFirstFile } from './zip';
 import { CampaignCache, type CampaignStore } from './campaignCache';
@@ -209,7 +215,7 @@ export class LiveBackend implements AdsBackend {
   readonly mode = 'live' as const;
   private readonly client: MsAdsClient;
   private accounts: Account[] | null = null;
-  private geo: Promise<Map<string, string>> | null = null;
+  private geo: Promise<GeoLocation[]> | null = null;
 
   private readonly campaignCache: CampaignCache | null;
 
@@ -491,26 +497,11 @@ export class LiveBackend implements AdsBackend {
           Status: spec.status,
           TimeZone: spec.timeZone ?? 'BrusselsCopenhagenMadridParis',
           BiddingScheme: fromBidStrategy(spec.bidStrategy),
-          ...(spec.shopping
-            ? { Settings: [{ Type: 'ShoppingSetting', StoreId: Number(spec.shopping.storeId), SalesCountryCode: spec.shopping.salesCountry, Priority: spec.shopping.priority }] }
-            : {}),
+          ...(spec.shopping ? { Settings: [{ Type: 'ShoppingSetting', StoreId: Number(spec.shopping.storeId), Priority: 0, SalesCountryCode: spec.shopping.salesCountryCode }] } : {}),
         },
       ],
     });
     return batchResult(res, 1, 'CampaignIds');
-  }
-
-  /** GetBMCStoresByCustomerId – the stores with a catalogue. */
-  async listStores(accountId: string): Promise<MerchantStore[]> {
-    const ctx = await this.ctx(accountId);
-    const res = await this.client.call<{ BMCStores?: Json[] | null }>('campaign', 'BMCStores/QueryByCustomerId', { body: {}, ...ctx });
-    return (res.BMCStores ?? []).filter((s) => s.IsActive !== false).map((s) => ({ id: str(s.Id), name: str(s.Name) || str(s.Id) }));
-  }
-
-  /** AddAds with a ProductAd – a Shopping ad group needs one to show its products. */
-  async createProductAd(accountId: string, adGroupId: string): Promise<MutationResult> {
-    const res = await this.cm(accountId, 'Ads', 'POST', { AdGroupId: Number(adGroupId), Ads: [{ Type: 'Product' }] });
-    return batchResult(res, 1, 'AdIds');
   }
 
   async deleteCampaigns(accountId: string, campaignIds: string[]): Promise<MutationResult> {
@@ -521,6 +512,7 @@ export class LiveBackend implements AdsBackend {
   async createAdGroup(accountId: string, spec: NewAdGroup): Promise<MutationResult> {
     const group: Json = { Name: spec.name, Status: spec.status };
     if (spec.cpcBid) group.CpcBid = { Amount: spec.cpcBid };
+    if (spec.language) group.Language = spec.language;
     const res = await this.cm(accountId, 'AdGroups', 'POST', { CampaignId: Number(spec.campaignId), AdGroups: [group] });
     return batchResult(res, 1, 'AdGroupIds');
   }
@@ -584,6 +576,89 @@ export class LiveBackend implements AdsBackend {
       EntityNegativeKeywords: [{ EntityId: Number(entityId), EntityType: entityType, NegativeKeywords: ids.map((id) => ({ Type: 'NegativeKeyword', Id: Number(id) })) }],
     });
     return batchResult(res, ids.length);
+  }
+
+  async createProductAd(accountId: string, adGroupId: string): Promise<MutationResult> {
+    const res = await this.cm(accountId, 'Ads', 'POST', { AdGroupId: Number(adGroupId), Ads: [{ Type: 'Product', Status: 'Active' }] });
+    return batchResult(res, 1, 'AdIds');
+  }
+
+  async listStores(accountId: string): Promise<MerchantStore[]> {
+    const res = await this.client.call<{ BMCStores?: Json[] | null }>('campaign', 'BMCStores/QueryByCustomerId', { body: {}, ...(await this.ctx(accountId)) });
+    return (res.BMCStores ?? []).filter((s) => s.IsActive !== false).map((s) => ({ id: str(s.Id), name: str(s.Name) || str(s.Id) }));
+  }
+
+  async getCampaignTargets(accountId: string, campaignId: string): Promise<CampaignTargets> {
+    // Target criterions are read one type at a time ("Targets" is only for add/update/delete).
+    const get = async (type: string) =>
+      arr<Json>((await this.cm<Json>(accountId, 'CampaignCriterions/QueryByIds', 'POST', { CampaignCriterionIds: null, CampaignId: Number(campaignId), CriterionType: type })).CampaignCriterions);
+    const [devices, schedule, locations] = await Promise.all([get('Device'), get('DayTime'), get('Location')]);
+    const multiplier = (c: Json) => Number(((c.CriterionBid ?? {}) as Json).Multiplier ?? 0);
+    const criterion = (c: Json) => (c.Criterion ?? {}) as Json;
+    return {
+      devices: devices
+        .filter((c) => str(c.Type) !== 'NegativeCampaignCriterion')
+        .map((c) => ({ id: str(c.Id), device: str(criterion(c).DeviceName) as DeviceName, adjustment: multiplier(c) })),
+      schedule: schedule.map((c) => {
+        const t = criterion(c);
+        return { id: str(c.Id), day: str(t.Day) as WeekDay, from: Number(t.FromHour ?? 0), to: Number(t.ToHour ?? 0), adjustment: multiplier(c) };
+      }),
+      locations: locations
+        .filter((c) => str(c.Type) !== 'NegativeCampaignCriterion')
+        .map((c) => ({ id: str(c.Id), locationId: str(criterion(c).LocationId), name: str(criterion(c).DisplayName), adjustment: multiplier(c) })),
+    };
+  }
+
+  async applyCampaignTargets(accountId: string, campaignId: string, changes: TargetChanges): Promise<MutationResult> {
+    const cid = Number(campaignId);
+    const json = (t: TargetCriterion, id?: string): Json => ({
+      Type: 'BiddableCampaignCriterion',
+      CampaignId: cid,
+      ...(id ? { Id: Number(id) } : {}),
+      Criterion:
+        t.kind === 'device'
+          ? { Type: 'DeviceCriterion', DeviceName: t.device }
+          : t.kind === 'schedule'
+            ? { Type: 'DayTimeCriterion', Day: t.day, FromHour: t.from, FromMinute: 'Zero', ToHour: t.to, ToMinute: 'Zero' }
+            : { Type: 'LocationCriterion', LocationId: Number(t.locationId) },
+      CriterionBid: { Type: 'BidMultiplier', Multiplier: t.adjustment },
+    });
+    const failed: ItemError[] = [];
+    const ids: string[] = [];
+    const chunks = <T>(list: T[]) => Array.from({ length: Math.ceil(list.length / 100) }, (_, i) => list.slice(i * 100, i * 100 + 100));
+    // Deletes first, so a replaced schedule block never overlaps its successor; then updates, then additions.
+    for (const part of chunks(changes.delete)) {
+      const res = await this.cm(accountId, 'CampaignCriterions', 'DELETE', { CampaignCriterionIds: part.map(Number), CampaignId: cid, CriterionType: 'Targets' });
+      failed.push(...(batchResult(res, part.length).failed ?? []).map((f) => ({ ...f, index: null, message: `Fjernelse: ${f.message}` })));
+    }
+    let offset = 0;
+    for (const part of chunks(changes.update)) {
+      const res = await this.cm(accountId, 'CampaignCriterions', 'PUT', { CampaignCriterions: part.map((u) => json(u, u.id)), CriterionType: 'Targets' });
+      failed.push(...(batchResult(res, part.length).failed ?? []).map((f) => ({ ...f, index: f.index === null ? null : f.index + offset })));
+      offset += part.length;
+    }
+    offset = changes.update.length;
+    for (const part of chunks(changes.add)) {
+      const res = await this.cm(accountId, 'CampaignCriterions', 'POST', { CampaignCriterions: part.map((a) => json(a)), CriterionType: 'Targets' });
+      const r = batchResult(res, part.length, 'CampaignCriterionIds');
+      ids.push(...(r.ids ?? []));
+      failed.push(...(r.failed ?? []).map((f) => ({ ...f, index: f.index === null ? null : f.index + offset })));
+      offset += part.length;
+    }
+    return { ids, failed };
+  }
+
+  async findLocations(accountId: string, names: string[]): Promise<GeoLocation[]> {
+    const rows = await this.geoRows(accountId);
+    const out: GeoLocation[] = [];
+    for (const name of names) {
+      const n = name.trim().toLowerCase();
+      // "Region Zealand|Denmark": the most specific part first; countries before states.
+      const hits = rows.filter((r) => r.name.toLowerCase() === n || r.name.split('|')[0]!.trim().toLowerCase() === n);
+      const best = hits.find((r) => r.type === 'Country') ?? hits.find((r) => r.type === 'State') ?? hits[0];
+      if (best) out.push(best);
+    }
+    return out;
   }
 
   async createResponsiveSearchAd(accountId: string, adGroupId: string, ad: NewResponsiveSearchAd): Promise<MutationResult> {
@@ -742,15 +817,15 @@ export class LiveBackend implements AdsBackend {
   }
 
   /**
-   * Country name (English, lower case) → Microsoft location id, from Microsoft's
-   * geographical locations file (GetGeoLocationsFileUrl). Location ids are not published
-   * anywhere else, so they are never hard-coded. Cached on this PC.
+   * Countries and regions (states) from Microsoft's geographical locations file
+   * (GetGeoLocationsFileUrl). Location ids are not published anywhere else, so they are
+   * never hard-coded. Cached on this PC.
    */
-  private async countryIds(accountId: string): Promise<Map<string, string>> {
-    const KEY = 'bac.ms-country-ids';
+  private async geoRows(accountId: string): Promise<GeoLocation[]> {
+    const KEY = 'bac.ms-geo-locations';
     try {
-      const cached = JSON.parse(localStorage.getItem(KEY) ?? 'null') as { at: number; ids: Record<string, string> } | null;
-      if (cached && Date.now() - cached.at < 30 * 86_400_000) return new Map(Object.entries(cached.ids));
+      const cached = JSON.parse(localStorage.getItem(KEY) ?? 'null') as { at: number; rows: [string, string, string][] } | null;
+      if (cached && Date.now() - cached.at < 30 * 86_400_000) return cached.rows.map(([locationId, type, name]) => ({ locationId, type, name }));
     } catch {
       /* no cache */
     }
@@ -758,22 +833,25 @@ export class LiveBackend implements AdsBackend {
       const res = await this.cm<Json>(accountId, 'GeoLocationsFileUrl/Query', 'POST', { Version: '2.0', LanguageLocale: 'en' });
       const url = str(res.FileUrl);
       if (!url) throw new Error('Microsoft Advertising sendte ikke lokationsfilen.');
-      const rows = parseCsv(new TextDecoder().decode(await this.client.download(url)));
-      const ids: Record<string, string> = {};
-      for (const r of rows) {
-        if (r['Location Type'] === 'Country' && r['Status'] !== 'Deprecated' && r['Location Id']) ids[(r['Bing Display Name'] ?? '').toLowerCase()] = r['Location Id'];
-      }
+      const rows = parseCsv(new TextDecoder().decode(await this.client.download(url)))
+        .filter((r) => (r['Location Type'] === 'Country' || r['Location Type'] === 'State') && r['Status'] !== 'Deprecated' && r['Location Id'])
+        .map((r) => ({ locationId: r['Location Id']!, type: r['Location Type']!, name: r['Bing Display Name'] ?? '' }));
       try {
-        localStorage.setItem(KEY, JSON.stringify({ at: Date.now(), ids }));
+        localStorage.setItem(KEY, JSON.stringify({ at: Date.now(), rows: rows.map((r) => [r.locationId, r.type, r.name]) }));
       } catch {
         /* storage full or unavailable */
       }
-      return new Map(Object.entries(ids));
+      return rows;
     })().catch((e: unknown) => {
       this.geo = null;
       throw e;
     });
     return this.geo;
+  }
+
+  /** Country name (English, lower case) → Microsoft location id. */
+  private async countryIds(accountId: string): Promise<Map<string, string>> {
+    return new Map((await this.geoRows(accountId)).filter((r) => r.type === 'Country').map((r) => [r.name.toLowerCase(), r.locationId]));
   }
 
   async keywordIdeas(accountId: string, input: { queries: string[]; url?: string; language?: string; location?: string; limit?: number }): Promise<KeywordIdea[]> {

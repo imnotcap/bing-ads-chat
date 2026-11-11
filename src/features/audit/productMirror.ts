@@ -63,6 +63,8 @@ export interface MirrorRow {
 }
 
 export interface MirrorGroup {
+  /** The user asked to exclude "Alle produkter" / "alt andet" itself (edit_product_groups) – only then may a group be left with no item bid on. */
+  excludeAll?: boolean;
   googleGroup: string;
   bingGroup: string | null;
   bingAdGroupId: string | null;
@@ -259,6 +261,11 @@ export interface EditRequest {
   setBid?: string[];
   /** Performance Max: listing groups without bids. */
   noBids?: boolean;
+  /**
+   * "Alle produkter" / "alt andet": exclude = nothing shows but the item ids bid on (Microsoft's root
+   * must stay biddable, so "Alle produkter" is split with only "alt andet" – excluded); bid = bid on it again.
+   */
+  everythingElse?: 'exclude' | 'bid';
 }
 
 /**
@@ -334,9 +341,18 @@ export function planEdit(nodes: DListingNode[], group: { id: string; name: strin
         else rows.push(row('rebid', there.raw || id, `Bud på ${there.raw || id}: ${there.bid ?? '–'} → ${req.bid}`, there));
       }
   }
+  if (req.everythingElse === 'exclude') {
+    if (b.kind === 'ids') {
+      if (b.other.excluded) notes.push('"Alt andet" er allerede udelukket.');
+      else rows.push(row('else_exclude', '', 'Udeluk "alt andet" – kun varenumre med eget bud vises', b.other));
+    } else rows.push(row('else_exclude', '', 'Udeluk "Alle produkter" – kun varenumre med eget bud vises'));
+  } else if (req.everythingElse === 'bid') {
+    if (b.kind === 'ids' && b.other.excluded) rows.push(row('else_bid', '', `Byd på "alt andet" igen${base.bid ? ` (${base.bid})` : ''}`, b.other));
+    else notes.push(b.kind === 'ids' ? 'Der bydes allerede på "alt andet".' : 'Der bydes allerede på alle produkter.');
+  }
   // "Alle produkter" can only be split: switching or removing needs the item's own group.
-  const usable = base.convert ? rows.filter((r) => r.action === 'add_bid' || r.action === 'add_exclude') : rows;
-  return { ...base, status: usable.length ? 'changes' : 'same', rows: usable };
+  const usable = base.convert ? rows.filter((r) => r.action === 'add_bid' || r.action === 'add_exclude' || r.action === 'else_exclude') : rows;
+  return { ...base, excludeAll: req.everythingElse === 'exclude', status: usable.length ? 'changes' : 'same', rows: usable };
 }
 
 /* ----------------------------------- actions ----------------------------------- */
@@ -381,7 +397,8 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
   // "Alle produkter" (or no tree) → split by item id: a new root with the chosen items and "everything else".
   if (group.convert) {
     const adds = rows.filter((r) => r.action === 'add_bid' || r.action === 'add_exclude');
-    if (!adds.length) return [];
+    const excludeElse = rows.some((r) => r.action === 'else_exclude');
+    if (!adds.length && !(excludeElse && group.excludeAll)) return [];
     const actions: PartitionAction[] = [];
     if (b.kind === 'all') actions.push({ action: 'Delete', adGroupId, id: b.root.id, excluded: b.root.excluded });
     actions.push({ action: 'Add', adGroupId, tempId: -1, parentId: null, kind: 'subdivision', operand: 'All', attribute: null, excluded: false });
@@ -423,7 +440,9 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
         break;
     }
   }
-  if (remaining < 1) throw new Error(`"${group.bingGroup}" ville stå uden ét eneste varenummer – fjern ikke dem alle, eller byd på alle produkter i stedet.`);
+  // Only "alt andet" left is fine when it is excluded (nothing shows); bid on, it is just "Alle produkter" again.
+  const elseExcluded = rows.some((r) => r.action === 'else_exclude') || (b.other.excluded && !rows.some((r) => r.action === 'else_bid'));
+  if (remaining < 1 && !(elseExcluded && group.excludeAll)) throw new Error(`"${group.bingGroup}" ville stå uden ét eneste varenummer – fjern ikke dem alle, eller byd på alle produkter i stedet.`);
   return [...deletes, ...adds];
 }
 

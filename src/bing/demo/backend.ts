@@ -16,6 +16,10 @@ import type {
   AdsBackend,
   AuctionCompetitor,
   BudgetOpportunity,
+  CampaignTargets,
+  GeoLocation,
+  MerchantStore,
+  TargetChanges,
   Campaign,
   CampaignPatch,
   ItemError,
@@ -41,6 +45,16 @@ import type {
 import { demoProducts } from './products';
 import { DEMO_ACCOUNTS, createSeedState, type DemoState } from './seed';
 import { Simulator, hash } from './simulate';
+
+/** Made-up location ids for the demo (the live app reads Microsoft's locations file). */
+const DEMO_LOCATIONS: GeoLocation[] = [
+  { locationId: '59', type: 'Country', name: 'Denmark' },
+  { locationId: '9101', type: 'State', name: 'Capital Region of Denmark|Denmark' },
+  { locationId: '9102', type: 'State', name: 'Central Denmark Region|Denmark' },
+  { locationId: '9103', type: 'State', name: 'North Denmark Region|Denmark' },
+  { locationId: '9104', type: 'State', name: 'Region of Southern Denmark|Denmark' },
+  { locationId: '9105', type: 'State', name: 'Region Zealand|Denmark' },
+];
 
 const STORAGE_KEY = 'bac.demo-state.v1';
 
@@ -389,6 +403,54 @@ export class DemoBackend implements AdsBackend {
     });
     this.commit();
     return batchOutcome(ids, failed, keywords.length);
+  }
+
+  async createProductAd(accountId: string, adGroupId: string): Promise<MutationResult> {
+    await this.delay();
+    this.adGroup(accountId, adGroupId);
+    const id = this.newId('a');
+    this.state.ads.push({ id, adGroupId, type: 'Product', status: 'Active', headlines: [], descriptions: [], finalUrls: [] });
+    this.commit();
+    return { ids: [id] };
+  }
+
+  async listStores(): Promise<MerchantStore[]> {
+    return [{ id: '700001', name: 'Demo-butik' }];
+  }
+
+  async getCampaignTargets(accountId: string, campaignId: string): Promise<CampaignTargets> {
+    await this.delay();
+    this.campaign(accountId, campaignId);
+    return structuredClone(this.state.targets?.[campaignId] ?? { devices: [], schedule: [], locations: [] });
+  }
+
+  async applyCampaignTargets(accountId: string, campaignId: string, changes: TargetChanges): Promise<MutationResult> {
+    await this.delay();
+    this.campaign(accountId, campaignId);
+    const t = (this.state.targets ??= {})[campaignId] ??= { devices: [], schedule: [], locations: [] };
+    const drop = new Set(changes.delete);
+    t.devices = t.devices.filter((d) => !drop.has(d.id));
+    t.schedule = t.schedule.filter((d) => !drop.has(d.id));
+    t.locations = t.locations.filter((d) => !drop.has(d.id));
+    for (const u of changes.update) {
+      const list: { id: string; adjustment: number }[] = u.kind === 'device' ? t.devices : u.kind === 'schedule' ? t.schedule : t.locations;
+      const hit = list.find((x) => x.id === u.id);
+      if (hit) hit.adjustment = u.adjustment;
+    }
+    const ids: string[] = [];
+    for (const a of changes.add) {
+      const id = this.newId('cc');
+      ids.push(id);
+      if (a.kind === 'device') t.devices.push({ id, device: a.device, adjustment: a.adjustment });
+      else if (a.kind === 'schedule') t.schedule.push({ id, day: a.day, from: a.from, to: a.to, adjustment: a.adjustment });
+      else t.locations.push({ id, locationId: a.locationId, name: DEMO_LOCATIONS.find((l) => l.locationId === a.locationId)?.name ?? a.locationId, adjustment: a.adjustment });
+    }
+    this.commit();
+    return { ids };
+  }
+
+  async findLocations(_accountId: string, names: string[]): Promise<GeoLocation[]> {
+    return names.map((n) => DEMO_LOCATIONS.find((l) => l.name.split('|')[0]!.toLowerCase() === n.trim().toLowerCase())).filter((l): l is GeoLocation => !!l);
   }
 
   async createResponsiveSearchAd(accountId: string, adGroupId: string, ad: NewResponsiveSearchAd): Promise<MutationResult> {
