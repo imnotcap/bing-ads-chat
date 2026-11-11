@@ -7,6 +7,9 @@ import { CONVERSION_BASED, MIN_CONVERSIONS_30D, bidLabel } from '@/ai/tools/chec
 import type { BidStrategy, Metrics } from '@/bing/types';
 import { fmtMoney, fmtNumber } from '@/lib/format';
 
+/** Google's CPC bids are only used when it bids by hand – otherwise they are not compared. */
+export const googleBidsByHand = (strategy: string | null | undefined) => !strategy || /^(MANUAL_CPC|ENHANCED_CPC)$/i.test(strategy);
+
 export const GOOGLE_BID: Record<string, string> = {
   MANUAL_CPC: 'Manuel CPC',
   ENHANCED_CPC: 'Forbedret CPC',

@@ -447,8 +447,8 @@ export async function readStructure(reader: GoogleAdsReader, campaignId: string,
   const groups = await reader.rows<{ adGroup?: { id?: string; name?: string; status?: string } }>(
     `SELECT ad_group.id, ad_group.name, ad_group.status FROM ad_group WHERE campaign.id = ${id} AND ad_group.status != 'REMOVED'`,
   );
-  const keywords = await reader.rows<{ adGroup?: { id?: string }; adGroupCriterion?: { criterionId?: string; status?: string; keyword?: KeywordInfo } }>(
-    `SELECT ad_group.id, ad_group_criterion.criterion_id, ad_group_criterion.status, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type FROM ad_group_criterion WHERE campaign.id = ${id} AND ad_group_criterion.type = 'KEYWORD' AND ad_group_criterion.negative = FALSE AND ad_group_criterion.status != 'REMOVED'`,
+  const keywords = await reader.rows<{ adGroup?: { id?: string }; adGroupCriterion?: { criterionId?: string; status?: string; effectiveCpcBidMicros?: string; keyword?: KeywordInfo } }>(
+    `SELECT ad_group.id, ad_group_criterion.criterion_id, ad_group_criterion.status, ad_group_criterion.effective_cpc_bid_micros, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type FROM ad_group_criterion WHERE campaign.id = ${id} AND ad_group_criterion.type = 'KEYWORD' AND ad_group_criterion.negative = FALSE AND ad_group_criterion.status != 'REMOVED'`,
   );
   const stats = await reader.rows<{ adGroup?: { id?: string }; adGroupCriterion?: { criterionId?: string }; metrics?: MetricsRow }>(
     `SELECT ad_group.id, ad_group_criterion.criterion_id, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.conversions_value FROM keyword_view WHERE campaign.id = ${id} AND ${period(from, to)}`,
@@ -462,6 +462,7 @@ export async function readStructure(reader: GoogleAdsReader, campaignId: string,
         text: lower(k.adGroupCriterion?.keyword?.text),
         matchType: matchKind(k.adGroupCriterion?.keyword?.matchType),
         status: statusWord(k.adGroupCriterion?.status),
+        bid: micros(k.adGroupCriterion?.effectiveCpcBidMicros) || null,
         metrics: metricsOf(byKey.get(`${k.adGroup?.id}~${k.adGroupCriterion?.criterionId}`)),
       }))
       .filter((k) => k.text),

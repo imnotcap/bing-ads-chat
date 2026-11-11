@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import { api } from '@/workspace/api';
 import { queryClient } from '@/lib/queryClient';
 import { addDays, type DateRange } from '@/lib/format';
+import { getBackend } from '@/bing/backend';
 import { useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
 import { bingAds, bingNegatives, bingProducts, bingSearchTerms, bingShownItems, bingStructure } from './bingDetail';
@@ -156,6 +157,19 @@ export function useBingShown(campaignId: string, enabled: boolean) {
     retry: false,
     staleTime: 3_600_000,
     queryFn: () => bingShownItems(accountId!, campaignId),
+  });
+}
+
+/** The Microsoft campaign's ad groups – also those without product groups or keywords. */
+export function useBingAdGroups(campaignId: string, enabled: boolean) {
+  const accountId = useConnection((s) => s.accountId);
+  const mode = useConnection((s) => s.mode);
+  return useQuery({
+    queryKey: ['bing-adgroups', mode, accountId, campaignId],
+    enabled: enabled && !!accountId,
+    retry: false,
+    staleTime: 300_000,
+    queryFn: async () => (await (await getBackend()).listAdGroups(accountId!, campaignId)).filter((g) => g.status !== 'Deleted'),
   });
 }
 

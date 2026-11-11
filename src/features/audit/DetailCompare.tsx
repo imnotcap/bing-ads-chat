@@ -16,11 +16,12 @@ import { fmtMoney, fmtNumber, fmtRelative, type DateRange } from '@/lib/format';
 import { cn, errorMessage } from '@/lib/utils';
 import { useUi } from '@/stores/ui';
 import { startChat } from '../chat/startChat';
-import { refreshDetail, useAuditUi, useBingDetail, useBingShown, useGoogleDetail, type CompareTab } from './data';
+import { refreshDetail, useAuditUi, useBingAdGroups, useBingDetail, useBingShown, useGoogleDetail, type CompareTab } from './data';
 import { byShown, compareAds, compareExclusions, compareKeywords, compareNegatives, compareSearchTerms, type Condition } from './compare';
 import { compareProductTrees, stateText, type GroupDiff, type ItemDiff, type ItemDiffKind, type ItemState } from './productMirror';
 import { SHOWN_DAYS, dimensionLabel, type DetailPart, type MatchKind } from './detail';
 import type { AuditRow } from './model';
+import { googleBidsByHand } from './settings';
 
 /* ---------------------------------- labels ---------------------------------- */
 
@@ -273,48 +274,76 @@ const STATUS_WORD: Record<string, string> = { active: 'Aktiv', paused: 'Pauset' 
  */
 function ShoppingProductsTab({ row, range, currency }: { row: AuditRow; range: DateRange; currency: string }) {
   const { google, bing } = useBoth(row, 'products', range, true);
-  const groups = useMemo(() => (google.data && bing.data ? compareProductTrees(google.data.data, bing.data) : null), [google.data, bing.data]);
-  if (!groups)
-    return <Status google={google} bing={bing} />;
+  const adGroups = useBingAdGroups(row.bing.id, true);
+  const bids = googleBidsByHand(row.google?.bidStrategy);
+  const groups = useMemo(
+    () =>
+      google.data && bing.data && !adGroups.isPending
+        ? compareProductTrees(google.data.data, bing.data, { bids, bingGroups: adGroups.data?.map((g) => ({ name: g.name, status: g.status, cpcBid: g.cpcBid ?? null })) })
+        : null,
+    [google.data, bing.data, adGroups.isPending, adGroups.data, bids],
+  );
+  if (!groups) return <Status google={google} bing={bing} />;
   const compared = groups.filter((g) => g.status === 'compared');
   const where = (g: GroupDiff) => g.bingGroup ?? g.googleGroup ?? '';
-  const side = (s: ItemState) => ({ has: true, ...stateText(s, currency) });
+  const side = (s: ItemState) => ({ has: s.via !== 'none', ...stateText(s, currency) });
   const lines = (kind: ItemDiffKind, todo: (d: ItemDiff) => string) =>
     compared.flatMap((g) =>
-      g.diffs
-        .filter((d) => d.kind === kind)
-        .map((d) => ({ item: d.itemId || 'Alle andre produkter', sub: where(g), google: side(d.google), microsoft: side(d.bing), todo: todo(d) })),
+      g.diffs.filter((d) => d.kind === kind).map((d) => ({ item: d.label, sub: where(g), google: side(d.google), microsoft: side(d.bing), todo: todo(d) })),
     );
   const ask = () =>
     [
       intro(row),
       'Ret produktgrupperne i Microsoft, så de svarer til Google, annoncegruppe for annoncegruppe:',
-      ...groups.flatMap((g) =>
-        g.status === 'missing'
-          ? [`- Annoncegruppen "${g.googleGroup}" mangler i Microsoft.`]
-          : g.diffs.map((d) => `- ${where(g)}: ${d.itemId || 'alle andre produkter'} – Google: ${stateText(d.google, currency).text}, Microsoft: ${stateText(d.bing, currency).text}`),
-      ),
-      'Brug match_product_groups_to_google til produktgrupperne (den læser begge træer og bruger Googles bud), og opret manglende annoncegrupper med create_ad_group (på pause). Vis ændringerne til godkendelse, før noget sker.',
+      ...groups.flatMap((g) => {
+        if (g.status === 'missing') return [`- Annoncegruppen "${g.googleGroup}" mangler i Microsoft.`];
+        if (g.status === 'empty') return [`- Annoncegruppen "${g.bingGroup}" har ingen produktgrupper i Microsoft (Google har dem).`];
+        return [
+          ...(g.defaultBid ? [`- ${where(g)}: standardbud – Google ${fmtMoney(g.defaultBid.google, currency, 2)}, Microsoft ${fmtMoney(g.defaultBid.bing, currency, 2)}`] : []),
+          ...g.diffs.map((d) => `- ${where(g)}: ${d.label} – Google: ${stateText(d.google, currency).text}, Microsoft: ${stateText(d.bing, currency).text}`),
+        ];
+      }),
+      'Brug match_product_groups_to_google til produktgrupperne (den læser begge træer og bruger Googles bud) – eller edit_product_groups, hvis træet er delt op efter andet end varenummer – og opret manglende annoncegrupper med create_ad_group (på pause). Vis ændringerne til godkendelse, før noget sker.',
     ].join('\n');
   const statusDiffs = compared.filter((g) => g.googleStatus && g.bingStatus && g.googleStatus !== g.bingStatus);
+  const split = groups.filter((g) => g.splits);
   return (
     <>
       <Status google={google} bing={bing} />
+      {adGroups.error && <p className="px-4 pt-3 text-[12px] text-subtle">Kunne ikke læse Microsofts annoncegrupper – tomme annoncegrupper er ikke talt med.</p>}
       <CompareTable
-        same={`${compared.length} annoncegrupper parret · ${compared.reduce((n, g) => n + g.same, 0)} varenumre ens`}
+        same={`${compared.length} annoncegrupper parret · ${compared.reduce((n, g) => n + g.same, 0)} ens`}
         sections={[
           {
             id: 'missing',
             label: 'Annoncegruppe mangler',
             tone: 'fix',
-            lines: groups
-              .filter((g) => g.status === 'missing')
-              .map((g) => ({ item: g.googleGroup!, google: { has: true, text: 'Annoncegruppe', sub: STATUS_WORD[g.googleStatus ?? ''] }, microsoft: { has: false, text: 'Mangler' }, todo: 'Opret i Microsoft' })),
+            lines: [
+              ...groups
+                .filter((g) => g.status === 'missing')
+                .map((g) => ({ item: g.googleGroup!, google: { has: true, text: 'Annoncegruppe', sub: STATUS_WORD[g.googleStatus ?? ''] }, microsoft: { has: false, text: 'Mangler' }, todo: 'Opret i Microsoft' })),
+              ...groups
+                .filter((g) => g.status === 'empty')
+                .map((g) => ({ item: g.bingGroup!, google: { has: true, text: 'Produktgrupper' }, microsoft: { has: false, text: 'Ingen produktgrupper', sub: 'viser intet' }, todo: 'Opret produktgrupper som i Google' })),
+            ],
             ask,
           },
-          { id: 'exclude', label: 'Udelukket i Google, bud i Microsoft', tone: 'fix', lines: lines('exclude', () => 'Udeluk i Microsoft'), ask },
-          { id: 'bid_on', label: 'Bud i Google, udelukket i Microsoft', tone: 'fix', lines: lines('bid_on', (d) => (d.google.bid ? `Byd ${fmtMoney(d.google.bid, currency)}` : 'Byd på den')), ask },
-          { id: 'bid', label: 'Andet bud', tone: 'check', lines: lines('bid', (d) => `Sæt bud til ${fmtMoney(d.google.bid!, currency)}`), ask },
+          { id: 'exclude', label: 'Udelukket i Google, vises i Microsoft', tone: 'fix', lines: lines('exclude', () => 'Udeluk i Microsoft'), ask },
+          { id: 'bid_on', label: 'Vises i Google, ikke i Microsoft', tone: 'fix', lines: lines('bid_on', (d) => (d.google.bid ? `Byd ${fmtMoney(d.google.bid, currency, 2)}` : 'Byd på den')), ask },
+          { id: 'bid', label: 'Andet bud', tone: 'fix', lines: lines('bid', (d) => `Sæt bud til ${fmtMoney(d.google.bid!, currency, 2)}`), ask },
+          {
+            id: 'default',
+            label: 'Andet standardbud',
+            tone: 'check',
+            lines: compared
+              .filter((g) => g.defaultBid)
+              .map((g) => ({
+                item: where(g),
+                google: { has: true, text: fmtMoney(g.defaultBid!.google, currency, 2) },
+                microsoft: { has: true, text: fmtMoney(g.defaultBid!.bing, currency, 2) },
+                todo: `Sæt standardbud til ${fmtMoney(g.defaultBid!.google, currency, 2)}`,
+              })),
+          },
           {
             id: 'status',
             label: 'Anden status',
@@ -327,6 +356,12 @@ function ShoppingProductsTab({ row, range, currency }: { row: AuditRow; range: D
             })),
           },
           {
+            id: 'split',
+            label: 'Delt op forskelligt',
+            tone: 'check',
+            lines: split.map((g) => ({ item: where(g), google: { has: true, text: 'Produktgrupper' }, microsoft: { has: true, text: 'Produktgrupper' }, todo: `${g.splits} Sammenlignet produkt for produkt ovenfor.` })),
+          },
+          {
             id: 'unsupported',
             label: 'Sammenlign selv',
             tone: 'check',
@@ -336,10 +371,12 @@ function ShoppingProductsTab({ row, range, currency }: { row: AuditRow; range: D
             id: 'extra',
             label: 'Kun i Microsoft',
             tone: 'none',
-            lines: groups.filter((g) => g.status === 'extra').map((g) => ({ item: g.bingGroup!, google: { has: false, text: 'Findes ikke' }, microsoft: { has: true, text: 'Annoncegruppe', sub: STATUS_WORD[g.bingStatus ?? ''] }, todo: 'Tjek – findes ikke i Google' })),
+            lines: groups
+              .filter((g) => g.status === 'extra')
+              .map((g) => ({ item: g.bingGroup!, google: { has: false, text: 'Findes ikke' }, microsoft: { has: true, text: 'Annoncegruppe', sub: [STATUS_WORD[g.bingStatus ?? ''], g.reason].filter(Boolean).join(' · ') || undefined }, todo: 'Tjek – findes ikke i Google' })),
           },
         ]}
-        note='Pr. annoncegruppe og varenummer: det, der faktisk gælder hver side – eget bud, udelukket, eller via "Alt andet". Et varenummer, der er udelukket via "Alt andet" på den ene side og for sig på den anden, er ens. Bud uden beløb (automatisk) sammenlignes ikke.'
+        note={`Pr. annoncegruppe og produkt (varenummer, mærke, produkttype – på alle niveauer): det, der faktisk gælder hver side – eget bud, udelukket, eller via "Alt andet". Bud er produktgruppens eget, ellers annoncegruppens standardbud. Det samme resultat nået på en anden måde er ikke en forskel.${bids ? '' : ' Google byder automatisk i denne kampagne, så buddene sammenlignes ikke.'}`}
       />
     </>
   );
@@ -464,7 +501,8 @@ function NegativesTab({ row, range }: { row: AuditRow; range: DateRange }) {
 /** `currency`: Google's – the keyword numbers are Google's. */
 function KeywordsTab({ row, range, currency }: { row: AuditRow; range: DateRange; currency: string }) {
   const { google, bing } = useBoth(row, 'structure', range, true);
-  const r = useMemo(() => (google.data && bing.data ? compareKeywords(google.data.data, bing.data) : null), [google.data, bing.data]);
+  const bids = googleBidsByHand(row.google?.bidStrategy);
+  const r = useMemo(() => (google.data && bing.data ? compareKeywords(google.data.data, bing.data, { bids }) : null), [google.data, bing.data, bids]);
   const status = (s: string) => (s === 'active' ? 'aktivt' : s === 'paused' ? 'pauset' : s);
   const numbers = (m: { clicks: number; conversions: number; spend: number } | null | undefined) =>
     m && (m.clicks > 0 || m.conversions > 0) ? `${fmtNumber(m.clicks)} klik · ${fmtNumber(m.conversions, 1)} konv. · ${fmtMoney(m.spend, currency)}` : undefined;
@@ -518,6 +556,50 @@ function KeywordsTab({ row, range, currency }: { row: AuditRow; range: DateRange
               })),
             },
             {
+              id: 'bids',
+              label: 'Andet bud',
+              tone: 'fix',
+              lines: r.bidDiffs.map((d) => ({
+                item: d.text,
+                sub: `${MATCH[d.matchType]} · ${d.bingGroup}`,
+                google: { has: true, text: fmtMoney(d.google, currency, 2) },
+                microsoft: { has: true, text: fmtMoney(d.bing, currency, 2) },
+                todo: `Sæt bud til ${fmtMoney(d.google, currency, 2)}`,
+              })),
+              ask: () =>
+                [
+                  intro(row),
+                  'Disse søgeord har et andet CPC-bud i Microsoft end i Google (samme annoncegruppe og matchtype):',
+                  ...capped(r.bidDiffs, (d) => `- "${d.text}" (${MATCH[d.matchType].toLowerCase()}) i "${d.bingGroup}": Google ${fmtMoney(d.google, currency, 2)}, Microsoft ${fmtMoney(d.bing, currency, 2)}`),
+                  'Foreslå de nye bud i Microsoft (Googles bud, medmindre Microsofts egne tal taler imod). Vis ændringerne til godkendelse, før noget sker.',
+                ].join('\n'),
+            },
+            {
+              id: 'pausedgoogle',
+              label: 'Pauset i Google, aktivt i Microsoft',
+              tone: 'fix',
+              lines: r.pausedInGoogle.map((k) => ({
+                item: k.text,
+                sub: k.bingGroup,
+                google: { has: true, text: 'Pauset', sub: MATCH[k.matchType] },
+                microsoft: { has: true, text: 'Aktivt' },
+                todo: 'Sæt på pause i Microsoft?',
+              })),
+            },
+            {
+              id: 'groupstatus',
+              label: 'Annoncegruppe med anden status',
+              tone: 'check',
+              lines: r.pairs
+                .filter((p) => p.google && p.bing && p.google.status !== p.bing.status)
+                .map((p) => ({
+                  item: p.bing!.name,
+                  google: { has: true, text: STATUS_WORD[p.google!.status] ?? p.google!.status },
+                  microsoft: { has: true, text: STATUS_WORD[p.bing!.status] ?? p.bing!.status },
+                  todo: p.google!.status === 'active' ? 'Aktivér i Microsoft' : 'Sæt på pause i Microsoft',
+                })),
+            },
+            {
               id: 'match',
               label: 'Anden matchtype',
               tone: 'check',
@@ -540,7 +622,7 @@ function KeywordsTab({ row, range, currency }: { row: AuditRow; range: DateRange
               ],
             },
           ]}
-          note="Kun aktive søgeord. Tallene er Googles for perioden. Grupper parres efter navn – en omdøbt gruppe står som manglende, og dens søgeord under Anden gruppe."
+          note={`Aktive søgeord sammenlignes: findes de, matchtype, bud${bids ? '' : ' (ikke her – Google byder automatisk)'} og status. Bud er søgeordets eget, ellers annoncegruppens. Tallene er Googles for perioden. Grupper parres efter navn – en omdøbt gruppe står som manglende, og dens søgeord under Anden gruppe.`}
         />
       )}
     </>
@@ -614,7 +696,7 @@ function SearchTermsTab({ row, range, bingCurrency, googleCurrency }: { row: Aud
 function AdsTab({ row, range }: { row: AuditRow; range: DateRange }) {
   const { google, bing } = useBoth(row, 'ads', range, true);
   const diffs = useMemo(() => (google.data && bing.data ? compareAds(google.data.data, bing.data) : null), [google.data, bing.data]);
-  const worth = diffs?.filter((d) => !d.bingGroup || d.missingHeadlines.length || d.missingDescriptions.length || d.urlsOnlyGoogle.length || d.urlsOnlyBing.length) ?? [];
+  const worth = diffs?.filter((d) => !d.bingGroup || !d.googleGroup || (d.googleAds && !d.bingAds) || d.missingHeadlines.length || d.missingDescriptions.length || d.onlyBingHeadlines.length || d.onlyBingDescriptions.length || d.urlsOnlyGoogle.length || d.urlsOnlyBing.length) ?? [];
   const ask = () =>
     [
       intro(row),
@@ -624,6 +706,8 @@ function AdsTab({ row, range }: { row: AuditRow; range: DateRange }) {
           `- Google "${d.googleGroup ?? '–'}" / Microsoft "${d.bingGroup ?? 'mangler'}": ${ads(d.googleAds)} i Google, ${ads(d.bingAds)} i Microsoft.`,
           d.missingHeadlines.length ? `  Overskrifter kun i Google: ${d.missingHeadlines.map((h) => `"${h}"`).join(', ')}` : '',
           d.missingDescriptions.length ? `  Beskrivelser kun i Google: ${d.missingDescriptions.map((h) => `"${h}"`).join(', ')}` : '',
+          d.onlyBingHeadlines.length ? `  Overskrifter kun i Microsoft: ${d.onlyBingHeadlines.map((h) => `"${h}"`).join(', ')}` : '',
+          d.onlyBingDescriptions.length ? `  Beskrivelser kun i Microsoft: ${d.onlyBingDescriptions.map((h) => `"${h}"`).join(', ')}` : '',
           d.urlsOnlyGoogle.length ? `  Landingssider kun i Google: ${d.urlsOnlyGoogle.join(', ')}` : '',
           d.urlsOnlyBing.length ? `  Landingssider kun i Microsoft: ${d.urlsOnlyBing.join(', ')}` : '',
         ]
@@ -643,9 +727,14 @@ function AdsTab({ row, range }: { row: AuditRow; range: DateRange }) {
               id: 'groups',
               label: 'Annoncegruppe mangler',
               tone: 'fix',
-              lines: worth
-                .filter((d) => !d.bingGroup)
-                .map((d) => ({ item: d.googleGroup ?? '', google: { has: true, text: ads(d.googleAds) }, microsoft: { has: false, text: 'Ingen gruppe' }, todo: 'Opret annoncegruppen' })),
+              lines: [
+                ...worth
+                  .filter((d) => !d.bingGroup)
+                  .map((d) => ({ item: d.googleGroup ?? '', google: { has: true, text: ads(d.googleAds) }, microsoft: { has: false, text: 'Ingen gruppe' }, todo: 'Opret annoncegruppen' })),
+                ...worth
+                  .filter((d) => d.bingGroup && d.googleGroup && d.googleAds && !d.bingAds)
+                  .map((d) => ({ item: group(d), google: { has: true, text: ads(d.googleAds) }, microsoft: { has: false, text: 'Ingen aktive annoncer' }, todo: 'Opret eller aktivér en annonce' })),
+              ],
               ask,
             },
             {
@@ -659,6 +748,26 @@ function AdsTab({ row, range }: { row: AuditRow; range: DateRange }) {
                   ...d.missingDescriptions.map((h) => ({ item: h, sub: group(d), google: { has: true, text: 'Beskrivelse' }, microsoft: { has: false, text: 'Mangler' }, todo: 'Tilføj beskrivelse' })),
                 ]),
               ask,
+            },
+            {
+              id: 'bingtexts',
+              label: 'Tekster kun i Microsoft',
+              tone: 'check',
+              lines: worth
+                .filter((d) => d.googleGroup)
+                .flatMap((d) => [
+                  ...d.onlyBingHeadlines.map((h) => ({ item: h, sub: group(d), google: { has: false, text: 'Bruges ikke' }, microsoft: { has: true, text: 'Overskrift' }, todo: 'Tjek – ikke i Google' })),
+                  ...d.onlyBingDescriptions.map((h) => ({ item: h, sub: group(d), google: { has: false, text: 'Bruges ikke' }, microsoft: { has: true, text: 'Beskrivelse' }, todo: 'Tjek – ikke i Google' })),
+                ]),
+              ask,
+            },
+            {
+              id: 'onlybing',
+              label: 'Kun i Microsoft',
+              tone: 'none',
+              lines: worth
+                .filter((d) => !d.googleGroup)
+                .map((d) => ({ item: d.bingGroup ?? '', google: { has: false, text: 'Findes ikke' }, microsoft: { has: true, text: ads(d.bingAds) }, todo: 'Tjek – findes ikke i Google' })),
             },
             {
               id: 'urls',

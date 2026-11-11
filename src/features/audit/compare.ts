@@ -262,8 +262,22 @@ export interface MatchTypeDiff {
   bing: MatchKind[];
 }
 
+/** The same keyword (text and match type) in paired ad groups, at another CPC bid. */
+export interface KeywordBidDiff {
+  text: string;
+  matchType: MatchKind;
+  googleGroup: string;
+  bingGroup: string;
+  google: number;
+  bing: number;
+}
+
 export interface KeywordComparison {
   pairs: GroupPair[];
+  /** Same keyword, other bid (only when Google bids by hand – else its bids are not used). */
+  bidDiffs: KeywordBidDiff[];
+  /** Running in Microsoft, paused in Google (in the paired ad group). */
+  pausedInGoogle: { text: string; matchType: MatchKind; googleGroup: string; bingGroup: string }[];
   /** Active Google keywords that are nowhere in the Microsoft campaign – most converting first. */
   missingInBing: KeywordGap[];
   /** Active in Google, in Microsoft only in another ad group – or paused. */
@@ -274,7 +288,7 @@ export interface KeywordComparison {
 
 const active = (status: string) => status === 'active';
 
-export function compareKeywords(google: CampaignStructure, bing: CampaignStructure): KeywordComparison {
+export function compareKeywords(google: CampaignStructure, bing: CampaignStructure, opts: { bids?: boolean } = {}): KeywordComparison {
   const pairs = pairGroups(google.adGroups, bing.adGroups);
   const bingGroupName = new Map(bing.adGroups.map((g) => [g.id, g.name]));
   // Where each keyword text is in Microsoft, in the whole campaign (paused ones too).
@@ -289,6 +303,8 @@ export function compareKeywords(google: CampaignStructure, bing: CampaignStructu
   const elsewhereInBing: KeywordElsewhere[] = [];
   const onlyInBing: KeywordComparison['onlyInBing'] = [];
   const matchTypeDiffs: MatchTypeDiff[] = [];
+  const bidDiffs: KeywordBidDiff[] = [];
+  const pausedInGoogle: KeywordComparison['pausedInGoogle'] = [];
   for (const p of pairs) {
     const gk = p.google ? google.keywords.filter((k) => k.adGroupId === p.google!.id && active(k.status)) : [];
     const bk = p.bing ? bing.keywords.filter((k) => k.adGroupId === p.bing!.id && active(k.status)) : [];
@@ -303,11 +319,20 @@ export function compareKeywords(google: CampaignStructure, bing: CampaignStructu
       if (found?.length) elsewhereInBing.push({ ...gap, found });
       else missingInBing.push(gap);
     }
+    const gPaused = p.google ? google.keywords.filter((k) => k.adGroupId === p.google!.id && !active(k.status) && k.status !== 'deleted' && k.status !== 'removed') : [];
     for (const k of bk) {
       const text = normText(k.text);
+      if (gTexts.has(text)) continue;
+      if (gPaused.some((g) => normText(g.text) === text)) pausedInGoogle.push({ text, matchType: k.matchType, googleGroup: p.google!.name, bingGroup: p.bing!.name });
       // Only in Microsoft when Google has it in no ad group at all.
-      if (!gTexts.has(text) && !google.keywords.some((g) => active(g.status) && normText(g.text) === text)) onlyInBing.push({ text, matchType: k.matchType, bingGroup: p.bing!.name });
+      else if (!google.keywords.some((g) => active(g.status) && normText(g.text) === text)) onlyInBing.push({ text, matchType: k.matchType, bingGroup: p.bing!.name });
     }
+    if (p.google && p.bing && opts.bids !== false)
+      for (const g of gk) {
+        const b = bk.find((x) => normText(x.text) === normText(g.text) && x.matchType === g.matchType);
+        if (b && g.bid != null && b.bid != null && Math.abs(g.bid - b.bid) >= 0.005)
+          bidDiffs.push({ text: normText(g.text), matchType: g.matchType, googleGroup: p.google.name, bingGroup: p.bing.name, google: g.bid, bing: b.bid });
+      }
     if (p.google && p.bing)
       for (const text of gTexts) {
         if (!bTexts.has(text)) continue;
@@ -319,7 +344,7 @@ export function compareKeywords(google: CampaignStructure, bing: CampaignStructu
   const byValue = (a: KeywordGap, b: KeywordGap) => (b.metrics?.conversions ?? 0) - (a.metrics?.conversions ?? 0) || (b.metrics?.clicks ?? 0) - (a.metrics?.clicks ?? 0);
   missingInBing.sort(byValue);
   elsewhereInBing.sort(byValue);
-  return { pairs, missingInBing, elsewhereInBing, onlyInBing, matchTypeDiffs };
+  return { pairs, bidDiffs, pausedInGoogle, missingInBing, elsewhereInBing, onlyInBing, matchTypeDiffs };
 }
 
 /* ---------------------------------- search terms ---------------------------------- */
@@ -384,6 +409,9 @@ export interface AdGroupAdDiff {
   /** Headlines/descriptions in Google's running ads that no running Bing ad in the group has. */
   missingHeadlines: string[];
   missingDescriptions: string[];
+  /** And the other way: in Microsoft's running ads, in none of Google's (an ad group only in Microsoft is not counted). */
+  onlyBingHeadlines: string[];
+  onlyBingDescriptions: string[];
   /** Landing pages only one side uses. */
   urlsOnlyGoogle: string[];
   urlsOnlyBing: string[];
@@ -396,10 +424,15 @@ export function compareAds(google: { adGroups: DAdGroup[]; ads: DAd[] }, bing: {
       const ga = p.google ? google.ads.filter((a) => a.adGroupId === p.google!.id && running(a)) : [];
       const ba = p.bing ? bing.ads.filter((a) => a.adGroupId === p.bing!.id && running(a)) : [];
       const set = (list: DAd[], f: (a: DAd) => string[], norm: (s: string) => string) => new Set(list.flatMap(f).map(norm));
-      const missing = (f: (a: DAd) => string[]) => {
-        const have = set(ba, f, (s) => s.trim().toLowerCase());
-        return [...new Set(ga.flatMap(f).map((s) => s.trim()))].filter((s) => !have.has(s.toLowerCase()));
+      const only = (from: DAd[], other: DAd[], f: (a: DAd) => string[]) => {
+        const have = set(other, f, (s) => s.trim().toLowerCase());
+        const seen = new Set<string>();
+        return from
+          .flatMap(f)
+          .map((s) => s.trim())
+          .filter((s) => s && !have.has(s.toLowerCase()) && !seen.has(s.toLowerCase()) && seen.add(s.toLowerCase()));
       };
+      const missing = (f: (a: DAd) => string[]) => only(ga, ba, f);
       const gu = set(ga, (a) => a.finalUrls, normUrl);
       const bu = set(ba, (a) => a.finalUrls, normUrl);
       return {
@@ -409,6 +442,8 @@ export function compareAds(google: { adGroups: DAdGroup[]; ads: DAd[] }, bing: {
         bingAds: ba.length,
         missingHeadlines: p.bing ? missing((a) => a.headlines) : [],
         missingDescriptions: p.bing ? missing((a) => a.descriptions) : [],
+        onlyBingHeadlines: p.google ? only(ba, ga, (a) => a.headlines) : [],
+        onlyBingDescriptions: p.google ? only(ba, ga, (a) => a.descriptions) : [],
         urlsOnlyGoogle: [...gu].filter((u) => !bu.has(u)),
         urlsOnlyBing: [...bu].filter((u) => !gu.has(u)),
       };

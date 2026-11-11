@@ -36,9 +36,12 @@ export async function bingStructure(accountId: string, campaignId: string, backe
   const b = backend ?? (await getBackend());
   const groups = await adGroups(b, accountId, campaignId);
   const keywords = (await pool(groups, 4, (g) => b.listKeywords(accountId, g.id))).flat();
+  const groupBid = new Map(groups.map((g) => [g.id, g.cpcBid ?? null]));
   return {
     adGroups: groupsOf(groups),
-    keywords: keywords.filter((k) => k.status !== 'Deleted').map((k) => ({ adGroupId: k.adGroupId, text: lower(k.text), matchType: kind(k.matchType), status: lower(k.status) })),
+    keywords: keywords
+      .filter((k) => k.status !== 'Deleted')
+      .map((k) => ({ adGroupId: k.adGroupId, text: lower(k.text), matchType: kind(k.matchType), status: lower(k.status), bid: k.bid || groupBid.get(k.adGroupId) || null })),
   };
 }
 

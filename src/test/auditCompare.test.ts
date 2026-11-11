@@ -133,6 +133,22 @@ describe('ad groups and keywords', () => {
     expect(r.matchTypeDiffs).toEqual([{ text: 'ergonomisk kontorstol', googleGroup: 'Ergonomiske kontorstole', bingGroup: 'Ergonomiske Kontorstole', google: ['exact'], bing: ['phrase'] }]);
     expect(r.onlyInBing.map((k) => k.text)).toEqual(['kontorstol sort']);
   });
+
+  it('finds other bids on the same keyword, and keywords Google has paused but Microsoft runs', () => {
+    const g = { adGroups: [{ id: '1', name: 'A', status: 'active' }], keywords: [
+      { adGroupId: '1', text: 'stol', matchType: 'exact' as const, status: 'active', bid: 4 },
+      { adGroupId: '1', text: 'bord', matchType: 'exact' as const, status: 'paused', bid: 2 },
+    ] };
+    const b = { adGroups: [{ id: '9', name: 'A', status: 'paused' }], keywords: [
+      { adGroupId: '9', text: 'stol', matchType: 'exact' as const, status: 'active', bid: 3 },
+      { adGroupId: '9', text: 'bord', matchType: 'exact' as const, status: 'active', bid: 2 },
+    ] };
+    const r = compareKeywords(g, b);
+    expect(r.bidDiffs).toEqual([{ text: 'stol', matchType: 'exact', googleGroup: 'A', bingGroup: 'A', google: 4, bing: 3 }]);
+    expect(r.pausedInGoogle.map((k) => k.text)).toEqual(['bord']);
+    expect(r.onlyInBing).toEqual([]);
+    expect(compareKeywords(g, b, { bids: false }).bidDiffs).toEqual([]);
+  });
 });
 
 describe('search terms', () => {
@@ -170,6 +186,8 @@ describe('ads', () => {
         bingAds: 1,
         missingHeadlines: ['Ergonomiske stole'],
         missingDescriptions: ['Levering 1-2 dage'],
+        onlyBingHeadlines: expect.any(Array),
+        onlyBingDescriptions: expect.any(Array),
         urlsOnlyGoogle: ['shop.dk/kontorstole'],
         urlsOnlyBing: ['shop.dk/stole'],
       },

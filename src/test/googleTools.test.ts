@@ -103,11 +103,11 @@ describe('compare_with_google', () => {
     expect(r.google.id).toBe('9001');
     expect(r.google.howMatched).toMatch(/Audit/);
     expect(r.productGroups.adGroups[0]!.status).toBe('compared');
-    expect(r.productGroups.adGroups[0]!.differences.map((d) => [d.item, d.google, d.microsoft])).toEqual([
-      ['SKU-1', expect.stringMatching(/^Bud 3,00\s?kr\.$/), expect.stringMatching(/^Bud 2,20\s?kr\. \(alle produkter\)$/)],
-      ['SKU-2', 'Udelukket', expect.stringMatching(/^Bud 2,20\s?kr\. \(alle produkter\)$/)],
-      ['all other products', expect.stringMatching(/^Bud 3,00\s?kr\. \(via alt andet\)$/), expect.stringMatching(/^Bud 2,20\s?kr\. \(alle produkter\)$/)],
+    // Google bids automatically (Maks. konverteringsværdi): its CPC bids are not used, so only exclusions differ.
+    expect(r.productGroups.adGroups[0]!.differences.map((d) => [(d as unknown as { products: string }).products, d.google, d.microsoft])).toEqual([
+      ['SKU-2', 'Udelukket', expect.stringMatching(/^Bud 2,20\s?kr\. \(via "Alle produkter"\)$/)],
     ]);
+    expect((r.productGroups as unknown as { bidsNotCompared: string }).bidsNotCompared).toMatch(/automatically/);
     // Shopping: product groups only – no negative keywords or search terms.
     expect(r.negativeKeywords).toBeUndefined();
     expect(r.rules).toMatch(/never suggest changing it/);

@@ -410,7 +410,7 @@ describe('the audit of product groups – the Stabelstole campaign from the scre
   it('finds only the real difference in Oporto: the bid – the exclusions end up the same', () => {
     const oporto = result.find((r) => r.googleGroup === 'Stabelstole | Oporto')!;
     expect(oporto.status).toBe('compared');
-    expect(oporto.diffs).toEqual([{ itemId: 'c065107708', kind: 'bid', google: { via: 'own', excluded: false, bid: 40.05 }, bing: { via: 'own', excluded: false, bid: 28.05 } }]);
+    expect(oporto.diffs).toMatchObject([{ itemId: 'c065107708', label: 'c065107708', kind: 'bid', google: { via: 'own', excluded: false, bid: 40.05 }, bing: { via: 'own', excluded: false, bid: 28.05 } }]);
     // 2722150408, c067805114 (excluded via "alt andet" in Microsoft), 2722220108 (via "alt andet" in Google) and all others.
     expect(oporto.same).toBe(4);
   });
@@ -427,6 +427,76 @@ describe('the audit of product groups – the Stabelstole campaign from the scre
       ['X1', 'bid_on', 'own', 'else'],
       ['X2', 'exclude', 'else', 'own'],
     ]);
+  });
+
+  const t = (group: string, id: string, parentId: string | null, dim: string, raw: string, o: Partial<DListingNode> = {}): DListingNode => ({ id, parentId, group, unit: true, excluded: false, dim: parentId ? dim : 'all', value: raw.toLowerCase(), raw, ...o });
+
+  it('compares trees split by brand and then item id, at every level', () => {
+    const g = [
+      t('A', 'g0', null, 'all', '', { unit: false }),
+      t('A', 'g1', 'g0', 'brand', 'Nike', { unit: false }),
+      t('A', 'g2', 'g1', 'id', 'SKU1', { bid: 12 }),
+      t('A', 'g3', 'g1', 'id', '', { bid: 8 }),
+      t('A', 'g4', 'g0', 'brand', '', { excluded: true }),
+    ];
+    const b = [
+      t('A', 'b0', null, 'all', '', { unit: false }),
+      t('A', 'b1', 'b0', 'brand', 'nike', { bid: 8 }),
+      t('A', 'b2', 'b0', 'brand', 'Adidas', { bid: 5 }),
+      t('A', 'b3', 'b0', 'brand', '', { excluded: true }),
+    ];
+    const [a] = compareProductTrees(g, b);
+    expect(a!.status).toBe('compared');
+    expect(a!.splits).toBeDefined();
+    expect(a!.diffs.map((d) => [d.label, d.kind, d.google.where, d.bing.where])).toEqual([
+      ['Mærke: Nike › SKU1', 'bid', 'Mærke: Nike › SKU1', 'Mærke: nike'],
+      ['Mærke: Adidas', 'exclude', 'Alt andet', 'Mærke: Adidas'],
+    ]);
+    // Nike's other products (8 kr. both sides) and all other brands (excluded both sides).
+    expect(a!.same).toBe(2);
+  });
+
+  it("uses the ad group's default bid when a product group has none of its own", () => {
+    const g = [t('A', 'g0', null, 'all', '', { groupBid: 6, bid: null })];
+    const b = [t('A', 'b0', null, 'all', '', { bid: 6, groupBid: 1 })];
+    const [a] = compareProductTrees(g, b);
+    expect(a!.diffs).toEqual([]);
+    expect(a!.defaultBid).toEqual({ google: 6, bing: 1 });
+  });
+
+  it('does not compare bids when Google bids automatically', () => {
+    const [a] = compareProductTrees([t('A', 'g0', null, 'all', '', { bid: 6 })], [t('A', 'b0', null, 'all', '', { bid: 2 })], { bids: false });
+    expect(a!.diffs).toEqual([]);
+  });
+
+  it('reports a Microsoft ad group with no product groups – it shows nothing', () => {
+    const r = compareProductTrees([t('A', 'g0', null, 'all', '', { bid: 6 })], [], { bingGroups: [{ name: 'A', status: 'Active' }, { name: 'Z', status: 'Paused' }] });
+    expect(r.map((x) => [x.googleGroup, x.bingGroup, x.status])).toEqual([
+      ['A', 'A', 'empty'],
+      [null, 'Z', 'extra'],
+    ]);
+  });
+
+  it('pairs ad groups with the same name before alike names', () => {
+    const g = [t('Stole sort', 'g0', null, 'all', '', { bid: 1 }), t('Stole', 'h0', null, 'all', '', { bid: 1 })];
+    const b = [t('Stole', 'b0', null, 'all', '', { bid: 1 }), t('Stole sort', 'c0', null, 'all', '', { bid: 1 })];
+    expect(compareProductTrees(g, b).map((x) => [x.googleGroup, x.bingGroup])).toEqual([
+      ['Stole sort', 'Stole sort'],
+      ['Stole', 'Stole'],
+    ]);
+  });
+
+  it('leaves trees split by category to be checked by hand', () => {
+    const g = [t('A', 'g0', null, 'all', '', { unit: false }), t('A', 'g1', 'g0', 'category1', '123'), t('A', 'g2', 'g0', 'category1', '')];
+    const [a] = compareProductTrees(g, [t('A', 'b0', null, 'all', '')]);
+    expect(a!.status).toBe('unsupported');
+  });
+
+  it('counts a product no product group covers as not shown', () => {
+    const g = [t('A', 'g0', null, 'all', '', { bid: 3 })];
+    const b = [t('A', 'b0', null, 'all', '', { unit: false }), t('A', 'b1', 'b0', 'id', 'X1', { bid: 3 })];
+    const [a] = compareProductTrees(g, b);
+    expect(a!.diffs.map((d) => [d.label, d.kind, d.bing.via])).toEqual([['Alle andre produkter', 'bid_on', 'none']]);
   });
 });
 

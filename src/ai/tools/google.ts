@@ -15,7 +15,7 @@ import { byShown, compareAds, compareExclusions, compareKeywords, compareNegativ
 import type { GoogleCampaign } from '@/features/audit/data';
 import { SHOWN_DAYS, type DListingNode, type DetailPart, type ShownItems } from '@/features/audit/detail';
 import { rankCandidates, suggestMatch } from '@/features/audit/match';
-import { settingsFacts } from '@/features/audit/settings';
+import { googleBidsByHand, settingsFacts } from '@/features/audit/settings';
 import { buildActions, compareProductTrees, planEdit, planMirror, performsWell, shapeOf, stateText, statsText, verifyMirror, type ItemState, type MirrorAction, type MirrorGroup } from '@/features/audit/productMirror';
 import type { ChangeLine } from '@/stores/activity';
 import { auditGoogleMatch, googleCampaigns, googleDetail, requireGoogle } from '../googleSource';
@@ -69,8 +69,8 @@ async function productPlan(ctx: ToolContext, bing: Campaign, google: GoogleCampa
   ]);
   const live = groups.filter((x: AdGroup) => x.status !== 'Deleted');
   // An item Google leaves out stays when it earns at least the campaign's own ROAS target here.
-  const opts = { keepRoas: bing.bidStrategy.targetRoas ?? 1, currency: ctx.currency };
-  return { plan: planMirror(g.data, nodes, live.map((x) => ({ id: x.id, name: x.name, cpcBid: x.cpcBid })), shown.items, opts), shown, google: g.data, bing: nodes };
+  const opts = { keepRoas: bing.bidStrategy.targetRoas ?? 1, currency: ctx.currency, bids: googleBidsByHand(google.bidStrategy) };
+  return { plan: planMirror(g.data, nodes, live.map((x) => ({ id: x.id, name: x.name, cpcBid: x.cpcBid })), shown.items, opts), shown, google: g.data, bing: nodes, bingGroups: live };
 }
 
 /**
@@ -242,8 +242,11 @@ export const googleTools = [
           try {
             if (part === 'structure') {
               const [g, b] = await Promise.all([googleDetail(google.id, 'structure', period, pmax), bingStructure(ctx.accountId, c.id, ctx.backend)]);
-              const r = compareKeywords(g.data, b);
+              const r = compareKeywords(g.data, b, { bids: googleBidsByHand(google.bidStrategy) });
               out.adGroupsAndKeywords = {
+                adGroupStatusDifferences: r.pairs.filter((p) => p.google && p.bing && p.google.status !== p.bing.status).map((p) => ({ adGroup: p.bing!.name, google: p.google!.status, microsoft: p.bing!.status })),
+                keywordBidDifferences: googleBidsByHand(google.bidStrategy) ? top(r.bidDiffs.map((d) => ({ ...d, matchType: MATCH[d.matchType] })), 60) : `Not compared – Google bids automatically (${google.bidStrategy}).`,
+                pausedInGoogleActiveInMicrosoft: top(r.pausedInGoogle, 40),
                 pairedAdGroups: r.pairs.filter((p) => p.google && p.bing).map((p) => ({ google: p.google!.name, microsoft: p.bing!.name })),
                 onlyInGoogle: r.pairs.filter((p) => p.google && !p.bing).map((p) => p.google!.name),
                 onlyInMicrosoft: r.pairs.filter((p) => !p.google && p.bing).map((p) => p.bing!.name),
@@ -287,20 +290,29 @@ export const googleTools = [
                   ...(shown.error ? { couldNotCheckShown: shown.error } : {}),
                 };
               } else {
-                const { plan, shown, google: gNodes, bing: bNodes } = await productPlan(ctx, c, google, period);
+                const { plan, shown, google: gNodes, bing: bNodes, bingGroups } = await productPlan(ctx, c, google, period);
                 const unshown = plan.reduce((n, m) => n + m.unshown.length, 0);
-                const diffs = compareProductTrees(gNodes, bNodes);
-                const text = (st: ItemState) => stateText(st, ctx.currency).text + (st.via === 'else' ? ' (via alt andet)' : st.via === 'all' ? ' (alle produkter)' : '');
+                const bids = googleBidsByHand(google.bidStrategy);
+                const diffs = compareProductTrees(gNodes, bNodes, { bids, bingGroups: bingGroups.map((x) => ({ name: x.name, status: x.status, cpcBid: x.cpcBid ?? null })) });
+                const text = (st: ItemState) => {
+                  const t = stateText(st, ctx.currency);
+                  return t.sub ? `${t.text} (${t.sub})` : t.text;
+                };
                 out.productGroups = {
-                  howToFix: 'match_product_groups_to_google makes Microsoft like Google (it reads both trees and uses Google\'s bids); create missing ad groups with create_ad_group.',
+                  howToFix:
+                    'match_product_groups_to_google makes Microsoft like Google for trees split by item id (it reads both trees and uses Google\'s bids); edit_product_groups for anything else; create missing ad groups with create_ad_group; default bids and status with update_ad_group.',
+                  compared: 'Per ad group and per product either side names (item id, brand, product type – any level) plus all other products: what really applies on each side. Bids are the product group\'s own, else the ad group\'s default bid. The same result reached another way is not a difference.',
+                  ...(bids ? {} : { bidsNotCompared: `Google bids automatically (${google.bidStrategy}), so its CPC bids are not used and not compared.` }),
                   adGroups: diffs.map((d) => ({
                     google: d.googleGroup,
                     microsoft: d.bingGroup,
-                    status: d.status === 'missing' ? 'missing in Microsoft' : d.status === 'extra' ? 'only in Microsoft' : d.status,
+                    status: d.status === 'missing' ? 'missing in Microsoft' : d.status === 'extra' ? 'only in Microsoft' : d.status === 'empty' ? 'no product groups in Microsoft (shows nothing)' : d.status,
                     ...(d.reason ? { reason: d.reason } : {}),
+                    ...(d.splits ? { splitDifferently: d.splits } : {}),
                     ...(d.googleStatus && d.bingStatus && d.googleStatus !== d.bingStatus ? { adGroupStatus: { google: d.googleStatus, microsoft: d.bingStatus } } : {}),
+                    ...(d.defaultBid ? { defaultBid: d.defaultBid } : {}),
                     ...(d.status === 'compared'
-                      ? { differences: d.diffs.slice(0, 60).map((x) => ({ item: x.itemId || 'all other products', google: text(x.google), microsoft: text(x.bing) })), ...(d.diffs.length > 60 ? { more: d.diffs.length - 60 } : {}), same: d.same }
+                      ? { differences: d.diffs.slice(0, 80).map((x) => ({ products: x.label, kind: x.kind, google: text(x.google), microsoft: text(x.bing) })), ...(d.diffs.length > 80 ? { more: d.diffs.length - 80 } : {}), same: d.same }
                       : {}),
                   })),
                   ...(unshown
@@ -319,7 +331,7 @@ export const googleTools = [
               };
             } else if (part === 'ads') {
               const [g, b] = await Promise.all([googleDetail(google.id, 'ads', period, pmax), bingAds(ctx.accountId, c.id, ctx.backend)]);
-              const diffs = compareAds(g.data, b).filter((d) => !d.bingGroup || d.missingHeadlines.length || d.missingDescriptions.length || d.urlsOnlyGoogle.length || d.urlsOnlyBing.length);
+              const diffs = compareAds(g.data, b).filter((d) => !d.bingGroup || !d.googleGroup || (d.googleAds && !d.bingAds) || d.missingHeadlines.length || d.missingDescriptions.length || d.onlyBingHeadlines.length || d.onlyBingDescriptions.length || d.urlsOnlyGoogle.length || d.urlsOnlyBing.length);
               out.ads = top(diffs, 40);
             }
           } catch (e) {

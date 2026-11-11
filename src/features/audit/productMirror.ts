@@ -119,7 +119,8 @@ export function planMirror(
   bing: DListingNode[],
   bingGroups: { id: string; name: string; cpcBid?: number | null }[],
   shown: ShownItems | null = null,
-  opts: { keepRoas?: number; currency?: string } = {},
+  /** bids: false when Google bids automatically – its stored CPC bids are not used, so they are not copied over existing ones. */
+  opts: { keepRoas?: number; currency?: string; bids?: boolean } = {},
 ): MirrorGroup[] {
   const googleByGroup = new Map<string, DListingNode[]>();
   for (const n of google) googleByGroup.set(n.group, [...(googleByGroup.get(n.group) ?? []), n]);
@@ -193,7 +194,7 @@ export function planMirror(
         rows.push(row(item.excluded ? 'add_exclude' : 'add_bid', id, item.excluded ? `Udeluk varenummer ${id}` : `Byd på varenummer ${id}${gBid ? ` – ${kr(gBid)} som i Google` : ''}`, false, undefined, gBid));
       } else if (there.excluded !== item.excluded)
         rows.push(row(item.excluded ? 'to_exclude' : 'to_bid', id, item.excluded ? `Udeluk varenummer ${id} (bydes på i Microsoft)` : `Byd på varenummer ${id} (udelukket i Microsoft)${gBid ? ` – ${kr(gBid)} som i Google` : ''}`, false, there, gBid));
-      else if (!item.excluded && gBid && there.bid && Math.abs(gBid - there.bid) >= 0.005)
+      else if (opts.bids !== false && !item.excluded && gBid && there.bid && Math.abs(gBid - there.bid) >= 0.005)
         rows.push(row('rebid', id, `Bud på ${id}: ${kr(there.bid)} → ${kr(gBid)} som i Google`, false, there, gBid));
     }
     if (b.kind === 'ids')
@@ -235,7 +236,7 @@ export function planMirror(
           gOtherBid,
         ),
       );
-    else if (b.kind === 'ids' && !g.other.excluded && !b.other.excluded && gOtherBid && b.other.bid && Math.abs(gOtherBid - b.other.bid) >= 0.005)
+    else if (opts.bids !== false && b.kind === 'ids' && !g.other.excluded && !b.other.excluded && gOtherBid && b.other.bid && Math.abs(gOtherBid - b.other.bid) >= 0.005)
       rows.push(row('else_bid', '', `"Alt andet": bud ${kr(b.other.bid)} → ${kr(gOtherBid)} som i Google`, false, b.other, gOtherBid));
     if (!rows.length) out.push({ ...group, status: 'same', unshown });
     else out.push({ ...group, convert: b.kind !== 'ids', rows, unshown });
@@ -449,18 +450,36 @@ export function verifyMirror(group: MirrorGroup, chosen: Set<string>, after: Tre
 
 /* ------------------------- the audit: what actually differs ------------------------- */
 
-/** What applies to an item in one tree: its own unit, "everything else", or "Alle produkter". */
+/**
+ * What applies to a product in one tree: its own product group, an "everything else" (at
+ * any level), "Alle produkter" – or none at all ('none': the tree has no group for it, so it
+ * does not show).
+ */
 export interface ItemState {
-  via: 'own' | 'else' | 'all';
+  via: 'own' | 'else' | 'all' | 'none';
   excluded: boolean;
+  /** The bid that applies: the product group's own, else the ad group's default bid. */
   bid: number | null;
+  /** The product group that applies, from the top ("Mærke: Nike › Alt andet"). */
+  where?: string;
 }
 
 export type ItemDiffKind = 'exclude' | 'bid_on' | 'bid';
 
+export interface PathStep {
+  dim: string;
+  /** Lower case, for matching. */
+  value: string;
+  /** As the platform wrote it. */
+  raw: string;
+}
+
 export interface ItemDiff {
-  /** The item id as Google writes it ('' = all other products). */
+  /** The item id as Google writes it, when the products are named by item id ('' otherwise, and for all other products). */
   itemId: string;
+  /** What the products are: "c065107708", "Mærke: Nike", "Mærke: Nike › 2722150408", "Alle andre produkter". */
+  label: string;
+  path: PathStep[];
   kind: ItemDiffKind;
   google: ItemState;
   bing: ItemState;
@@ -469,42 +488,132 @@ export interface ItemDiff {
 export interface GroupDiff {
   googleGroup: string | null;
   bingGroup: string | null;
-  /** missing: only in Google · extra: only in Microsoft · unsupported: a tree split another way. */
-  status: 'compared' | 'missing' | 'extra' | 'unsupported';
+  /**
+   * missing: only in Google · extra: only in Microsoft · empty: Microsoft has the ad group but
+   * no product groups in it (it shows nothing) · unsupported: a tree that cannot be read the
+   * same way on both sides (categories, a broken tree) – compare by hand.
+   */
+  status: 'compared' | 'missing' | 'extra' | 'empty' | 'unsupported';
   reason?: string;
   googleStatus?: string;
   bingStatus?: string;
+  /** The ad groups' default CPC bids, when they differ. */
+  defaultBid?: { google: number; bing: number };
+  /** The trees split on different things – products named on one side only are compared through the other side's "alt andet". */
+  splits?: string;
   diffs: ItemDiff[];
-  /** Items that end up the same on both sides (also when one side gets there via "alt andet"). */
+  /** Products (item ids, brands …) that end up the same on both sides, "alle andre" included. */
   same: number;
 }
 
 const near = (a: number | null, b: number | null) => a === null || b === null || Math.abs(a - b) < 0.005;
 
-function stateOf(shape: TreeShape, value: string): ItemState | null {
-  if (shape.kind === 'all') return { via: 'all', excluded: shape.root.excluded, bid: shape.root.bid ?? null };
-  if (shape.kind !== 'ids') return null;
-  const own = value ? shape.items.get(value) : undefined;
-  if (own) return { via: 'own', excluded: own.excluded, bid: own.bid ?? null };
-  return { via: 'else', excluded: shape.other.excluded, bid: shape.other.bid ?? null };
+interface Tree {
+  root: DListingNode;
+  kids: Map<string, DListingNode[]>;
+  dims: Set<string>;
+  groupBid: number | null;
 }
 
-/** How one item differs, if it does: excluded on one side only, or bid on both at different bids (when both say a bid). */
-function differs(g: ItemState, b: ItemState): ItemDiffKind | null {
+/** A tree to walk – or why it cannot be compared. */
+function treeOf(nodes: DListingNode[]): Tree | { why: string } {
+  const roots = nodes.filter((n) => !n.parentId);
+  if (!roots.length) return { why: 'har ingen produktgrupper' };
+  if (roots.length > 1) return { why: 'har flere rødder' };
+  const kids = new Map<string, DListingNode[]>();
+  for (const n of nodes) if (n.parentId) kids.set(n.parentId, [...(kids.get(n.parentId) ?? []), n]);
+  const dims = new Set<string>();
+  for (const n of nodes) {
+    if (n.unit) continue;
+    const ch = kids.get(n.id) ?? [];
+    if (!ch.length) return { why: 'har en opdeling uden produktgrupper under' };
+    const d = [...new Set(ch.map((c) => c.dim))];
+    if (d.length > 1) return { why: `blander ${d.map(dimensionLabel).join(' og ')} på samme niveau` };
+    if (d[0]!.startsWith('category')) return { why: 'er opdelt efter kategori (Google skriver kategorier som numre, Microsoft som navne)' };
+    dims.add(d[0]!);
+  }
+  return { root: roots[0]!, kids, dims, groupBid: nodes.find((n) => n.groupBid != null)?.groupBid ?? null };
+}
+
+const stepText = (s: { dim: string; value: string; raw?: string }) => (s.value === '' ? 'Alt andet' : s.dim === 'id' ? s.raw || s.value : `${dimensionLabel(s.dim)}: ${s.raw || s.value}`);
+
+/** The named conditions down to every product group ("everything else" names nothing). */
+function profilesOf(tree: Tree): PathStep[][] {
+  const out: PathStep[][] = [];
+  const walk = (node: DListingNode, path: PathStep[]) => {
+    if (node.unit) {
+      out.push(path);
+      return;
+    }
+    for (const c of tree.kids.get(node.id) ?? []) walk(c, c.value === '' ? path : [...path, { dim: c.dim, value: c.value, raw: c.raw || c.value }]);
+  };
+  walk(tree.root, []);
+  return out;
+}
+
+/** What the tree does with a product that has these values (any other value: it goes down "alt andet"). */
+function resolve(tree: Tree, profile: Map<string, string>): ItemState {
+  let node = tree.root;
+  const where: string[] = [];
+  while (!node.unit) {
+    const ch = tree.kids.get(node.id) ?? [];
+    const v = profile.get(ch[0]?.dim ?? '');
+    const next = (v !== undefined && v !== '' ? ch.find((c) => c.value === v) : undefined) ?? ch.find((c) => c.value === '');
+    if (!next) return { via: 'none', excluded: true, bid: null, where: [...where, 'ingen produktgruppe'].join(' › ') };
+    where.push(stepText(next));
+    node = next;
+  }
+  const via = node === tree.root ? 'all' : node.value === '' ? 'else' : 'own';
+  return { via, excluded: node.excluded, bid: node.excluded ? null : (node.bid ?? tree.groupBid ?? null), where: via === 'all' ? 'Alle produkter' : where.join(' › ') };
+}
+
+/** How one product differs, if it does: excluded on one side only, or bid on on both at different bids (when both say a bid). */
+function differs(g: ItemState, b: ItemState, bids: boolean): ItemDiffKind | null {
   if (g.excluded && !b.excluded) return 'exclude';
   if (!g.excluded && b.excluded) return 'bid_on';
-  if (!g.excluded && !near(g.bid, b.bid)) return 'bid';
+  if (bids && !g.excluded && !near(g.bid, b.bid)) return 'bid';
   return null;
+}
+
+const normGroup = (name: string) => name.toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** Ad groups by name: the same name first (for every group), then the most alike of what is left. */
+function pairNames(google: string[], bing: string[]): Map<string, string> {
+  const left = new Set(bing);
+  const out = new Map<string, string>();
+  for (const g of google) {
+    const same = [...left].find((b) => normGroup(b) === normGroup(g));
+    if (same) {
+      out.set(g, same);
+      left.delete(same);
+    }
+  }
+  for (const g of google) {
+    if (out.has(g)) continue;
+    const best = counterparts(g, [...left])[0];
+    if (best) {
+      out.set(g, best);
+      left.delete(best);
+    }
+  }
+  return out;
+}
+
+export interface CompareOptions {
+  /** Microsoft's ad groups (also those with no product groups – they show nothing). */
+  bingGroups?: { name: string; status?: string; cpcBid?: number | null }[];
+  /** False when Google bids automatically (its CPC bids are not used): bids are then not compared. */
+  bids?: boolean;
 }
 
 /**
  * The audit of a Shopping campaign's product groups, per ad group: which ad groups exist on
- * one side only, and for every item id either side names – and for all other products – what
- * actually applies (bid, or excluded; via its own product group, "alt andet" or "Alle
- * produkter"). Only real differences count: an item excluded through "alt andet" on one side
- * and on its own on the other is the same.
+ * one side only, and for every product either side names (item id, brand, product type, any
+ * level) – and for all other products – what actually applies on each side: bid or excluded,
+ * through its own product group, an "alt andet" or "Alle produkter". The same result reached
+ * another way is not a difference. Bids are the product group's own, else the ad group's.
  */
-export function compareProductTrees(google: DListingNode[], bing: DListingNode[]): GroupDiff[] {
+export function compareProductTrees(google: DListingNode[], bing: DListingNode[], opts: CompareOptions = {}): GroupDiff[] {
   const byGroup = (nodes: DListingNode[]) => {
     const m = new Map<string, DListingNode[]>();
     for (const n of nodes) m.set(n.group, [...(m.get(n.group) ?? []), n]);
@@ -512,45 +621,74 @@ export function compareProductTrees(google: DListingNode[], bing: DListingNode[]
   };
   const gGroups = byGroup(google);
   const bGroups = byGroup(bing);
-  const used = new Set<string>();
+  const bInfo = new Map<string, { status?: string; cpcBid?: number | null }>();
+  for (const g of opts.bingGroups ?? []) bInfo.set(g.name, { status: g.status?.toLowerCase(), cpcBid: g.cpcBid ?? null });
+  for (const [name, nodes] of bGroups) bInfo.set(name, { status: nodes[0]?.groupStatus ?? bInfo.get(name)?.status, cpcBid: nodes[0]?.groupBid ?? bInfo.get(name)?.cpcBid ?? null });
+  const pairs = pairNames([...gGroups.keys()], [...bInfo.keys()]);
+  const bids = opts.bids !== false;
   const out: GroupDiff[] = [];
 
   for (const [googleGroup, gNodes] of gGroups) {
-    const name = counterparts(googleGroup, [...bGroups.keys()].filter((n) => !used.has(n)))[0];
     const googleStatus = gNodes[0]?.groupStatus;
+    const name = pairs.get(googleGroup);
     if (!name) {
       out.push({ googleGroup, bingGroup: null, status: 'missing', googleStatus, diffs: [], same: 0 });
       continue;
     }
-    used.add(name);
-    const bNodes = bGroups.get(name)!;
-    const base = { googleGroup, bingGroup: name, googleStatus, bingStatus: bNodes[0]?.groupStatus, diffs: [] as ItemDiff[], same: 0 };
-    const g = shapeOf(gNodes);
-    const b = shapeOf(bNodes);
-    if (g.kind === 'other' || b.kind === 'other' || g.kind === 'none' || b.kind === 'none') {
-      const why = g.kind === 'other' ? `Googles træ ${g.why}` : b.kind === 'other' ? `Microsofts træ ${b.why}` : 'en af siderne har ingen produktgrupper';
-      out.push({ ...base, status: 'unsupported', reason: `${why} – sammenlign i hånden.` });
+    const info = bInfo.get(name)!;
+    const gBid = gNodes[0]?.groupBid ?? null;
+    const base: GroupDiff = { googleGroup, bingGroup: name, status: 'compared', googleStatus, bingStatus: info.status, diffs: [], same: 0 };
+    if (bids && gBid !== null && info.cpcBid != null && !near(gBid, info.cpcBid)) base.defaultBid = { google: gBid, bing: info.cpcBid };
+    const bNodes = bGroups.get(name);
+    if (!bNodes?.length) {
+      out.push({ ...base, status: 'empty', reason: 'Annoncegruppen har ingen produktgrupper i Microsoft – den viser ingen produkter.' });
       continue;
     }
-    // Every item either side names, then all the other products.
-    const values = new Map<string, string>();
-    for (const shape of [g, b]) if (shape.kind === 'ids') for (const [v, n] of shape.items) if (!values.has(v)) values.set(v, n.raw || v);
-    if (g.kind === 'ids') for (const [v, n] of g.items) values.set(v, n.raw || v);
-    for (const [value, raw] of [...values, ['', ''] as const]) {
-      const gs = stateOf(g, value)!;
-      const bs = stateOf(b, value)!;
-      const kind = differs(gs, bs);
-      if (kind) base.diffs.push({ itemId: raw, kind, google: gs, bing: bs });
-      else base.same++;
+    const g = treeOf(gNodes);
+    const b = treeOf(bNodes);
+    if ('why' in g || 'why' in b) {
+      out.push({ ...base, status: 'unsupported', reason: `${'why' in g ? `Googles træ ${g.why}` : `Microsofts træ ${(b as { why: string }).why}`} – sammenlign i hånden.` });
+      continue;
     }
-    out.push({ ...base, status: 'compared' });
+    const gDims = [...g.dims].sort().join();
+    const bDims = [...b.dims].sort().join();
+    if (gDims !== bDims) {
+      const words = (t: Tree) => (t.dims.size ? [...t.dims].map(dimensionLabel).join(' › ') : 'ingenting (Alle produkter)');
+      base.splits = `Google deler op efter ${words(g)}, Microsoft efter ${words(b)}.`;
+    }
+    // Every product either side names – Google's first, in its order – then all the others.
+    const profiles = new Map<string, PathStep[]>();
+    const keyOf = (p: PathStep[]) => p.map((s) => `${s.dim}=${s.value}`).sort().join('|');
+    for (const p of [...profilesOf(g), ...profilesOf(b)]) {
+      const k = keyOf(p);
+      if (k && !profiles.has(k)) profiles.set(k, p);
+    }
+    profiles.set('', []);
+    for (const path of profiles.values()) {
+      const profile = new Map(path.map((s) => [s.dim, s.value]));
+      const gs = resolve(g, profile);
+      const bs = resolve(b, profile);
+      const kind = differs(gs, bs, bids);
+      if (!kind) {
+        base.same++;
+        continue;
+      }
+      const id = path.length === 1 && path[0]!.dim === 'id' ? path[0]!.raw : '';
+      base.diffs.push({ itemId: id, label: path.length ? path.map(stepText).join(' › ') : 'Alle andre produkter', path, kind, google: gs, bing: bs });
+    }
+    out.push(base);
   }
-  for (const [bingGroup, bNodes] of bGroups) if (!used.has(bingGroup)) out.push({ googleGroup: null, bingGroup, status: 'extra', bingStatus: bNodes[0]?.groupStatus, diffs: [], same: 0 });
+  const paired = new Set(pairs.values());
+  for (const [bingGroup, info] of bInfo)
+    if (!paired.has(bingGroup)) out.push({ googleGroup: null, bingGroup, status: 'extra', bingStatus: info.status, ...(bGroups.has(bingGroup) ? {} : { reason: 'Ingen produktgrupper – viser intet.' }), diffs: [], same: 0 });
   return out;
 }
 
-/** "Bud 40,05 kr." / "Udelukket", and how ("via Alt andet", "Alle produkter"). */
+/** "Bud 40,05 kr." / "Udelukket", and through what ('via "Alt andet"', "Mærke: Nike › Alt andet"). */
 export function stateText(s: ItemState, currency = 'DKK'): { text: string; sub?: string } {
-  const text = s.excluded ? 'Udelukket' : s.bid !== null ? `Bud ${fmtMoney(s.bid, currency, 2)}` : 'Bydes på';
-  return { text, ...(s.via === 'else' ? { sub: 'via "Alt andet"' } : s.via === 'all' ? { sub: 'via "Alle produkter"' } : {}) };
+  const text = s.via === 'none' ? 'Vises ikke' : s.excluded ? 'Udelukket' : s.bid !== null ? `Bud ${fmtMoney(s.bid, currency, 2)}` : 'Bydes på';
+  if (s.via === 'none') return { text, sub: 'ingen produktgruppe dækker den' };
+  if (s.via === 'all') return { text, sub: 'via "Alle produkter"' };
+  if (s.via === 'else') return { text, sub: s.where && s.where !== 'Alt andet' ? `via "${s.where}"` : 'via "Alt andet"' };
+  return { text, ...(s.where && s.where.includes(' › ') ? { sub: s.where } : {}) };
 }

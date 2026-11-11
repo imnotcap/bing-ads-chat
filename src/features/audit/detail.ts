@@ -28,6 +28,8 @@ export interface DKeyword {
   text: string;
   matchType: MatchKind;
   status: string;
+  /** The CPC bid that applies – the keyword's own, else the ad group's (null: none / automatic). */
+  bid?: number | null;
   /** The period's numbers (Google only – it is the side that shows what works). */
   metrics?: DetailMetrics;
 }
