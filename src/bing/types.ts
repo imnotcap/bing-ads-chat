@@ -74,6 +74,9 @@ export interface AdGroup {
   name: string;
   status: EntityStatus;
   cpcBid: number | null;
+  /** The days the ad group may show ads (YYYY-MM-DD, the campaign's time zone; end included). null: no limit. */
+  startDate?: string | null;
+  endDate?: string | null;
 }
 
 export interface Keyword {
@@ -240,6 +243,9 @@ export interface AdGroupPatch {
   status?: 'Active' | 'Paused';
   cpcBid?: number;
   name?: string;
+  /** YYYY-MM-DD. Microsoft starts and stops the ad group's ads on these days by itself. */
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface NewKeyword {

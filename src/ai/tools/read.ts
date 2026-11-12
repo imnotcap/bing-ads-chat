@@ -270,7 +270,7 @@ export const readTools = [
   defineRead({
     name: 'list_ad_groups',
     kind: 'read',
-    description: 'List the ad groups in a campaign with status, CPC bid and (optionally) metrics for a period.',
+    description: 'List the ad groups in a campaign with status, CPC bid, start/end date (a campaign period) and (optionally) metrics for a period.',
     schema: z.object({
       campaignId: z.string().describe('Campaign id'),
       period: z.string().optional().describe(PERIOD_DESCRIPTION),
@@ -284,7 +284,7 @@ export const readTools = [
       const metrics =
         input.includeMetrics === false ? null : await getReport(ctx, { kind: 'adgroup', range: period, aggregation: 'Summary', campaignIds: [campaign.id] });
       const byId = new Map((metrics ?? []).map((r) => [r.adGroupId, r]));
-      const rows = groups.map((g) => ({ ...compact({ id: g.id, name: g.name, status: g.status, cpcBid: g.cpcBid }), ...(metrics ? metricFields(byId.get(g.id)) : {}) }));
+      const rows = groups.map((g) => ({ ...compact({ id: g.id, name: g.name, status: g.status, cpcBid: g.cpcBid, startDate: g.startDate ?? undefined, endDate: g.endDate ?? undefined }), ...(metrics ? metricFields(byId.get(g.id)) : {}) }));
       return {
         result: { campaign: { id: campaign.id, name: campaign.name }, period: metrics ? period : undefined, adGroups: metrics ? sortRows(rows, 'spend', 'desc') : rows },
         summary: `${groups.length} annoncegrupper i ${campaign.name}`,

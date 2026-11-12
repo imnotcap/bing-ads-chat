@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { issueLines, reviewAd } from '../adCopy';
 import { adReviewContext, evidenceSchema } from './adReview';
 import { blockedBy } from './searchTerms';
-import { presetRange } from '@/lib/format';
+import { presetRange, today } from '@/lib/format';
 import { activeDailyBudget } from '@/bing/spend';
 import { findOperation, isReadOperation, missingRequired, searchOperations } from '@/bing/msOperations';
 import type { AdGroup, Campaign, ItemError, Keyword, MsService, NegativeKeyword, PinPosition, ProductTreeNode } from '@/bing/types';
@@ -804,6 +804,92 @@ The team standard is set on the campaign in the same card where it is missing: m
             noun: ['ændring', 'ændringer'],
             warnings: notes,
             undo: applied.length ? { tool: 'update_ad_groups', input: { campaignId: c.id, changes: applied, reason: 'Fortryd tidligere ændring' } } : undefined,
+          });
+        },
+      };
+    },
+  }),
+
+  defineWrite({
+    name: 'set_campaign_period',
+    kind: 'write',
+    description:
+      'Make a campaign run only in a period (Black Week, a birthday sale, a season): sets the start and end date on its ad groups, and Microsoft then starts and stops the ads by itself on those days – also when the app is closed. Dates are YYYY-MM-DD in the campaign\'s time zone; the end date is included. A start date that is today or has passed is not sent (the ads run from now when the campaign is active). Expired ad groups become eligible again with a new end date. Does not change campaign status or budget: when the campaign is paused, also call update_campaigns to activate it (the start date holds the ads back until the day) – after the user says yes. Reads the ad groups back and reports only confirmed dates.',
+    schema: z.object({
+      campaignId: z.string(),
+      start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('First day ads may show (YYYY-MM-DD). Leave out to start now.'),
+      end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe('Last day ads may show (YYYY-MM-DD), included.'),
+      adGroupIds: z.array(z.string()).max(1000).optional().describe('Only these ad groups (default: all in the campaign).'),
+      reason,
+    }),
+    label: (i) => `Sætter kampagneperiode til ${i.end}`,
+    async plan(input, ctx) {
+      const c = await getCampaign(ctx, input.campaignId);
+      const all = (await getAdGroups(ctx, c.id)).filter((g) => g.status !== 'Deleted');
+      const only = input.adGroupIds?.length ? new Set(input.adGroupIds.map(String)) : null;
+      const groups = all.filter((g) => !only || only.has(g.id));
+      if (!groups.length) throw new Error(only ? 'Ingen af de nævnte annoncegrupper findes i kampagnen.' : `"${c.name}" har ingen annoncegrupper – opret dem først (create_ad_group), så perioden kan sættes på dem.`);
+      const now = today();
+      const dk = (iso: string | null | undefined) => (iso ? iso.split('-').reverse().map((x, i) => (i < 2 ? String(Number(x)) : x)).join('-') : '');
+      if (input.end < now) throw new Error(`Slutdatoen ${dk(input.end)} er passeret.`);
+      if (input.start && input.start > input.end) throw new Error(`Startdatoen ${dk(input.start)} ligger efter slutdatoen ${dk(input.end)}.`);
+      // Microsoft cannot hold back ads that already may run: a start today or earlier is just "from now".
+      const start = input.start && input.start > now ? input.start : undefined;
+      const span = (a: string | null | undefined, b: string | null | undefined) => (a || b ? `${a ? dk(a) : 'nu'} – ${b ? dk(b) : 'ingen slut'}` : 'Ingen periode');
+      const lines: ChangeLine[] = [];
+      const checks: LineCheck<AdGroup[]>[] = [];
+      const patches: { adGroupId: string; startDate?: string; endDate: string }[] = [];
+      const undo: { adGroupId: string; endDate: string }[] = [];
+      for (const g of groups) {
+        const sameStart = !start || g.startDate === start;
+        if (sameStart && g.endDate === input.end) continue;
+        const index = patches.length;
+        patches.push({ adGroupId: g.id, ...(start ? { startDate: start } : {}), endDate: input.end });
+        if (g.endDate && g.endDate >= now) undo.push({ adGroupId: g.id, endDate: g.endDate });
+        const line: ChangeLine = { entity: 'Annoncegruppe', entityId: g.id, field: `${g.name} · periode`, before: span(g.startDate, g.endDate), after: span(start ?? (g.startDate && g.startDate > now ? g.startDate : null), input.end) };
+        lines.push(line);
+        checks.push({
+          line,
+          index,
+          verify: (state) => {
+            const x = state.find((y) => y.id === g.id);
+            if (!x) return 'findes ikke';
+            return x.endDate === input.end && (!start || x.startDate === start) ? null : span(x.startDate, x.endDate);
+          },
+        });
+      }
+      if (!lines.length) throw new Error(`Perioden er allerede ${span(start, input.end)} på ${groups.length === 1 ? 'annoncegruppen' : 'alle annoncegrupperne'}.`);
+      const notes: string[] = [`Microsoft starter og stopper selv annoncerne på datoerne (kampagnens tidszone) – også når appen er lukket. ${dk(input.end)} er med; annoncerne stopper ved midnat efter.`];
+      if (input.start && !start) notes.push(`Startdatoen ${dk(input.start)} er i dag eller passeret – annoncerne kører fra nu, når kampagnen er aktiv.`);
+      if (!isActive(c.status)) notes.push(`Kampagnen er ${statusLabel(c.status).toLowerCase()}. Den kører først, når den aktiveres – ${start ? `startdatoen holder annoncerne tilbage til ${dk(start)}, så den kan trygt aktiveres nu.` : 'aktiveres den nu, kører annoncerne med det samme.'}`);
+      const paused = groups.filter((g) => g.status === 'Paused');
+      if (paused.length) notes.push(`${paused.length === 1 ? `Annoncegruppen "${paused[0]!.name}" er` : `${paused.length} annoncegrupper er`} pauset og kører ikke i perioden, før de aktiveres.`);
+      const expired = groups.filter((g) => g.status === 'Expired');
+      if (expired.length) notes.push(`${expired.length} udløbne annoncegrupper bliver aktive igen med den nye slutdato.`);
+      if (only && all.length > groups.length) notes.push(`${all.length - groups.length} andre annoncegrupper i kampagnen får ikke perioden og kører som hidtil.`);
+      return {
+        plan: {
+          kind: 'update',
+          title: `Periode ${span(start, input.end)} · ${c.name}`,
+          reason: input.reason,
+          changes: lines,
+          dailyBudgetDelta: 0,
+          increasesSpend: expired.length > 0,
+          campaignIds: [c.id],
+          notes,
+        },
+        execute: async () => {
+          const res = await ctx.backend.updateAdGroups(ctx.accountId, c.id, patches);
+          fresh(ctx);
+          const state = await readBack(() => ctx.backend.listAdGroups(ctx.accountId, c.id), checks, failedIndexes(res));
+          const v = verify(checks, res, state);
+          // Undo: back to the earlier end date – only when the ad groups had one and the same.
+          const applied = undo.filter((u) => v.appliedIndexes.has(patches.findIndex((p) => p.adGroupId === u.adGroupId)));
+          const oneEnd = applied.length && applied.every((u) => u.endDate === applied[0]!.endDate);
+          return report(v, {
+            noun: ['annoncegruppe', 'annoncegrupper'],
+            warnings: notes.slice(1),
+            undo: oneEnd ? { tool: 'set_campaign_period', input: { campaignId: c.id, end: applied[0]!.endDate, adGroupIds: applied.map((u) => u.adGroupId), reason: 'Fortryd: tidligere slutdato' } } : undefined,
           });
         },
       };

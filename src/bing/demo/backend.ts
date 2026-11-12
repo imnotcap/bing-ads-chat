@@ -314,6 +314,11 @@ export class DemoBackend implements AdsBackend {
       }
       if (p.cpcBid !== undefined) g.cpcBid = p.cpcBid;
       if (p.name) g.name = p.name;
+      if (p.startDate) g.startDate = p.startDate;
+      if (p.endDate) {
+        g.endDate = p.endDate;
+        if (g.status === 'Expired' && p.endDate >= today()) g.status = 'Active';
+      }
     }
     this.commit();
     return {};

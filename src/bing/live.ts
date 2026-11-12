@@ -211,6 +211,18 @@ export function batchResult(res: unknown, count: number, idsKey?: string): Mutat
   };
 }
 
+
+/** Microsoft's Date object ({ Day, Month, Year }) ↔ YYYY-MM-DD. */
+function msDate(iso: string) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return { Day: d, Month: m, Year: y };
+}
+function isoDate(v: unknown): string | null {
+  const d = v as { Day?: number; Month?: number; Year?: number } | null | undefined;
+  if (!d || !d.Year || !d.Month || !d.Day) return null;
+  return `${d.Year}-${String(d.Month).padStart(2, '0')}-${String(d.Day).padStart(2, '0')}`;
+}
+
 export class LiveBackend implements AdsBackend {
   readonly mode = 'live' as const;
   private readonly client: MsAdsClient;
@@ -310,6 +322,8 @@ export class LiveBackend implements AdsBackend {
       name: str(g.Name),
       status: str(g.Status),
       cpcBid: amount(g.CpcBid),
+      startDate: isoDate(g.StartDate),
+      endDate: isoDate(g.EndDate),
     }));
   }
 
@@ -525,6 +539,8 @@ export class LiveBackend implements AdsBackend {
         if (p.status) g.Status = p.status;
         if (p.cpcBid !== undefined) g.CpcBid = { Amount: p.cpcBid };
         if (p.name) g.Name = p.name;
+        if (p.startDate) g.StartDate = msDate(p.startDate);
+        if (p.endDate) g.EndDate = msDate(p.endDate);
         return g;
       }),
     });

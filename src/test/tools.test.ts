@@ -99,3 +99,34 @@ describe('remove_negative_keywords', () => {
   });
 });
 
+describe('set_campaign_period – Black Week and other periods', () => {
+  beforeEach(() => DemoBackend.reset());
+  const inDays = (n: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  it('sets start and end on every ad group, reads them back, and says Microsoft runs it by itself', async () => {
+    const c = ctx();
+    const tool = getTool('set_campaign_period')!;
+    const groups = await c.backend.listAdGroups(c.accountId, '101');
+    const { plan, execute } = await tool.plan(tool.schema.parse({ campaignId: '101', start: inDays(10), end: inDays(17), reason: 'Black Week' }), c);
+    expect(plan!.changes).toHaveLength(groups.length);
+    expect(plan!.notes!.join(' ')).toMatch(/starter og stopper selv/);
+    const done = await execute();
+    expect((done.result as { outcome: string }).outcome).toBe('confirmed');
+    const after = await c.backend.listAdGroups(c.accountId, '101');
+    expect(after.every((g) => g.startDate === inDays(10) && g.endDate === inDays(17))).toBe(true);
+  });
+
+  it('does not send a start date that has passed, and refuses an end in the past', async () => {
+    const c = ctx();
+    const tool = getTool('set_campaign_period')!;
+    const { plan } = await tool.plan(tool.schema.parse({ campaignId: '101', start: inDays(-3), end: inDays(5), reason: 'x' }), c);
+    expect(plan!.notes!.join(' ')).toMatch(/kører fra nu/);
+    expect(String(plan!.changes[0]!.after)).toMatch(/^nu – /);
+    await expect(tool.plan(tool.schema.parse({ campaignId: '101', end: inDays(-1), reason: 'x' }), c)).rejects.toThrow(/passeret/);
+  });
+});
+
