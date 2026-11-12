@@ -56,6 +56,13 @@ function commentOf(lines: ChangeLine[], currency: string): string {
     for (const [bid, ids] of byBid) parts.push(`Tilføjede ${list(ids)}${bid ? ` m. bud på ${bid}` : ''}`);
     const excluded = kind('Udeluk').map((c) => (c.after === 'Alt andet' ? 'alt andet' : String(c.after ?? '')));
     if (excluded.length) parts.push(`Ekskluderede ${list(excluded)}`);
+    const rebid = kind('Bud');
+    const byNewBid = new Map<string, string[]>();
+    for (const c of rebid) {
+      const key = typeof c.cells?.bid === 'number' ? money(c.cells.bid, currency) : '';
+      byNewBid.set(key, [...(byNewBid.get(key) ?? []), c.after === 'Alt andet' ? 'alt andet' : String(c.after ?? '')]);
+    }
+    for (const [bid, ids] of byNewBid) parts.push(`Ændrede bud på ${list(ids)}${bid ? ` til ${bid}` : ''}`);
     const removed = kind('Fjern').map((c) => String(c.after ?? ''));
     if (removed.length) parts.push(`Fjernede opdelingen af ${list(removed)}`);
     if (kind('Alle').length) parts.push('Byder nu på alle produkter');
@@ -69,7 +76,8 @@ function commentOf(lines: ChangeLine[], currency: string): string {
     if (c.before !== undefined && c.before !== null && c.before !== '') parts.push(`Ændrede ${what} fra ${isMoney ? money(c.before, currency) : String(c.before)} til ${after}`);
     else parts.push(`${what.charAt(0).toUpperCase()}${what.slice(1)}: ${after}`);
   }
-  return parts.join('. ').slice(0, 1000);
+  // "… 10,05 kr. Ekskluderede …" – no double period after an amount.
+  return parts.reduce((out, p, i) => (i === 0 ? p : `${out}${out.endsWith('.') ? ' ' : '. '}${p}`), '').slice(0, 1000);
 }
 
 /**

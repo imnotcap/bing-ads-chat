@@ -287,6 +287,27 @@ describe('products Microsoft never showed are not excluded – it would change n
 describe('product groups the user asks for (edit_product_groups)', () => {
   const GROUP = { id: '500', name: 'Flipover', cpcBid: 0.4 };
 
+  it('gives each item its own bid – new, excluded or bid on – and builds actions with those bids', () => {
+    const tree = [
+      bingNode('1', null, 'all', '', { unit: false }),
+      bingNode('2', '1', 'id', '2722722208', { bid: 25.05 }),
+      bingNode('3', '1', 'id', '2722774201', { bid: 25.05 }),
+      bingNode('4', '1', 'id', 'X9', { excluded: true }),
+      bingNode('5', '1', 'id', '', { excluded: true }),
+    ].map((n) => ({ ...n, groupId: '500' }));
+    const g = planEdit(tree, GROUP, { itemBids: { '2722722208': 30.05, '2722774201': 15.05, X9: 12, NEW1: 11 } });
+    expect(g.rows.map((r) => [r.action, r.itemId, r.bid])).toEqual([
+      ['rebid', '2722722208', 30.05],
+      ['rebid', '2722774201', 15.05],
+      ['to_bid', 'X9', 12],
+      ['add_bid', 'NEW1', 11],
+    ]);
+    expect(g.rows[0]!.label).toMatch(/25,05\s?kr\. → 30,05\s?kr\./);
+    const actions = buildActions(g, new Set(g.rows.map((r) => r.key)));
+    const bids = actions.flatMap((a) => (a.action === 'Add' && !a.excluded ? [[a.attribute, a.bid]] : []));
+    expect(bids).toEqual(expect.arrayContaining([['2722722208', 30.05], ['2722774201', 15.05], ['X9', 12], ['NEW1', 11]]));
+  });
+
   it('excludes items in a split ad group – the way Flipover looks in Microsoft', () => {
     // Microsoft: 2392164005, 2515012108, 2392163105, 2392163005 bid on; "everything else" excluded.
     const tree = [

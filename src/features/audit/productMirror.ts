@@ -313,6 +313,8 @@ export interface EditRequest {
   bid?: number | null;
   /** Item ids (or "alt andet" for everything else) whose bid becomes `bid`. */
   setBid?: string[];
+  /** Each item id (or "alt andet") its own bid – bid on it at that bid, new or not. */
+  itemBids?: Record<string, number>;
   /** Performance Max: listing groups without bids. */
   noBids?: boolean;
   /**
@@ -345,14 +347,16 @@ export function planEdit(nodes: DListingNode[], group: { id: string; name: strin
   if (b.kind === 'other') return { ...base, status: 'unsupported', reason: `Produkttræet i "${group.name}" ${b.why} – ret det i Microsoft Advertising.`, rows: [] };
   const rows: MirrorRow[] = [];
   const seen = new Set<string>();
-  const row = (action: MirrorAction, itemId: string, label: string, node?: DListingNode): MirrorRow => ({
+  const row = (action: MirrorAction, itemId: string, label: string, node?: DListingNode, bid?: number): MirrorRow => ({
     key: rowKey(group.id, action, itemId),
     action,
     itemId,
     label,
     defaultOff: false,
     ...(node ? { bingNodeId: node.id, bingNodeExcluded: node.excluded } : {}),
+    ...(bid ? { bid } : {}),
   });
+  const kr = (v: number | null | undefined) => (v === null || v === undefined ? '–' : fmtMoney(v, 'DKK', 2));
   const ids = (list: string[] | undefined) =>
     (list ?? [])
       .map((x) => x.trim())
@@ -376,6 +380,30 @@ export function planEdit(nodes: DListingNode[], group: { id: string; name: strin
     if (!there) notes.push(`${id} er ikke sin egen produktgruppe – intet at fjerne.`);
     else rows.push(row('remove', there.raw || id, `Fjern ${there.raw || id} – falder under "alt andet" (${b.kind === 'ids' && b.other.excluded ? 'udelukket' : 'bydes på'})`, there));
   }
+  // A bid per item id: each gets its own (new, switched from excluded, or changed).
+  if (req.itemBids && Object.keys(req.itemBids).length) {
+    if (req.noBids) notes.push('Performance Max har ingen bud pr. varenummer – Microsoft byder selv.');
+    else
+      for (const [raw, bid] of Object.entries(req.itemBids)) {
+        const id = raw.trim();
+        if (!id || !(bid > 0)) continue;
+        if (/^(alt andet|everything else|\*)$/i.test(id)) {
+          if (b.kind === 'ids' && !b.other.excluded) {
+            if (b.other.bid === bid) notes.push(`"Alt andet" har allerede bud ${kr(bid)}.`);
+            else rows.push(row('else_bid', '', `"Alt andet": bud ${kr(b.other.bid)} → ${kr(bid)}`, b.other, bid));
+          } else if (b.kind === 'all' && !b.root.excluded) notes.push('Gruppen byder på alle produkter som ét – skift annoncegruppens standardbud med update_ad_groups.');
+          else notes.push('"Alt andet" er udelukket – intet bud at ændre.');
+          continue;
+        }
+        if (seen.has(id.toLowerCase())) continue;
+        seen.add(id.toLowerCase());
+        const there = nodeOf(id);
+        if (!there) rows.push(row('add_bid', id, `Byd på ${id}: ${kr(bid)}`, undefined, bid));
+        else if (there.excluded) rows.push(row('to_bid', there.raw || id, `Byd på ${there.raw || id} (udelukket i dag): ${kr(bid)}`, there, bid));
+        else if (there.bid !== null && there.bid !== undefined && Math.abs(there.bid - bid) < 0.005) notes.push(`${there.raw || id} har allerede bud ${kr(bid)}.`);
+        else rows.push(row('rebid', there.raw || id, `Bud på ${there.raw || id}: ${kr(there.bid)} → ${kr(bid)}`, there, bid));
+      }
+  }
   if (req.setBid?.length) {
     if (req.noBids) notes.push('Performance Max har ingen bud pr. varenummer – Microsoft byder selv.');
     else if (!req.bid) notes.push('Angiv det nye bud.');
@@ -383,7 +411,7 @@ export function planEdit(nodes: DListingNode[], group: { id: string; name: strin
       for (const raw of req.setBid) {
         const id = raw.trim();
         if (/^(alt andet|everything else|\*)$/i.test(id)) {
-          if (b.kind === 'ids' && !b.other.excluded) rows.push(row('else_bid', '', `"Alt andet": bud ${req.bid}`, b.other));
+          if (b.kind === 'ids' && !b.other.excluded) rows.push(row('else_bid', '', `"Alt andet": bud ${kr(b.other.bid)} → ${kr(req.bid)}`, b.other));
           else if (b.kind === 'all' && !b.root.excluded) notes.push('Gruppen byder på alle produkter som ét – skift annoncegruppens standardbud med update_ad_groups.');
           else notes.push('"Alt andet" er udelukket – intet bud at ændre.');
           continue;
@@ -391,8 +419,8 @@ export function planEdit(nodes: DListingNode[], group: { id: string; name: strin
         const there = nodeOf(id);
         if (!there) notes.push(`${id} er ikke sin egen produktgruppe – byd på den med include.`);
         else if (there.excluded) notes.push(`${there.raw || id} er udelukket – byd på den med include.`);
-        else if (there.bid === req.bid) notes.push(`${there.raw || id} har allerede bud ${req.bid}.`);
-        else rows.push(row('rebid', there.raw || id, `Bud på ${there.raw || id}: ${there.bid ?? '–'} → ${req.bid}`, there));
+        else if (there.bid === req.bid) notes.push(`${there.raw || id} har allerede bud ${kr(req.bid)}.`);
+        else rows.push(row('rebid', there.raw || id, `Bud på ${there.raw || id}: ${kr(there.bid)} → ${kr(req.bid)}`, there));
       }
   }
   if (req.everythingElse === 'exclude') {

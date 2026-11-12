@@ -144,6 +144,19 @@ describe('the rows for a confirmed change', () => {
     ]);
   });
 
+  it('writes new bids on item ids – each card gets its own note', () => {
+    const rows = noteRows(
+      [
+        { entity: 'Produktgruppe', field: 'Banquetstole · Bud på 2722722208', after: '2722722208', cells: { group: 'Banquetstole', kind: 'Bud', bid: 30.05 } },
+        { entity: 'Produktgruppe', field: 'Banquetstole · Bud på 2722774201', after: '2722774201', cells: { group: 'Banquetstole', kind: 'Bud', bid: 15.05 } },
+      ],
+      'Shopping | Kontormøbler | Stabelstole',
+      'DKK',
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.comment).toMatch(/^Ændrede bud på 2722722208 til 30,05\s?kr\. Ændrede bud på 2722774201 til 15,05\s?kr\.$/);
+  });
+
   it('writes negatives and bid changes', () => {
     const rows = noteRows(
       [

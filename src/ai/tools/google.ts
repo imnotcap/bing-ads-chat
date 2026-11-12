@@ -412,6 +412,10 @@ export const googleTools = [
       include: z.array(z.string().min(1).max(100)).max(500).optional().describe('Item ids to bid on as their own product group.'),
       remove: z.array(z.string().min(1).max(100)).max(500).optional().describe('Item ids whose own product group is removed (they fall under "everything else").'),
       setBid: z.array(z.string().min(1).max(100)).max(500).optional().describe('Item ids already bid on whose bid becomes `bid` ("alt andet" = everything else). Shopping only.'),
+      itemBids: z
+        .record(z.string().min(1).max(100), z.number().positive().max(1000))
+        .optional()
+        .describe('A bid per item id ("alt andet" = everything else) – use this whenever items get different bids, e.g. {"2722722208": 30.05, "2722774201": 15.05}. Items not bid on yet are added at their bid. Shopping only.'),
       bid: z.number().positive().max(1000).optional().describe('CPC bid – for setBid, and for the item ids bid on when the user names one (default: the bid the group\'s items use most). Shopping only.'),
       everythingElse: z
         .enum(['exclude', 'bid'])
@@ -428,7 +432,7 @@ export const googleTools = [
       if (c.type !== 'Shopping' && !pmax) throw new Error(`"${c.name}" er en ${c.type}-kampagne – produktgrupper findes kun i Shopping- og Performance Max-kampagner.`);
       if (pmax ? !ctx.backend.applyAssetGroupListingGroupActions || !ctx.backend.listAssetGroupListingGroups : !ctx.backend.applyProductPartitionActions || !ctx.backend.listProductPartitions)
         throw new Error('Produktgrupper kan kun ændres på den rigtige Microsoft-konto (ikke demo).');
-      if (!input.exclude?.length && !input.include?.length && !input.remove?.length && !input.setBid?.length && !input.everythingElse)
+      if (!input.exclude?.length && !input.include?.length && !input.remove?.length && !input.setBid?.length && !Object.keys(input.itemBids ?? {}).length && !input.everythingElse)
         throw new Error('Angiv hvilke varenumre der skal udelukkes, bydes på, have nyt bud eller fjernes – eller om "alt andet" skal udelukkes.');
       // The group and its tree: an ad group's product groups, or an asset group's listing groups.
       let ag: { id: string; name: string; cpcBid?: number | null };
@@ -447,7 +451,7 @@ export const googleTools = [
         ag = { id: found.id, name: found.name, cpcBid: found.cpcBid };
         nodes = toListingNodes(await ctx.backend.listProductPartitions!(ctx.accountId, found.id, found.name));
       }
-      const planned = planEdit(nodes, ag, { exclude: input.exclude, include: input.include, remove: input.remove, setBid: input.setBid, bid: input.bid, noBids: pmax, everythingElse: input.everythingElse });
+      const planned = planEdit(nodes, ag, { exclude: input.exclude, include: input.include, remove: input.remove, setBid: input.setBid, itemBids: input.itemBids, bid: input.bid, noBids: pmax, everythingElse: input.everythingElse });
       if (planned.status === 'unsupported') throw new Error(planned.reason);
       const group: MirrorGroup = { ...planned, bid: pmax ? null : (input.bids?.[ag.id] ?? planned.bid) };
       const skip = new Set(input.skip ?? []);
