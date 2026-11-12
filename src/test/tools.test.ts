@@ -110,6 +110,7 @@ describe('set_campaign_period – Black Week and other periods', () => {
   it('sets start and end on every ad group, reads them back, and says Microsoft runs it by itself', async () => {
     const c = ctx();
     const tool = getTool('set_campaign_period')!;
+    if (tool.kind !== 'write') throw new Error('unexpected');
     const groups = await c.backend.listAdGroups(c.accountId, '101');
     const { plan, execute } = await tool.plan(tool.schema.parse({ campaignId: '101', start: inDays(10), end: inDays(17), reason: 'Black Week' }), c);
     expect(plan!.changes).toHaveLength(groups.length);
@@ -123,6 +124,7 @@ describe('set_campaign_period – Black Week and other periods', () => {
   it('does not send a start date that has passed, and refuses an end in the past', async () => {
     const c = ctx();
     const tool = getTool('set_campaign_period')!;
+    if (tool.kind !== 'write') throw new Error('unexpected');
     const { plan } = await tool.plan(tool.schema.parse({ campaignId: '101', start: inDays(-3), end: inDays(5), reason: 'x' }), c);
     expect(plan!.notes!.join(' ')).toMatch(/kører fra nu/);
     expect(String(plan!.changes[0]!.after)).toMatch(/^nu – /);

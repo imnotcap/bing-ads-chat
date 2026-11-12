@@ -67,7 +67,17 @@ export interface Appearance {
 
 export const DEFAULT_SPEND_RULES: SpendRules = DEFAULT_LIMITS;
 
+/** The agents that run in the app each weekday morning (src/agents). */
+export interface AgentSettings {
+  followUp: boolean;
+  searchTerms: boolean;
+  periods: boolean;
+  rejections: boolean;
+}
+
 interface SettingsState {
+  agents: AgentSettings;
+  setAgents: (patch: Partial<AgentSettings>) => void;
   spend: SpendRules;
   ai: AiSettings;
   business: BusinessProfile;
@@ -89,6 +99,8 @@ interface SettingsState {
 export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
+      agents: { followUp: true, searchTerms: true, periods: true, rejections: true },
+      setAgents: (patch) => set((s) => ({ agents: { ...s.agents, ...patch } })),
       spend: DEFAULT_SPEND_RULES,
       ai: { model: 'claude-opus-5-5', effort: 'medium', showThinking: true, usdToDkk: 6.9, maxToolRounds: 30, enabledModels: [], customModels: [], connectors: {}, followUps: true, followUpOutlook: true, followUpMail: true },
       business: {
@@ -154,6 +166,7 @@ export const useSettings = create<SettingsState>()(
           ...current,
           ...p,
           spend: { ...current.spend, ...p.spend },
+          agents: { ...current.agents, ...p.agents },
           ai: { ...current.ai, ...p.ai },
           business: { ...current.business, ...p.business },
           appearance: { ...current.appearance, ...p.appearance },

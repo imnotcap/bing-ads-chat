@@ -177,6 +177,11 @@ export async function writeNotes(notes: { campaign: string; adGroup: string; top
   return api<{ written: number }>('/workspace/notesheet/rows', { method: 'POST', body: JSON.stringify({ notes }) });
 }
 
+/** Claims one agent run for the team: true for the first app that asks for the key. */
+export async function claimAgentRun(key: string): Promise<boolean> {
+  return (await api<{ claimed: boolean }>('/workspace/agents/claim', { method: 'POST', body: JSON.stringify({ key }) })).claimed;
+}
+
 /* ------------------------------ moving old keys ------------------------------ */
 
 /**

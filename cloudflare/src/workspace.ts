@@ -524,6 +524,17 @@ export class Workspace extends DurableObject<Env> {
       await this.ctx.storage.delete('notesheet');
       return json(await this.info());
     }
+    // An agent run (agents in the apps): the first app to claim a key runs it, the others skip.
+    if (path === '/workspace/agents/claim' && method === 'POST') {
+      const body = (await req.json().catch(() => ({}))) as { key?: unknown };
+      const key = typeof body.key === 'string' ? body.key.trim().slice(0, 200) : '';
+      if (!key) return fail('Mangler nøgle.', 400);
+      const k = `agentclaim:${key}`;
+      const had = await this.ctx.storage.get<{ by: string; at: number }>(k);
+      if (had) return json({ claimed: false, by: had.by, at: had.at });
+      await this.ctx.storage.put(k, { by: user.name, at: Date.now() });
+      return json({ claimed: true });
+    }
     if (path === '/workspace/notesheet/rows' && method === 'POST') {
       const [conn, google] = await Promise.all([this.ctx.storage.get<NoteSheetConnection>('notesheet'), this.ctx.storage.get<GoogleConnection>('google')]);
       if (!conn) return fail('Notatarket er ikke forbundet.', 409);

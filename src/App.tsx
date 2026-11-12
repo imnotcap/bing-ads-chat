@@ -36,6 +36,7 @@ import { useAccountSync } from '@/hooks/useAccountSync';
 import { useBoardSync } from '@/board/sync';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useBudgetWatch } from '@/hooks/useBudgetWatch';
+import { useAgents } from '@/agents/useAgents';
 import { navigate, useNavigationHistory } from '@/hooks/useNavigationHistory';
 import { queryClient } from '@/lib/queryClient';
 import { ensureFrameless } from '@/lib/window';
@@ -93,6 +94,7 @@ function Shell() {
   const go = useUi((s) => s.go);
   const sidebarCollapsed = useSettings((s) => s.appearance.sidebarCollapsed);
   useBudgetWatch();
+  useAgents();
   useAutoRefresh();
   useNoDefaultContextMenu();
   useShortcuts();

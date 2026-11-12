@@ -23,6 +23,7 @@ import {
   type LabelColor,
   type Member,
   type OpInput,
+  type Priority,
 } from '@/board/model';
 
 export * from '@/board/model';
@@ -84,6 +85,10 @@ interface BoardState extends BoardData {
   ensurePersonalBoard: () => string;
   /** A follow-up card on the personal board for changes the assistant made. */
   addFollowUp: (f: { title: string; description: string; due: string; checklist: string[]; conversationId: string; activityIds: string[] }) => { boardId: string; cardId: string };
+  /** The team's "Agenter" board – fixed ids, so two apps making it at once make one board. */
+  ensureAgentBoard: () => string;
+  /** A card from an agent on the "Agenter" board, in "Nyt". */
+  addAgentCard: (a: { title: string; description: string; label: AgentLabel; checklist?: { text: string; done: boolean }[]; ask?: string; due?: string | null; priority?: Priority }) => string;
   addMember: (name: string, role?: string) => void;
   updateMember: (memberId: string, patch: Partial<Omit<Member, 'id'>>) => void;
   removeMember: (memberId: string) => void;
@@ -122,6 +127,15 @@ function newCard(boardId: string, listId: string, title: string, memberId: strin
     ...extra,
   };
 }
+
+export const AGENT_BOARD = 'b_agents';
+export type AgentLabel = 'followup' | 'searchterms' | 'period' | 'rejections';
+export const AGENT_LABELS: Record<AgentLabel, { name: string; color: LabelColor }> = {
+  followup: { name: 'Opfølgning', color: 'teal' },
+  searchterms: { name: 'Søgetermer', color: 'orange' },
+  period: { name: 'Periode', color: 'purple' },
+  rejections: { name: 'Afvisninger', color: 'red' },
+};
 
 function isoDay(offset: number) {
   const d = new Date();
@@ -299,6 +313,39 @@ export const useBoard = create<BoardState>()(
           };
           op({ type: 'createBoard', board });
           return board.id;
+        },
+        ensureAgentBoard: () => {
+          if (get().boards.some((b) => b.id === AGENT_BOARD)) return AGENT_BOARD;
+          const board: Board = {
+            id: AGENT_BOARD,
+            title: 'Agenter',
+            accent: 'purple',
+            lists: [
+              { id: `${AGENT_BOARD}_new`, title: 'Nyt', cardIds: [] },
+              { id: `${AGENT_BOARD}_doing`, title: 'Kigger på', cardIds: [] },
+              { id: `${AGENT_BOARD}_done`, title: 'Færdig', cardIds: [] },
+            ],
+            labels: (Object.entries(AGENT_LABELS) as [AgentLabel, { name: string; color: LabelColor }][]).map(([id, l]) => ({ id: `${AGENT_BOARD}_${id}`, name: l.name, color: l.color })),
+            createdAt: Date.now(),
+          };
+          op({ type: 'createBoard', board });
+          return AGENT_BOARD;
+        },
+        addAgentCard: (a) => {
+          const boardId = get().ensureAgentBoard();
+          const board = get().boards.find((b) => b.id === boardId)!;
+          const list = board.lists.find((l) => l.id === `${AGENT_BOARD}_new`) ?? board.lists[0]!;
+          const label = board.labels.find((l) => l.id === `${AGENT_BOARD}_${a.label}`);
+          const card = newCard(boardId, list.id, a.title, get().meId, {
+            description: a.description,
+            due: a.due ?? null,
+            priority: a.priority ?? 'medium',
+            labelIds: label ? [label.id] : [],
+            checklist: (a.checklist ?? []).map((c) => ({ id: uid('ci_'), text: c.text.slice(0, 200), done: c.done })),
+            ...(a.ask ? { ask: a.ask } : {}),
+          });
+          op({ type: 'addCard', card, top: true });
+          return card.id;
         },
         addFollowUp: (f) => {
           const boardId = get().ensurePersonalBoard();

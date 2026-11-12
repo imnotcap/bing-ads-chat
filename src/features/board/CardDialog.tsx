@@ -593,6 +593,8 @@ export function CardDialog({ cardId, onClose }: { cardId: string | null; onClose
                       onClick={() => {
                         onClose();
                         useUi.getState().go('chat');
+                        // A card from an agent carries the exact request; the rest are described from the card.
+                        if (card.ask) return startChat(card.ask, [], { fresh: true });
                         startChat(
                           `Hjælp mig med denne opgave fra planlægningstavlen:\n\n**${card.title}**${card.description ? `\n${card.description}` : ''}${
                             card.checklist.length ? `\n\nTjekliste:\n${card.checklist.map((i) => `- [${i.done ? 'x' : ' '}] ${i.text}`).join('\n')}` : ''
@@ -602,7 +604,7 @@ export function CardDialog({ cardId, onClose }: { cardId: string | null; onClose
                         );
                       }}
                     >
-                      Spørg assistenten
+                      {card.ask ? 'Bed assistenten ordne det' : 'Spørg assistenten'}
                     </SideButton>
                     <SideButton icon={CircleCheck} onClick={() => st().updateCard(card.id, { done: !card.done })}>
                       {card.done ? 'Genåbn' : 'Markér som færdig'}

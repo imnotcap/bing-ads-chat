@@ -80,6 +80,8 @@ export interface Card {
   priority?: Priority | null;
   /** Follow-up of changes the assistant made (opens the conversation). */
   source?: { conversationId: string; activityIds: string[] };
+  /** Made by an agent: the request the "Bed assistenten" button sends (a new conversation). */
+  ask?: string;
   /** Outlook reminder made for the card. */
   outlook?: { eventId: string; webLink?: string; at: string };
   archived: boolean;
@@ -114,7 +116,7 @@ export interface BoardData {
   members: Member[];
 }
 
-export type CardPatch = Partial<Pick<Card, 'title' | 'description' | 'due' | 'done' | 'cover' | 'priority' | 'outlook'>>;
+export type CardPatch = Partial<Pick<Card, 'title' | 'description' | 'due' | 'done' | 'cover' | 'priority' | 'outlook' | 'ask'>>;
 
 type OpBody =
   | { type: 'createBoard'; board: Board }

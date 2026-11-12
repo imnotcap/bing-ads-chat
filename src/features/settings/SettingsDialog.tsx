@@ -28,6 +28,7 @@ import { refreshBilling, useBilling } from '@/workspace/billing';
 import { PLANS } from '@/workspace/plans';
 import { ModelsTab } from './ModelsTab';
 import { startFollowUpTest } from '@/features/chat/followUpTest';
+import { runDueAgents } from '@/agents/useAgents';
 import { UsersTab } from './UsersTab';
 import { ConnectorsTab } from './ConnectorsTab';
 import { TrainingTab } from './TrainingTab';
@@ -117,6 +118,8 @@ function AiTab() {
           </div>
         </div>
       </Card>
+
+      <AgentsCard />
 
       <Card title="AI-forbrug" description="Dit forbrug på denne pc, anslået ud fra listepriserne (Claude) og de priser, du har angivet for Gemini. Det trækkes fra virksomhedens fælles pulje.">
         <div className="grid gap-3 sm:grid-cols-3">
@@ -539,5 +542,47 @@ export function SettingsDialog() {
         )}
       </AnimatePresence>
     </DialogPrimitive.Root>
+  );
+}
+
+/** The agents (src/agents): on/off each, and a run now. */
+function AgentsCard() {
+  const agents = useSettings((s) => s.agents);
+  const setAgents = useSettings((s) => s.setAgents);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Card
+      title="Agenter"
+      description="Kører hver hverdag fra kl. 7, mens appen er åben (også i baggrunden), på den rigtige konto. De ændrer intet i Microsoft – de lægger kort på tavlen Agenter (opfølgning: på dine egne kort), og knappen Bed assistenten ordne det på kortet starter en samtale, hvor alt skal godkendes."
+    >
+      <SwitchRow label="Opfølgning" description="Dine opfølgningskort, der forfalder: tallene før og efter ændringen og en vurdering – behold, hold øje eller rul tilbage – som kommentar. For lidt data: kortet flyttes en uge." checked={agents.followUp} onCheckedChange={(followUp) => setAgents({ followUp })} />
+      <SwitchRow label="Søgetermer uden salg" description="Hver mandag: søgetermer de seneste 30 dage med klik og forbrug, men ingen salg – og som ikke allerede er stoppet af et negativt søgeord." checked={agents.searchTerms} onCheckedChange={(searchTerms) => setAgents({ searchTerms })} />
+      <SwitchRow label="Periode-vagt" description="Dagen før en kampagneperiode (Black Week osv.) starter: er kampagnen aktiv, har den budget, godkendte annoncer og aktive annoncegrupper? Og når perioden er slut: hvordan gik den." checked={agents.periods} onCheckedChange={(periods) => setAgents({ periods })} />
+      <SwitchRow label="Afvisninger" description="Afviste annoncer og søgeord i aktive kampagner, og sælgende produkter med advarsler eller afvisninger i Merchant Center – et nyt kort, når listen ændrer sig." checked={agents.rejections} onCheckedChange={(rejections) => setAgents({ rejections })} />
+      <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+        <div className="grid gap-0.5">
+          <span className="text-sm font-medium text-ink">Kør nu</span>
+          <span className="text-[12.5px] leading-relaxed text-muted">Kører de slåede-til agenter med det samme. Det, en anden i teamet allerede har kørt i dag, springes over.</span>
+        </div>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await runDueAgents(true);
+              toast.success('Agenterne er kørt – se tavlen Agenter');
+            } catch (e) {
+              toast.error('Agenterne kunne ikke køre', { description: errorMessage(e) });
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? 'Kører …' : 'Kør nu'}
+        </Button>
+      </div>
+    </Card>
   );
 }
