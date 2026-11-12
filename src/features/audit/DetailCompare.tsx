@@ -7,7 +7,7 @@
  * first – or, where it cannot change something yet (product groups), as a list to copy.
  */
 import { useMemo, useState } from 'react';
-import { Check, Copy, Loader2, Minus, MessageSquare, RefreshCw, TriangleAlert } from '@/components/icons';
+import { Check, ChevronDown, ChevronRight, Copy, Loader2, Minus, MessageSquare, RefreshCw, TriangleAlert } from '@/components/icons';
 import { toast } from '@/components/notifications/toast';
 import { Button } from '@/components/ui/button';
 import { Segmented } from '@/components/ui/controls';
@@ -122,6 +122,10 @@ interface Line {
   todo: string;
   /** For the assistant when the line is picked: the facts it needs (default: the cells). */
   brief?: string;
+  /** The ad group the line belongs to: lines are then shown in one fold-out per ad group. */
+  group?: string;
+  /** Shown on the ad group's fold-out, e.g. "Pauset i Microsoft". */
+  groupNote?: string;
 }
 
 interface Section {
@@ -138,7 +142,8 @@ interface Section {
 
 const lineKey = (sectionId: string, l: Line) => `${sectionId}\u0000${l.item}\u0000${l.sub ?? ''}\u0000${l.todo}`;
 const lineBrief = (l: Line) =>
-  l.brief ?? `${l.item}${l.sub ? ` (${l.sub})` : ''}: Google ${l.google.has ? l.google.text : 'har den ikke'}${l.google.sub ? ` – ${l.google.sub}` : ''}; Microsoft ${l.microsoft.has ? l.microsoft.text : 'har den ikke'}${l.microsoft.sub ? ` – ${l.microsoft.sub}` : ''} → ${l.todo}`;
+  (l.group && !l.brief ? `[annoncegruppe "${l.group}"${l.groupNote ? `, ${l.groupNote.toUpperCase()}` : ''}] ` : '') +
+  (l.brief ?? `${l.item}${l.sub ? ` (${l.sub})` : ''}: Google ${l.google.has ? l.google.text : 'har den ikke'}${l.google.sub ? ` – ${l.google.sub}` : ''}; Microsoft ${l.microsoft.has ? l.microsoft.text : 'har den ikke'}${l.microsoft.sub ? ` – ${l.microsoft.sub}` : ''} → ${l.todo}`);
 
 /** The request for just the lines the user picked – nothing else is to be changed. */
 function pickedAsk(context: string, picked: { section: Section; line: Line }[]): string {
@@ -149,6 +154,7 @@ function pickedAsk(context: string, picked: { section: Section; line: Line }[]):
     `Ret KUN ${picked.length === 1 ? 'denne ene ting' : `disse ${picked.length} ting`} i Microsoft – intet andet, heller ikke andre forskelle du ser:`,
     ...[...bySection].flatMap(([sec, lines]) => [`${sec.label}:`, ...lines.map((l) => `- ${lineBrief(l)}`)]),
     ...[...new Set([...bySection.keys()].map((sec) => sec.how).filter(Boolean))],
+    'En annoncegruppe, der er pauset, skal nævnes som pauset – en ændring i den gør intet, før den aktiveres; spørg, om den skal aktiveres, i stedet for at ændre bud i den uden videre.',
     'Vær eksperten: vurdér hvert punkt ud fra dataene (Microsofts egne tal, Googles tal, gruppernes indhold), før du foreslår det. Giver et punkt ikke mening, så sig det kort og lad det være. Vis ændringerne til godkendelse, før noget sker.',
   ].join('\n');
 }
@@ -194,7 +200,29 @@ function CompareTable({ sections, same, note, context }: { sections: Section[]; 
       return next;
     });
   const FIRST = 15;
-  const visible = all ? lines : lines.slice(0, FIRST);
+  // Per ad group, in fold-outs, when the lines say which ad group they belong to.
+  const grouped = lines.some((l) => l.group);
+  const folds = useMemo(() => {
+    const m = new Map<string, { name: string; notes: Set<string>; lines: typeof lines }>();
+    for (const l of lines) {
+      const name = l.group ?? 'Hele kampagnen';
+      const f = m.get(name) ?? { name, notes: new Set<string>(), lines: [] as typeof lines };
+      if (l.groupNote) f.notes.add(l.groupNote);
+      f.lines.push(l);
+      m.set(name, f);
+    }
+    return [...m.values()];
+  }, [lines]);
+  const [openFolds, setOpenFolds] = useState<Set<string> | null>(null);
+  const isOpen = (name: string) => (openFolds ? openFolds.has(name) : folds.length <= 3);
+  const flip = (name: string) =>
+    setOpenFolds((prev) => {
+      const next = new Set(prev ?? (folds.length <= 3 ? folds.map((f) => f.name) : []));
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  const visible = grouped ? folds.filter((f) => isOpen(f.name)).flatMap((f) => f.lines) : all ? lines : lines.slice(0, FIRST);
   // Under "Alle": the request, when the sections with something to ask share one.
   const asks = [...new Set(withLines.map((s) => s.ask).filter((a): a is () => string => !!a))];
   const ask = active ? active.ask : asks.length === 1 ? asks[0] : undefined;
@@ -305,7 +333,46 @@ function CompareTable({ sections, same, note, context }: { sections: Section[]; 
               </tr>
             </thead>
             <tbody>
-              {visible.map((l) => (
+              {(grouped ? folds : [{ name: '', notes: new Set<string>(), lines: visible }]).flatMap((f) => [
+                ...(grouped
+                  ? [
+                      <tr key={`fold:${f.name}`} className="border-t border-line-2 bg-[#fafafb]">
+                        {context && (
+                          <td className="w-8 py-2 pl-4 align-middle">
+                            <input
+                              type="checkbox"
+                              aria-label={`Vælg alt i ${f.name}`}
+                              className="block size-3.5 accent-[var(--color-brand,#2563eb)]"
+                              checked={f.lines.every((l) => sel.has(l.key))}
+                              onChange={(e) =>
+                                setSel((prev) => {
+                                  const next = new Set(prev);
+                                  for (const l of f.lines) {
+                                    if (e.target.checked) next.add(l.key);
+                                    else next.delete(l.key);
+                                  }
+                                  return next;
+                                })
+                              }
+                            />
+                          </td>
+                        )}
+                        <td colSpan={4} className={cn('py-1.5', context ? 'px-2' : 'px-4')}>
+                          <button type="button" onClick={() => flip(f.name)} className="flex w-full items-center gap-2 text-left text-[12.5px] font-semibold text-ink">
+                            {isOpen(f.name) ? <ChevronDown className="size-3.5 text-muted" /> : <ChevronRight className="size-3.5 text-muted" />}
+                            <span className="min-w-0 [overflow-wrap:anywhere]">{f.name}</span>
+                            {[...f.notes].map((n) => (
+                              <span key={n} className="rounded-md bg-warning-bg px-1.5 py-0.5 text-[11px] font-medium text-warning">
+                                {n}
+                              </span>
+                            ))}
+                            <span className="tabular font-normal text-subtle">{f.lines.length}</span>
+                          </button>
+                        </td>
+                      </tr>,
+                    ]
+                  : []),
+                ...(grouped && !isOpen(f.name) ? [] : f.lines).map((l) => (
                 <tr key={l.key} className={cn('border-t border-line-2', sel.has(l.key) && 'bg-brand/5')}>
                   {context && (
                     <td className="w-8 py-2 pl-4 align-top">
@@ -322,12 +389,13 @@ function CompareTable({ sections, same, note, context }: { sections: Section[]; 
                     <span className={cn('inline-block rounded-md px-1.5 py-0.5 text-[12px] font-medium leading-snug', TONE_CHIP[l.tone])}>{l.todo}</span>
                   </td>
                 </tr>
-              ))}
+                )),
+              ])}
             </tbody>
           </table>
         </div>
       )}
-      {lines.length > FIRST && (
+      {!grouped && lines.length > FIRST && (
         <button type="button" onClick={() => setAll((v) => !v)} className="px-4 py-2 text-[12.5px] font-medium text-brand hover:underline">
           {all ? 'Vis færre' : `Vis alle ${lines.length}`}
         </button>
@@ -365,7 +433,9 @@ function ShoppingProductsTab({ row, range, currency }: { row: AuditRow; range: D
   const where = (g: GroupDiff) => g.bingGroup ?? g.googleGroup ?? '';
   const side = (s: ItemState) => ({ has: s.via !== 'none', ...stateText(s, currency) });
   const kr = (v: number) => fmtMoney(v, currency, 2);
-  const groupRef = (g: GroupDiff) => `annoncegruppen "${where(g)}"${g.bingGroupId ? ` (Microsoft-id ${g.bingGroupId})` : ''}`;
+  const pausedNote = (g: GroupDiff) => [g.bingStatus === 'paused' && 'Pauset i Microsoft', g.googleStatus === 'paused' && 'Pauset i Google'].filter(Boolean).join(' · ') || undefined;
+  const fold = (g: GroupDiff) => ({ group: where(g), groupNote: pausedNote(g) });
+  const groupRef = (g: GroupDiff) => `annoncegruppen "${where(g)}"${g.bingGroupId || pausedNote(g) ? ` (${[g.bingGroupId && `Microsoft-id ${g.bingGroupId}`, pausedNote(g)?.toUpperCase()].filter(Boolean).join(', ')})` : ''}`;
   const statsOf = (g: GroupDiff, d: ItemDiff) => (d.itemId && g.bingGroupId ? shown.data?.stats?.get(`${g.bingGroupId}|${d.itemId.toLowerCase()}`) : undefined);
   /** Google's bid judged on what the product did in Microsoft – only for item ids (the report is per item). */
   const advise = (g: GroupDiff, d: ItemDiff) => (d.itemId && d.google.bid !== null && d.bing.bid !== null && shown.data ? bidAdvice(d.google.bid, d.bing.bid, statsOf(g, d), bench, currency, !!target) : null);
@@ -378,8 +448,8 @@ function ShoppingProductsTab({ row, range, currency }: { row: AuditRow; range: D
           const st = statsOf(g, d);
           const microsoft = side(d.bing);
           return {
+            ...fold(g),
             item: d.label,
-            sub: where(g),
             google: side(d.google),
             microsoft: advice ? { ...microsoft, sub: advice.why } : st ? { ...microsoft, sub: [microsoft.sub, statsText(st, currency)].filter(Boolean).join(' · ') } : microsoft,
             todo: advice ? advice.todo : todo(d, g),
@@ -426,7 +496,8 @@ function ShoppingProductsTab({ row, range, currency }: { row: AuditRow; range: D
               ...groups
                 .filter((g) => g.status === 'missing')
                 .map((g) => ({
-                  item: g.googleGroup!,
+                  ...fold(g),
+                  item: 'Annoncegruppen mangler',
                   google: { has: true, text: 'Annoncegruppe', sub: [STATUS_WORD[g.googleStatus ?? ''], g.googleProducts && `${g.googleProducts.length} produktgrupper`].filter(Boolean).join(' · ') || undefined },
                   microsoft: { has: false, text: 'Mangler' },
                   todo: 'Opret i Microsoft',
@@ -435,7 +506,8 @@ function ShoppingProductsTab({ row, range, currency }: { row: AuditRow; range: D
               ...groups
                 .filter((g) => g.status === 'empty')
                 .map((g) => ({
-                  item: g.bingGroup!,
+                  ...fold(g),
+                  item: 'Ingen produktgrupper',
                   google: { has: true, text: 'Produktgrupper' },
                   microsoft: { has: false, text: 'Ingen produktgrupper', sub: 'viser intet' },
                   todo: 'Opret produktgrupper som i Google',
@@ -455,7 +527,8 @@ function ShoppingProductsTab({ row, range, currency }: { row: AuditRow; range: D
             lines: compared
               .filter((g) => g.defaultBid)
               .map((g) => ({
-                item: where(g),
+                ...fold(g),
+                item: 'Standardbud',
                 google: { has: true, text: fmtMoney(g.defaultBid!.google, currency, 2) },
                 microsoft: { has: true, text: fmtMoney(g.defaultBid!.bing, currency, 2) },
                 todo: `Vurdér: Google ${kr(g.defaultBid!.google)}`,
@@ -468,7 +541,8 @@ function ShoppingProductsTab({ row, range, currency }: { row: AuditRow; range: D
             label: 'Anden status',
             tone: 'check',
             lines: statusDiffs.map((g) => ({
-              item: where(g),
+              ...fold(g),
+              item: 'Status',
               google: { has: true, text: STATUS_WORD[g.googleStatus!] ?? g.googleStatus! },
               microsoft: { has: true, text: STATUS_WORD[g.bingStatus!] ?? g.bingStatus! },
               todo: g.googleStatus === 'active' ? 'Aktivér i Microsoft' : 'Sæt på pause i Microsoft',
@@ -480,13 +554,13 @@ function ShoppingProductsTab({ row, range, currency }: { row: AuditRow; range: D
             id: 'split',
             label: 'Delt op forskelligt',
             tone: 'check',
-            lines: split.map((g) => ({ item: where(g), google: { has: true, text: 'Produktgrupper' }, microsoft: { has: true, text: 'Produktgrupper' }, todo: `${g.splits} Sammenlignet produkt for produkt ovenfor.` })),
+            lines: split.map((g) => ({ ...fold(g), item: 'Delt op forskelligt', google: { has: true, text: 'Produktgrupper' }, microsoft: { has: true, text: 'Produktgrupper' }, todo: `${g.splits} Sammenlignet produkt for produkt ovenfor.` })),
           },
           {
             id: 'unsupported',
             label: 'Sammenlign selv',
             tone: 'check',
-            lines: groups.filter((g) => g.status === 'unsupported').map((g) => ({ item: where(g), google: { has: true, text: 'Produktgrupper' }, microsoft: { has: true, text: 'Produktgrupper' }, todo: g.reason ?? '' })),
+            lines: groups.filter((g) => g.status === 'unsupported').map((g) => ({ ...fold(g), item: 'Sammenlign i hånden', google: { has: true, text: 'Produktgrupper' }, microsoft: { has: true, text: 'Produktgrupper' }, todo: g.reason ?? '' })),
           },
           {
             id: 'extra',
@@ -494,7 +568,7 @@ function ShoppingProductsTab({ row, range, currency }: { row: AuditRow; range: D
             tone: 'none',
             lines: groups
               .filter((g) => g.status === 'extra')
-              .map((g) => ({ item: g.bingGroup!, google: { has: false, text: 'Findes ikke' }, microsoft: { has: true, text: 'Annoncegruppe', sub: [STATUS_WORD[g.bingStatus ?? ''], g.reason].filter(Boolean).join(' · ') || undefined }, todo: 'Tjek – findes ikke i Google' })),
+              .map((g) => ({ ...fold(g), item: 'Kun i Microsoft', google: { has: false, text: 'Findes ikke' }, microsoft: { has: true, text: 'Annoncegruppe', sub: [STATUS_WORD[g.bingStatus ?? ''], g.reason].filter(Boolean).join(' · ') || undefined }, todo: 'Tjek – findes ikke i Google' })),
           },
         ]}
         note={`Pr. annoncegruppe og produkt (varenummer, mærke, produkttype – på alle niveauer): det, der faktisk gælder hver side – eget bud, udelukket, eller via "Alt andet". Bud er produktgruppens eget, ellers annoncegruppens standardbud. Det samme resultat nået på en anden måde er ikke en forskel.${bids ? '' : ' Google byder automatisk i denne kampagne, så buddene sammenlignes ikke.'}`}
@@ -626,6 +700,13 @@ function KeywordsTab({ row, range, currency }: { row: AuditRow; range: DateRange
   const { google, bing } = useBoth(row, 'structure', range, true);
   const bids = googleBidsByHand(row.google?.bidStrategy);
   const r = useMemo(() => (google.data && bing.data ? compareKeywords(google.data.data, bing.data, { bids }) : null), [google.data, bing.data, bids]);
+  const gStatus = new Map((google.data?.data.adGroups ?? []).map((g) => [g.name, g.status]));
+  const bStatus = new Map((bing.data?.adGroups ?? []).map((g) => [g.name, g.status]));
+  /** One fold-out per ad group (Microsoft's name when it has one), marked when paused on either side. */
+  const kfold = (gName?: string | null, bName?: string | null) => ({
+    group: bName ?? gName ?? undefined,
+    groupNote: [bName && bStatus.get(bName) === 'paused' && 'Pauset i Microsoft', gName && gStatus.get(gName) === 'paused' && 'Pauset i Google'].filter(Boolean).join(' · ') || undefined,
+  });
   const status = (s: string) => (s === 'active' ? 'aktivt' : s === 'paused' ? 'pauset' : s);
   const numbers = (m: { clicks: number; conversions: number; spend: number } | null | undefined) =>
     m && (m.clicks > 0 || m.conversions > 0) ? `${fmtNumber(m.clicks)} klik · ${fmtNumber(m.conversions, 1)} konv. · ${fmtMoney(m.spend, currency)}` : undefined;
@@ -646,7 +727,8 @@ function KeywordsTab({ row, range, currency }: { row: AuditRow; range: DateRange
                 .map((p) => {
                   const kws = google.data!.data.keywords.filter((k) => k.adGroupId === p.google!.id && k.status === 'active');
                   return {
-                    item: p.google!.name,
+                    ...kfold(p.google!.name, null),
+                    item: 'Annoncegruppen mangler',
                     google: { has: true, text: 'Annoncegruppe', sub: `${kws.length} aktive søgeord` },
                     microsoft: { has: false, text: 'Mangler' },
                     todo: 'Opret i Microsoft',
@@ -660,6 +742,7 @@ function KeywordsTab({ row, range, currency }: { row: AuditRow; range: DateRange
               label: 'Søgeord mangler',
               tone: 'fix',
               lines: r.missingInBing.map((k) => ({
+                ...kfold(k.googleGroup, k.bingGroup),
                 item: k.text,
                 sub: numbers(k.metrics) && `Google: ${numbers(k.metrics)}`,
                 google: { has: true, text: MATCH[k.matchType], sub: k.googleGroup },
@@ -684,6 +767,7 @@ function KeywordsTab({ row, range, currency }: { row: AuditRow; range: DateRange
               label: 'Anden gruppe eller pauset',
               tone: 'check',
               lines: r.elsewhereInBing.map((k) => ({
+                ...kfold(k.googleGroup, k.bingGroup),
                 item: k.text,
                 google: { has: true, text: 'Aktivt', sub: k.googleGroup },
                 microsoft: { has: true, text: k.found.map((f) => `${f.group} (${status(f.status)})`).join(', ') },
@@ -695,8 +779,9 @@ function KeywordsTab({ row, range, currency }: { row: AuditRow; range: DateRange
               label: 'Andet bud',
               tone: 'fix',
               lines: r.bidDiffs.map((d) => ({
+                ...kfold(d.googleGroup, d.bingGroup),
                 item: d.text,
-                sub: `${MATCH[d.matchType]} · ${d.bingGroup}`,
+                sub: MATCH[d.matchType],
                 google: { has: true, text: fmtMoney(d.google, currency, 2) },
                 microsoft: { has: true, text: fmtMoney(d.bing, currency, 2) },
                 todo: `Vurdér: Google ${fmtMoney(d.google, currency, 2)}`,
@@ -716,8 +801,8 @@ function KeywordsTab({ row, range, currency }: { row: AuditRow; range: DateRange
               label: 'Pauset i Google, aktivt i Microsoft',
               tone: 'fix',
               lines: r.pausedInGoogle.map((k) => ({
+                ...kfold(k.googleGroup, k.bingGroup),
                 item: k.text,
-                sub: k.bingGroup,
                 google: { has: true, text: 'Pauset', sub: MATCH[k.matchType] },
                 microsoft: { has: true, text: 'Aktivt' },
                 todo: 'Sæt på pause i Microsoft?',
@@ -730,7 +815,8 @@ function KeywordsTab({ row, range, currency }: { row: AuditRow; range: DateRange
               lines: r.pairs
                 .filter((p) => p.google && p.bing && p.google.status !== p.bing.status)
                 .map((p) => ({
-                  item: p.bing!.name,
+                  ...kfold(p.google!.name, p.bing!.name),
+                  item: 'Status',
                   google: { has: true, text: STATUS_WORD[p.google!.status] ?? p.google!.status },
                   microsoft: { has: true, text: STATUS_WORD[p.bing!.status] ?? p.bing!.status },
                   todo: p.google!.status === 'active' ? 'Aktivér i Microsoft' : 'Sæt på pause i Microsoft',
@@ -741,6 +827,7 @@ function KeywordsTab({ row, range, currency }: { row: AuditRow; range: DateRange
               label: 'Anden matchtype',
               tone: 'check',
               lines: r.matchTypeDiffs.map((d) => ({
+                ...kfold(d.googleGroup, d.bingGroup),
                 item: d.text,
                 google: { has: true, text: d.google.map((m) => MATCH[m]).join(', ') },
                 microsoft: { has: true, text: d.bing.map((m) => MATCH[m]).join(', '), sub: d.bingGroup },
@@ -754,8 +841,8 @@ function KeywordsTab({ row, range, currency }: { row: AuditRow; range: DateRange
               lines: [
                 ...r.pairs
                   .filter((p) => !p.google && p.bing)
-                  .map((p) => ({ item: p.bing!.name, google: { has: false, text: 'Mangler' }, microsoft: { has: true, text: 'Annoncegruppe' }, todo: 'Intet' })),
-                ...r.onlyInBing.map((k) => ({ item: k.text, google: { has: false, text: 'Mangler' }, microsoft: { has: true, text: MATCH[k.matchType], sub: k.bingGroup }, todo: 'Intet' })),
+                  .map((p) => ({ ...kfold(null, p.bing!.name), item: 'Kun i Microsoft', google: { has: false, text: 'Mangler' }, microsoft: { has: true, text: 'Annoncegruppe' }, todo: 'Intet' })),
+                ...r.onlyInBing.map((k) => ({ ...kfold(null, k.bingGroup), item: k.text, google: { has: false, text: 'Mangler' }, microsoft: { has: true, text: MATCH[k.matchType], sub: k.bingGroup }, todo: 'Intet' })),
               ],
             },
           ]}

@@ -265,9 +265,9 @@ function ListColumn({ board, list, cards, filters, onOpen }: { board: Board; lis
       )}
     >
       <ListHeader board={board} list={list} count={filtered ? visible.length : list.cardIds.length} dragProps={{ ...attributes, ...listeners }} onAddCard={() => setComposing(true)} />
-      <div className="-mx-1 min-h-2 flex-1 overflow-y-auto px-1 pb-1">
+      <div className="-mx-1 min-h-2 flex-1 overflow-y-auto overflow-x-hidden px-1 pb-1">
         <SortableContext items={visible.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-          <div className="grid gap-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
             {visible.map((c) => (
               <SortableCard key={c.id} card={c} board={board} onOpen={onOpen} />
             ))}

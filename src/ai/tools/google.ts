@@ -244,6 +244,7 @@ export const googleTools = [
               const [g, b] = await Promise.all([googleDetail(google.id, 'structure', period, pmax), bingStructure(ctx.accountId, c.id, ctx.backend)]);
               const r = compareKeywords(g.data, b, { bids: googleBidsByHand(google.bidStrategy) });
               out.adGroupsAndKeywords = {
+                pausedAdGroups: { microsoft: b.adGroups.filter((x) => x.status === 'paused').map((x) => x.name), google: g.data.adGroups.filter((x) => x.status === 'paused').map((x) => x.name) },
                 adGroupStatusDifferences: r.pairs.filter((p) => p.google && p.bing && p.google.status !== p.bing.status).map((p) => ({ adGroup: p.bing!.name, google: p.google!.status, microsoft: p.bing!.status })),
                 keywordBidDifferences: googleBidsByHand(google.bidStrategy) ? top(r.bidDiffs.map((d) => ({ ...d, matchType: MATCH[d.matchType] })), 60) : `Not compared – Google bids automatically (${google.bidStrategy}).`,
                 pausedInGoogleActiveInMicrosoft: top(r.pausedInGoogle, 40),
@@ -319,6 +320,8 @@ export const googleTools = [
                     ...(d.reason ? { reason: d.reason } : {}),
                     ...(d.splits ? { splitDifferently: d.splits } : {}),
                     ...(d.googleStatus && d.bingStatus && d.googleStatus !== d.bingStatus ? { adGroupStatus: { google: d.googleStatus, microsoft: d.bingStatus } } : {}),
+                    ...(d.bingStatus === 'paused' ? { pausedInMicrosoft: 'This ad group is PAUSED in Microsoft – say so first; changes in it do nothing until it is activated.' } : {}),
+                    ...(d.googleStatus === 'paused' ? { pausedInGoogle: true } : {}),
                     ...(d.defaultBid ? { defaultBid: d.defaultBid } : {}),
                     ...(d.bingGroupId ? { microsoftAdGroupId: d.bingGroupId } : {}),
                     ...(d.googleProducts && (d.status === 'missing' || d.status === 'empty') ? { googleHas: d.googleProducts.slice(0, 200).map((p) => ({ products: p.label, excluded: p.excluded, bid: p.bid })) } : {}),
@@ -517,7 +520,8 @@ export const googleTools = [
       if (!ctx.backend.applyProductPartitionActions) throw new Error('Produktgrupper kan kun ændres på den rigtige Microsoft-konto (ikke demo).');
       const period = resolvePeriod(undefined, ctx);
       const { google, how } = await counterpart(ctx, c, input.googleCampaignId, period);
-      const { plan, shown } = await productPlan(ctx, c, google, period, input.includeUnshown);
+      const { plan, shown, bingGroups } = await productPlan(ctx, c, google, period, input.includeUnshown);
+      const paused = new Set(bingGroups.filter((x) => x.status === 'Paused').map((x) => x.id));
       const only = input.adGroupIds?.length ? new Set(input.adGroupIds.map(String)) : null;
       const groups = plan.filter((g) => !only || (g.bingAdGroupId && only.has(g.bingAdGroupId)));
       const skip = new Set(input.skip ?? []);
@@ -564,6 +568,7 @@ export const googleTools = [
         throw new Error(`Ingen produktgrupper at rette – Microsoft ligner Google${left.length ? `, bortset fra: ${left.join(' · ')}` : ''}.${quiet}`);
       }
       const notes = [
+        ...working.filter((g) => g.bingAdGroupId && paused.has(g.bingAdGroupId)).map((g) => `Annoncegruppen "${g.bingGroup}" er PAUSET i Microsoft – ændringerne gør intet, før den aktiveres.`),
         `Google-kampagnen "${google.name}" er ${how}. Google ændres ikke – det læses kun.`,
         ...working.filter((g) => g.convert).map((g) => `"${g.bingGroup}": Microsofts "Alle produkter" opdeles efter varenummer, ligesom i Google.`),
         ...bids.map((g) =>
