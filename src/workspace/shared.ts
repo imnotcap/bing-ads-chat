@@ -177,6 +177,22 @@ export async function writeNotes(notes: { campaign: string; adGroup: string; top
   return api<{ written: number }>('/workspace/notesheet/rows', { method: 'POST', body: JSON.stringify({ notes }) });
 }
 
+export interface WatchItem {
+  id: string;
+  title: string;
+  addedBy: string;
+  addedAt: number;
+}
+
+/** The team's watched products (Produkter → Overvågede). */
+export async function getWatchlist(): Promise<WatchItem[]> {
+  return (await api<{ items: WatchItem[] }>('/workspace/watch')).items;
+}
+
+export async function changeWatchlist(change: { add?: { id: string; title: string }[]; remove?: string[] }): Promise<WatchItem[]> {
+  return (await api<{ items: WatchItem[] }>('/workspace/watch', { method: 'POST', body: JSON.stringify(change) })).items;
+}
+
 /** Claims one agent run for the team: true for the first app that asks for the key. */
 export async function claimAgentRun(key: string): Promise<boolean> {
   return (await api<{ claimed: boolean }>('/workspace/agents/claim', { method: 'POST', body: JSON.stringify({ key }) })).claimed;

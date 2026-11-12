@@ -5,7 +5,7 @@
  * columns (Kolonner) work on the list already loaded – no new report per click.
  */
 import { motion } from 'motion/react';
-import { ArrowDown, ArrowUp, CalendarDays, Columns3, Copy, ExternalLink, Hash, Package, PanelTop, RefreshCw, Search, Sparkles, X } from '@/components/icons';
+import { Star, StarFilled, ArrowDown, ArrowUp, CalendarDays, Columns3, Copy, ExternalLink, Hash, Package, PanelTop, RefreshCw, Search, Sparkles, X } from '@/components/icons';
 import { useMemo, useState } from 'react';
 import { KpiGrid } from '@/components/blocks/KpiGrid';
 import { pageTransition } from '@/components/motion';
@@ -25,6 +25,8 @@ import { COLUMN_BY_ID, toRow, type ProductRow } from './columns';
 import { ColumnsMenu } from './ColumnsMenu';
 import { DEFAULT_PRODUCT_COLUMNS } from './defaults';
 import { ProductDialog } from './ProductDialog';
+import { WatchPanel } from './WatchPanel';
+import { useWatchChange, useWatchlist } from './watch';
 
 const PAGE = 50;
 
@@ -77,6 +79,11 @@ export function ProductsPage() {
   const { data, isLoading, error } = useProducts(range);
   const columns = useSettings((s) => s.appearance.productColumns ?? DEFAULT_PRODUCT_COLUMNS);
   const go = useUi((s) => s.go);
+  const watchlist = useWatchlist();
+  const watched = useMemo(() => new Set((watchlist.data ?? []).map((w) => w.id.toLowerCase())), [watchlist.data]);
+  const watchChange = useWatchChange();
+  const toggleWatch = (r: ProductRow) =>
+    watchChange.mutate(watched.has(r.id.toLowerCase()) ? { remove: [r.id] } : { add: [{ id: r.id, title: r.title }] });
 
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
@@ -190,6 +197,7 @@ export function ProductsPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-8 pb-10">
+        <WatchPanel currency={currency} />
         {data && (
           <KpiGrid
             className="mb-5 lg:grid-cols-6"
@@ -278,6 +286,7 @@ export function ProductsPage() {
               <table className="w-full border-separate border-spacing-0 whitespace-nowrap text-[13px]">
                 <thead>
                   <tr className="text-left text-[11.5px] font-semibold text-muted">
+                    <th className="w-8 border-b border-line bg-[#fafafb] pl-4" aria-label="Overvåg" />
                     {visible.map((c) => (
                       <th key={c.id} className={cn('border-b border-line bg-[#fafafb] px-3 py-2.5 first:pl-4', c.numeric && 'text-right', c.width)}>
                         {c.sort ? (
@@ -310,11 +319,26 @@ export function ProductsPage() {
                           onSelect: () => ask(`Analysér produktet "${r.title}" (produkt-id ${r.id}) i Shopping/Performance Max i den valgte periode: hvordan klarer det sig, og hvad bør jeg gøre?`),
                         },
                         !!r.link && { label: 'Åbn produktsiden', icon: <ExternalLink />, onSelect: () => void openExternal(r.link!) },
+                        { label: watched.has(r.id.toLowerCase()) ? 'Stop overvågning' : 'Overvåg live', icon: <Star />, onSelect: () => toggleWatch(r) },
                         { label: 'Kopiér produkt-id', icon: <Hash />, onSelect: () => copyText(r.id), separated: true },
                         { label: 'Kopiér titel', icon: <Copy />, onSelect: () => copyText(r.title) },
                       ]}
                     >
                       <tr onClick={() => setOpen(r)} className="group cursor-pointer transition-colors hover:bg-brand-50/30">
+                        <td className="w-8 border-b border-line-2 pl-4">
+                          <button
+                            type="button"
+                            aria-label={watched.has(r.id.toLowerCase()) ? `Stop med at overvåge ${r.title}` : `Overvåg ${r.title} live`}
+                            title={watched.has(r.id.toLowerCase()) ? 'Overvåges live – klik for at fjerne' : 'Overvåg live (fx til Black Week)'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleWatch(r);
+                            }}
+                            className={cn('grid size-6 place-items-center rounded-md transition-colors hover:bg-line-2', watched.has(r.id.toLowerCase()) ? 'text-warning' : 'text-subtle/60 opacity-0 group-hover:opacity-100')}
+                          >
+                            {watched.has(r.id.toLowerCase()) ? <StarFilled className="size-4" /> : <Star className="size-4" />}
+                          </button>
+                        </td>
                         {visible.map((c) => (
                           <td key={c.id} className={cn('border-b border-line-2 px-3 py-2 first:pl-4', c.numeric && 'text-right tabular', c.width)}>
                             {c.cell(r, currency)}

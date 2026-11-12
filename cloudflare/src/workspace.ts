@@ -199,6 +199,15 @@ async function sha256(text: string) {
 const pad = (v: number) => `op:${String(v).padStart(12, '0')}`;
 const hint = (v: string) => v.slice(-4);
 
+
+/** A product the team watches live (its Microsoft offer id / shop SKU). */
+interface WatchItem {
+  id: string;
+  title: string;
+  addedBy: string;
+  addedAt: number;
+}
+
 export class Workspace extends DurableObject<Env> {
   private boardMeta: BoardMeta = { version: 0 };
   private boards: BoardData | null = null;
@@ -523,6 +532,22 @@ export class Workspace extends DurableObject<Env> {
       if (user.role !== 'admin') return fail('Kun administratorer kan fjerne notatarket.', 403);
       await this.ctx.storage.delete('notesheet');
       return json(await this.info());
+    }
+    // Watched products (Produkter → Overvågede): the team's shared list.
+    if (path === '/workspace/watch' && method === 'GET') return json({ items: (await this.ctx.storage.get<WatchItem[]>('watch')) ?? [] });
+    if (path === '/workspace/watch' && method === 'POST') {
+      const body = (await req.json().catch(() => ({}))) as { add?: unknown; remove?: unknown };
+      let items = (await this.ctx.storage.get<WatchItem[]>('watch')) ?? [];
+      const remove = new Set((Array.isArray(body.remove) ? body.remove : []).filter((x): x is string => typeof x === 'string').map((x) => x.toLowerCase()));
+      items = items.filter((i) => !remove.has(i.id.toLowerCase()));
+      for (const a of Array.isArray(body.add) ? body.add.slice(0, 100) : []) {
+        const id = typeof a?.id === 'string' ? a.id.trim().slice(0, 100) : '';
+        if (!id || items.some((i) => i.id.toLowerCase() === id.toLowerCase())) continue;
+        items.push({ id, title: typeof a.title === 'string' ? a.title.trim().slice(0, 200) : '', addedBy: user.name, addedAt: Date.now() });
+      }
+      items = items.slice(-200);
+      await this.ctx.storage.put('watch', items);
+      return json({ items });
     }
     // An agent run (agents in the apps): the first app to claim a key runs it, the others skip.
     if (path === '/workspace/agents/claim' && method === 'POST') {

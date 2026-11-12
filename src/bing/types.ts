@@ -471,6 +471,8 @@ export interface ProductPerformance {
 
 export interface AdsBackend {
   readonly mode: 'live' | 'demo';
+  /** Product metrics for a short period (e.g. today) – light: no catalog, no previous period. Keyed by product id in lower case. */
+  productMetrics?(accountId: string, range: DateRange, signal?: AbortSignal): Promise<Map<string, { title: string; metrics: Metrics }>>;
   listAccounts(): Promise<Account[]>;
   /** Straight from the source (Microsoft) – use after changes and to confirm them. */
   listCampaigns(accountId: string): Promise<Campaign[]>;

@@ -122,6 +122,7 @@ import { SquareIcon } from '@phosphor-icons/react/dist/csr/Square';
 import { SquaresFourIcon } from '@phosphor-icons/react/dist/csr/SquaresFour';
 import { StackIcon } from '@phosphor-icons/react/dist/csr/Stack';
 import { TagIcon } from '@phosphor-icons/react/dist/csr/Tag';
+import { StarIcon } from '@phosphor-icons/react/dist/csr/Star';
 import { TerminalIcon } from '@phosphor-icons/react/dist/csr/Terminal';
 import { TextAlignLeftIcon } from '@phosphor-icons/react/dist/csr/TextAlignLeft';
 import { TrashIcon } from '@phosphor-icons/react/dist/csr/Trash';
@@ -290,6 +291,9 @@ export const Tag = icon(TagIcon);
 export const Terminal = icon(TerminalIcon);
 export const Text = bold(TextAlignLeftIcon);
 export const Trash2 = icon(TrashIcon);
+export const Star = icon(StarIcon, 'bold');
+/** Filled – a watched product. */
+export const StarFilled = icon(StarIcon);
 export const TrendingDown = bold(TrendDownIcon);
 export const TrendingUp = bold(TrendUpIcon);
 export const TriangleAlert = icon(WarningIcon);

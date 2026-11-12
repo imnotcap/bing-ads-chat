@@ -50,6 +50,7 @@ import type {
   ReportSpec,
   SearchVolume,
   ShownProduct,
+  Metrics,
 } from './types';
 import { extractFirstFile } from './zip';
 import { CampaignCache, type CampaignStore } from './campaignCache';
@@ -768,6 +769,11 @@ export class LiveBackend implements AdsBackend {
     const products = aggregateProducts(current, previous);
     const active = campaigns ? campaigns.filter((c) => (c.type === 'Shopping' || c.type === 'PerformanceMax') && c.status === 'Active').length : null;
     return productStatuses(products, catalog?.offers ?? null, catalog?.issues ?? null, active);
+  }
+
+  async productMetrics(accountId: string, range: DateRange, signal?: AbortSignal): Promise<Map<string, { title: string; metrics: Metrics }>> {
+    const rows = await this.reportCsv(accountId, buildProductReportRequest(accountId, range, true), signal, PRODUCT_POLL_ATTEMPTS);
+    return new Map(aggregateProducts(rows, []).map((p) => [p.id.toLowerCase(), { title: p.title, metrics: p.metrics }]));
   }
 
   async shownProducts(accountId: string, campaignId: string, range: DateRange, signal?: AbortSignal): Promise<ShownProduct[]> {

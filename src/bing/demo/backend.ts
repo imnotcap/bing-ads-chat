@@ -611,6 +611,10 @@ export class DemoBackend implements AdsBackend {
     );
   }
 
+  async productMetrics(accountId: string, range: DateRange): Promise<Map<string, { title: string; metrics: Metrics }>> {
+    return new Map((await this.productPerformance(accountId, range)).map((p) => [p.id.toLowerCase(), { title: p.title, metrics: p.metrics }]));
+  }
+
   async productPerformance(accountId: string, range: DateRange): Promise<ProductPerformance[]> {
     await sleep(this.latencyMs * 3);
     const catalogue = demoProducts();
