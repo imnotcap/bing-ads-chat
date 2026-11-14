@@ -182,7 +182,7 @@ export interface NewCampaign {
   status: 'Active' | 'Paused';
   timeZone?: string;
   /** Shopping: the Merchant Center store and the country its products are sold in. */
-  shopping?: { storeId: string; salesCountryCode: string };
+  shopping?: { storeId: string; salesCountryCode: string; /** 0 = low (default), 1 = medium, 2 = high. */ priority?: 0 | 1 | 2 };
 }
 
 export interface NewAdGroup {
@@ -192,7 +192,34 @@ export interface NewAdGroup {
   status: 'Active' | 'Paused';
   /** Only when the campaign has no language – Microsoft then needs one per ad group (e.g. "Danish"). */
   language?: string;
+  /** YYYY-MM-DD – Microsoft shows the ads only between these days (the end included). */
+  startDate?: string;
+  endDate?: string;
+  /** Search: Microsoft's own sites only, or also its search partners (Microsoft's default). */
+  network?: 'OwnedAndOperatedOnly' | 'OwnedAndOperatedAndSyndicatedSearch';
 }
+
+/** Where a campaign's location targeting applies: people in the place, or also people interested in it (Microsoft's default). */
+export type LocationIntent = 'PeopleIn' | 'PeopleInOrSearchingForOrViewingPages';
+
+/** A sitelink or a promotion (ad extensions), with the days it may show. */
+export type NewAdExtension =
+  | { kind: 'sitelink'; text: string; description1?: string; description2?: string; finalUrl: string; startDate?: string; endDate?: string }
+  | {
+      kind: 'promotion';
+      item: string;
+      finalUrl: string;
+      percentOff?: number;
+      amountOff?: number;
+      upTo?: boolean;
+      code?: string;
+      language: string;
+      currency: string;
+      startDate?: string;
+      endDate?: string;
+    };
+
+export type ExtensionLevel = 'Campaign' | 'AdGroup';
 
 /* ---------------- targeting (devices, ad schedule, locations) ---------------- */
 
@@ -511,6 +538,17 @@ export interface AdsBackend {
   applyCampaignTargets?(accountId: string, campaignId: string, changes: TargetChanges): Promise<MutationResult>;
   /** Places by their English names (e.g. "Denmark", "Region Zealand"), from Microsoft's locations file. */
   findLocations?(accountId: string, names: string[]): Promise<GeoLocation[]>;
+  /** The location intent of a campaign (null: Microsoft's default, people in or interested in). */
+  getLocationIntent?(accountId: string, campaignId: string): Promise<{ id: string | null; intent: LocationIntent }>;
+  setLocationIntent?(accountId: string, campaignId: string, intent: LocationIntent): Promise<MutationResult>;
+  /** Creates sitelinks / promotions in the account's library (ids in order) … */
+  addAdExtensions?(accountId: string, extensions: NewAdExtension[]): Promise<MutationResult>;
+  /** … and attaches them to campaigns or ad groups. */
+  associateAdExtensions?(accountId: string, pairs: { extensionId: string; entityId: string }[], level: ExtensionLevel): Promise<MutationResult>;
+  /** The extensions of a kind attached to these campaigns / ad groups (to read back). */
+  listAdExtensionAssociations?(accountId: string, kind: 'sitelink' | 'promotion', level: ExtensionLevel, entityIds: string[]): Promise<{ extensionId: string; entityId: string; text: string }[]>;
+  /** Every product id in the Merchant Center catalogue (lower case) with its title. */
+  catalogItems?(accountId: string): Promise<Map<string, { id: string; title: string | null }>>;
   /** The customer's Microsoft Merchant Center stores (for Shopping campaigns). */
   listStores?(accountId: string): Promise<MerchantStore[]>;
   updateAdGroups(accountId: string, campaignId: string, patches: AdGroupPatch[]): Promise<MutationResult>;

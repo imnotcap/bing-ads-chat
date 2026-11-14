@@ -51,6 +51,9 @@ import type {
   SearchVolume,
   ShownProduct,
   Metrics,
+  LocationIntent,
+  NewAdExtension,
+  ExtensionLevel,
 } from './types';
 import { extractFirstFile } from './zip';
 import { CampaignCache, type CampaignStore } from './campaignCache';
@@ -512,7 +515,7 @@ export class LiveBackend implements AdsBackend {
           Status: spec.status,
           TimeZone: spec.timeZone ?? 'BrusselsCopenhagenMadridParis',
           BiddingScheme: fromBidStrategy(spec.bidStrategy),
-          ...(spec.shopping ? { Settings: [{ Type: 'ShoppingSetting', StoreId: Number(spec.shopping.storeId), Priority: 0, SalesCountryCode: spec.shopping.salesCountryCode }] } : {}),
+          ...(spec.shopping ? { Settings: [{ Type: 'ShoppingSetting', StoreId: Number(spec.shopping.storeId), Priority: spec.shopping.priority ?? 0, SalesCountryCode: spec.shopping.salesCountryCode }] } : {}),
         },
       ],
     });
@@ -528,6 +531,9 @@ export class LiveBackend implements AdsBackend {
     const group: Json = { Name: spec.name, Status: spec.status };
     if (spec.cpcBid) group.CpcBid = { Amount: spec.cpcBid };
     if (spec.language) group.Language = spec.language;
+    if (spec.startDate) group.StartDate = msDate(spec.startDate);
+    if (spec.endDate) group.EndDate = msDate(spec.endDate);
+    if (spec.network) group.Network = spec.network;
     const res = await this.cm(accountId, 'AdGroups', 'POST', { CampaignId: Number(spec.campaignId), AdGroups: [group] });
     return batchResult(res, 1, 'AdGroupIds');
   }
@@ -769,6 +775,80 @@ export class LiveBackend implements AdsBackend {
     const products = aggregateProducts(current, previous);
     const active = campaigns ? campaigns.filter((c) => (c.type === 'Shopping' || c.type === 'PerformanceMax') && c.status === 'Active').length : null;
     return productStatuses(products, catalog?.offers ?? null, catalog?.issues ?? null, active);
+  }
+
+  async catalogItems(accountId: string): Promise<Map<string, { id: string; title: string | null }>> {
+    const { offers } = await this.merchantCatalog(accountId);
+    return new Map([...offers].map(([k, o]) => [k, { id: k, title: o.title }]));
+  }
+
+  /* ------------------------------ location intent ------------------------------ */
+
+  async getLocationIntent(accountId: string, campaignId: string): Promise<{ id: string | null; intent: LocationIntent }> {
+    const res = await this.cm<Json>(accountId, 'CampaignCriterions/QueryByIds', 'POST', { CampaignCriterionIds: null, CampaignId: Number(campaignId), CriterionType: 'LocationIntent' });
+    const c = arr<Json>(res.CampaignCriterions)[0];
+    const option = str(((c?.Criterion ?? {}) as Json).IntentOption);
+    return { id: c ? str(c.Id) : null, intent: option === 'PeopleIn' ? 'PeopleIn' : 'PeopleInOrSearchingForOrViewingPages' };
+  }
+
+  async setLocationIntent(accountId: string, campaignId: string, intent: LocationIntent): Promise<MutationResult> {
+    const now = await this.getLocationIntent(accountId, campaignId);
+    const criterion: Json = { Type: 'BiddableCampaignCriterion', CampaignId: Number(campaignId), Criterion: { Type: 'LocationIntentCriterion', IntentOption: intent } };
+    if (now.id) criterion.Id = Number(now.id);
+    const res = await this.cm(accountId, 'CampaignCriterions', now.id ? 'PUT' : 'POST', { CampaignCriterions: [criterion], CriterionType: 'LocationIntent' });
+    return batchResult(res, 1);
+  }
+
+  /* ------------------------------ sitelinks and promotions ------------------------------ */
+
+  async addAdExtensions(accountId: string, extensions: NewAdExtension[]): Promise<MutationResult> {
+    const schedule = (e: { startDate?: string; endDate?: string }) =>
+      e.startDate || e.endDate ? { Scheduling: { StartDate: e.startDate ? msDate(e.startDate) : null, EndDate: e.endDate ? msDate(e.endDate) : null, DayTimeRanges: null, UseSearcherTimeZone: false } } : {};
+    const res = await this.cm(accountId, 'AdExtensions', 'POST', {
+      AccountId: Number(accountId),
+      AdExtensions: extensions.map((e) =>
+        e.kind === 'sitelink'
+          ? { Type: 'SitelinkAdExtension', DisplayText: e.text, ...(e.description1 ? { Description1: e.description1, Description2: e.description2 ?? '' } : {}), FinalUrls: [e.finalUrl], ...schedule(e) }
+          : {
+              Type: 'PromotionAdExtension',
+              PromotionItem: e.item,
+              Language: e.language,
+              CurrencyCode: e.currency,
+              DiscountModifier: e.upTo ? 'UpTo' : 'None',
+              ...(e.percentOff ? { PercentOff: e.percentOff } : { MoneyAmountOff: e.amountOff }),
+              ...(e.code ? { PromotionCode: e.code } : {}),
+              ...(e.startDate ? { PromotionStartDate: msDate(e.startDate) } : {}),
+              ...(e.endDate ? { PromotionEndDate: msDate(e.endDate) } : {}),
+              FinalUrls: [e.finalUrl],
+              ...schedule(e),
+            },
+      ),
+    });
+    return batchResult(res, extensions.length, 'AdExtensionIdentities');
+  }
+
+  async associateAdExtensions(accountId: string, pairs: { extensionId: string; entityId: string }[], level: ExtensionLevel): Promise<MutationResult> {
+    const res = await this.cm(accountId, 'AdExtensionsAssociations/Set', 'POST', {
+      AccountId: Number(accountId),
+      AdExtensionIdToEntityIdAssociations: pairs.map((p) => ({ AdExtensionId: Number(p.extensionId), EntityId: Number(p.entityId) })),
+      AssociationType: level,
+    });
+    return batchResult(res, pairs.length);
+  }
+
+  async listAdExtensionAssociations(accountId: string, kind: 'sitelink' | 'promotion', level: ExtensionLevel, entityIds: string[]): Promise<{ extensionId: string; entityId: string; text: string }[]> {
+    const res = await this.cm<Json>(accountId, 'AdExtensionsAssociations/Query', 'POST', {
+      AccountId: Number(accountId),
+      AdExtensionType: kind === 'sitelink' ? 'SitelinkAdExtension' : 'PromotionAdExtension',
+      AssociationType: level,
+      EntityIds: entityIds.map(Number),
+    });
+    return arr<Json>(res.AdExtensionAssociationCollection).flatMap((col) =>
+      arr<Json>(col.AdExtensionAssociations).map((a) => {
+        const ext = (a.AdExtension ?? {}) as Json;
+        return { extensionId: str(ext.Id), entityId: str(a.EntityId), text: str(ext.DisplayText) || str(ext.PromotionItem) };
+      }),
+    );
   }
 
   async productMetrics(accountId: string, range: DateRange, signal?: AbortSignal): Promise<Map<string, { title: string; metrics: Metrics }>> {

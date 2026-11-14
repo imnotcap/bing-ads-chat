@@ -68,9 +68,9 @@ export function bidStrategyProblem(c: Pick<Campaign, 'name' | 'type'> & { bidStr
   if (b.type === 'ManualCpc' && c.type !== 'Audience') {
     return `Manuel CPC findes kun for Audience-kampagner. Microsoft ignorerer det for "${c.name}" uden fejl og bruger Forbedret CPC i stedet – vælg Forbedret CPC (EnhancedCpc), hvis du vil styre buddene selv.`;
   }
-  // Microsoft (Budget and Bid Strategies): standard Shopping takes Enhanced CPC, Maximize clicks or Target ROAS – the conversion strategies are for smart shopping only.
-  if (c.type === 'Shopping' && (b.type === 'MaxConversions' || b.type === 'MaxConversionValue')) {
-    return `Shopping-kampagner understøtter Forbedret CPC og Maksimér klik – ${b.type === 'MaxConversions' ? 'Maksimér konverteringer' : 'Maksimér konverteringsværdi'} findes kun i Smart Shopping.`;
+  // Microsoft moved Target ROAS into Maximize conversion value (Aug 2025) and opened that strategy to Shopping; Maximize conversions is still not offered for standard Shopping.
+  if (c.type === 'Shopping' && b.type === 'MaxConversions') {
+    return 'Shopping-kampagner understøtter Forbedret CPC, Maksimér klik og Maksimér konverteringsværdi (evt. med mål-ROAS) – ikke Maksimér konverteringer.';
   }
   if (c.type === 'PerformanceMax' && b.type !== 'MaxConversions' && b.type !== 'MaxConversionValue') {
     return `Performance Max understøtter kun Maksimér konverteringer (evt. med mål-CPA) og Maksimér konverteringsværdi (evt. med mål-ROAS).`;

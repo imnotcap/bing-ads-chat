@@ -279,7 +279,9 @@ describe('the request that failed: nine Shopping ad groups, devices and an ad sc
     const campaign = (await backend.listCampaigns('1000001')).find((x) => x.id === id)!;
     expect(campaign.languages).toEqual(['Danish']);
     expect((await backend.getCampaignTargets('1000001', id)).schedule).toHaveLength(42);
-    expect(bidStrategyProblem({ name: 'x', type: 'Shopping' }, { type: 'MaxConversions' })).toMatch(/Smart Shopping/);
+    expect(bidStrategyProblem({ name: 'x', type: 'Shopping' }, { type: 'MaxConversions' })).toMatch(/ikke Maksimér konverteringer/);
+    // Target ROAS on Shopping: Maximize conversion value with a target (Microsoft, since August 2025).
+    expect(bidStrategyProblem({ name: 'x', type: 'Shopping' }, { type: 'MaxConversionValue', targetRoas: 3 })).toBeNull();
   });
 });
 

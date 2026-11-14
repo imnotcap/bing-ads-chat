@@ -296,7 +296,7 @@ export class DemoBackend implements AdsBackend {
     await this.delay();
     this.campaign(accountId, spec.campaignId);
     const id = this.newId();
-    this.state.adGroups.push({ id, campaignId: spec.campaignId, name: spec.name, status: spec.status, cpcBid: spec.cpcBid ?? null });
+    this.state.adGroups.push({ id, campaignId: spec.campaignId, name: spec.name, status: spec.status, cpcBid: spec.cpcBid ?? null, startDate: spec.startDate ?? null, endDate: spec.endDate ?? null });
     this.state.bornOn[id] = today();
     if (spec.status !== 'Active') this.state.pausedSince[id] = today();
     this.commit();

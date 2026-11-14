@@ -96,6 +96,8 @@ const TITLES: Record<string, string> = {
   create_ad_group: 'Opretter annoncegruppe',
   update_ad_groups: 'Ændrer annoncegrupper',
   set_campaign_period: 'Sætter kampagneperiode',
+  set_location_intent: 'Sætter placeringsindstilling',
+  add_sitelinks: 'Tilføjer sitelinks',
   add_keywords: 'Tilføjer søgeord',
   update_keywords: 'Ændrer søgeord',
   delete_keywords: 'Sletter søgeord',

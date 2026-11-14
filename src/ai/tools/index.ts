@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { AnyTool } from './context';
 import { adReviewTools } from './adReview';
 import { displayTools } from './display';
+import { extensionTools } from './extensions';
 import { findTools } from './find';
 import { googleTools } from './google';
 import { noteTools } from './notes';
@@ -14,7 +15,7 @@ import { targetingTools } from './targeting';
 import { trainingTools } from './training';
 import { writeTools } from './write';
 
-export const ALL_TOOLS: AnyTool[] = [...findTools, ...researchTools, ...adReviewTools, ...readTools, ...googleTools, ...inventarlandTools, ...writeTools, ...targetingTools, ...noteTools, ...trainingTools, ...displayTools];
+export const ALL_TOOLS: AnyTool[] = [...findTools, ...researchTools, ...adReviewTools, ...readTools, ...googleTools, ...inventarlandTools, ...writeTools, ...targetingTools, ...extensionTools, ...noteTools, ...trainingTools, ...displayTools];
 
 const byName = new Map(ALL_TOOLS.map((t) => [t.name, t]));
 

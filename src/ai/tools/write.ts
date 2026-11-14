@@ -17,7 +17,7 @@ import { blockedBy } from './searchTerms';
 import { presetRange, today } from '@/lib/format';
 import { activeDailyBudget } from '@/bing/spend';
 import { findOperation, isReadOperation, missingRequired, searchOperations } from '@/bing/msOperations';
-import type { AdGroup, Campaign, ItemError, Keyword, MsService, NegativeKeyword, PinPosition, ProductTreeNode } from '@/bing/types';
+import type { AdGroup, Campaign, NewAdGroup, ItemError, Keyword, MsService, NegativeKeyword, PinPosition, ProductTreeNode } from '@/bing/types';
 import { applyTargeting, joinVerified, planTargeting, readTargets, standardFor } from './targeting';
 import { useActivity, type ChangeLine } from '@/stores/activity';
 import type { ChangePlan } from '../guardrails';
@@ -60,6 +60,12 @@ const bidStrategySchema = z.object({
   targetRoas: z.number().positive().optional().describe('Required for TargetRoas, optional for MaxConversionValue (e.g. 4 = 400 %).'),
   maxCpc: z.number().positive().optional().describe('Optional bid cap (MaxClicks, MaxConversions, TargetCpa, TargetRoas).'),
 });
+
+/** YYYY-MM-DD → 16-11-2026 (the team's format). */
+const dkDate = (iso: string) => iso.split('-').reverse().map((x, i) => (i < 2 ? String(Number(x)) : x)).join('-');
+
+const PRIORITY_LABEL = { low: 'Lav', medium: 'Mellem', high: 'Høj' } as const;
+const PRIORITY_VALUE = { low: 0, medium: 1, high: 2 } as const;
 
 const MATCH_LABELS: Record<string, string> = { Exact: 'eksakt', Phrase: 'udtryk', Broad: 'bred' };
 
@@ -332,6 +338,7 @@ A campaign shows no ads until it has ad groups: follow up with create_ad_group (
       name: z.string().min(1).max(128),
       type: z.enum(['Search', 'Shopping', 'Audience', 'PerformanceMax']).optional().describe('Search (default) or Shopping – the others are not supported by this tool.'),
       storeId: z.string().optional().describe('Shopping: the Merchant Center store id – only needed when the customer has more than one store.'),
+      priority: z.enum(['low', 'medium', 'high']).optional().describe('Shopping: campaign priority when several Shopping campaigns sell the same products (default low; "høj prioritet" = high).'),
       dailyBudget: z.number().positive(),
       bidStrategy: bidStrategySchema,
       languages: z.array(z.string()).optional().describe("Ad languages, e.g. ['Danish'] (default) or ['All']"),
@@ -405,6 +412,7 @@ A campaign shows no ads until it has ad groups: follow up with create_ad_group (
           { entity: 'Kampagne', field: 'status', after: statusLabel(status) },
           { entity: 'Kampagne', field: 'sprog', after: languages.join(', ') },
           ...(store ? [{ entity: 'Kampagne', field: 'butik', after: `${store.name} (${store.id}) · Danmark` }] : []),
+          ...(store ? [{ entity: 'Kampagne', field: 'prioritet', after: PRIORITY_LABEL[input.priority ?? 'low'] }] : []),
           ...targeting.lines,
         ],
         dailyBudgetDelta: status === 'Active' ? input.dailyBudget : 0,
@@ -425,7 +433,7 @@ A campaign shows no ads until it has ad groups: follow up with create_ad_group (
             bidStrategy: input.bidStrategy,
             languages,
             status,
-            ...(store ? { shopping: { storeId: store.id, salesCountryCode: 'DK' } } : {}),
+            ...(store ? { shopping: { storeId: store.id, salesCountryCode: 'DK', priority: PRIORITY_VALUE[input.priority ?? 'low'] } } : {}),
           });
           const id = res.ids?.[0];
           fresh(ctx);
@@ -516,6 +524,9 @@ The team standard is set on the campaign in the same card where it is missing: m
         .min(1)
         .max(50),
       status: onOff.optional().describe('Default Active (the campaign status still applies)'),
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('First day the ad groups may show ads (YYYY-MM-DD) – a campaign period set at birth (e.g. Black Week).'),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('Last day they may show ads (YYYY-MM-DD), included.'),
+      searchPartners: z.boolean().optional().describe('Search: false = Microsoft\'s own sites only (no search partners); default: Microsoft\'s default (with partners).'),
       skipStandardTargeting: z.boolean().optional().describe('true when the user gives their own devices/schedule/locations in the same request (put those in set_campaign_targeting with standard: true) or says the campaign must keep its own.'),
       reason,
     }),
@@ -528,6 +539,7 @@ The team standard is set on the campaign in the same card where it is missing: m
       const ignored = bidsIgnoredReason(c);
       for (const g of input.adGroups) {
         if (!shopping && ignored && g.cpcBid) throw new Error(`Ikke sendt: ${ignored} Opret annoncegrupperne uden cpcBid.`);
+        if (shopping && ignored && !g.cpcBid) continue; // a placeholder bid is set below – the strategy bids itself
         if ((shopping || !ignored) && !g.cpcBid) {
           throw new Error(`Ikke sendt: "${g.name}" mangler et CPC-bud, og ${shopping ? 'i Shopping får varenumrene buddet' : `"${c.name}" bruger ${bidLabel(c.bidStrategy)}, så buddet bruges`}. Spørg brugeren om CPC-buddet for ${input.adGroups.filter((x) => !x.cpcBid).map((x) => `"${x.name}"`).join(', ')} – find ikke selv på et bud – og kald så igen med buddene.`);
         }
@@ -535,6 +547,11 @@ The team standard is set on the campaign in the same card where it is missing: m
         const dup = (g.items ?? []).map((x) => x.trim().toLowerCase()).find((x, i, all) => all.indexOf(x) !== i);
         if (dup) throw new Error(`Varenummeret ${dup} står flere gange i "${g.name}".`);
       }
+      if (input.startDate && input.endDate && input.startDate > input.endDate) throw new Error('Startdatoen ligger efter slutdatoen.');
+      if (input.endDate && input.endDate < today()) throw new Error('Slutdatoen er passeret.');
+      if (shopping && input.searchPartners !== undefined) throw new Error('Søgepartnere vælges ikke pr. annoncegruppe i Shopping – lad searchPartners være.');
+      // Shopping under automated bidding: Microsoft still wants a bid on the product groups, but doesn't use it.
+      const placeholder = shopping && ignored ? (ctx.rules.minCpcBid ?? 1) : null;
       const names = input.adGroups.map((g) => g.name.trim().toLowerCase());
       const twice = names.filter((n, i) => names.indexOf(n) !== i);
       if (twice.length) throw new Error(`Navnet "${twice[0]}" står flere gange.`);
@@ -553,8 +570,14 @@ The team standard is set on the campaign in the same card where it is missing: m
           : 'Annoncegrupperne viser først annoncer, når de har søgeord og en godkendt annonce.',
       );
       if (status === 'Paused' && input.status !== 'Paused') notes.push('Oprettes på pause (forbrugsregel: nye ting starter på pause).');
+      const start = input.startDate && input.startDate > today() ? input.startDate : undefined;
+      if (input.startDate && !start) notes.push('Startdatoen er i dag eller passeret – annoncerne kan køre fra nu.');
+      if (start || input.endDate) notes.push('Microsoft viser kun annoncerne mellem datoerne – også når appen er lukket.');
+      if (placeholder) notes.push(`${bidLabel(c.bidStrategy)} byder selv; produktgrupperne får et pladsholder-bud på ${money(placeholder, ctx.currency)}, som Microsoft kræver, men ikke bruger.`);
 
       const lines: ChangeLine[] = [];
+      if (start || input.endDate) lines.push({ entity: 'Annoncegruppe', field: 'Periode (alle nye grupper)', after: `${start ? dkDate(start) : 'nu'} – ${input.endDate ? dkDate(input.endDate) : 'ingen slut'}` });
+      if (input.searchPartners !== undefined) lines.push({ entity: 'Annoncegruppe', field: 'Netværk (alle nye grupper)', after: input.searchPartners ? 'Microsoft + søgepartnere' : 'Kun Microsofts egne sider (ingen søgepartnere)' });
       const rows = input.adGroups.map((g, i) => {
         const name = lines.push({ entity: 'Annoncegruppe', field: 'Annoncegruppe', after: g.name, edit: { path: ['adGroups', i, 'name'], maxLength: 256 } }) - 1;
         const bid = g.cpcBid ? lines.push({ entity: 'Annoncegruppe', field: `${shopping ? 'Bud på varenumre' : 'CPC-bud'} · ${g.name}`, after: g.cpcBid, edit: { path: ['adGroups', i, 'cpcBid'], kind: 'money' as const } }) - 1 : null;
@@ -599,7 +622,16 @@ The team standard is set on the campaign in the same card where it is missing: m
             let id: string | undefined;
             try {
               // Shopping: the ad group bid is only a fallback – "Alle produkter" carries the real one.
-              const res = await ctx.backend.createAdGroup(ctx.accountId, { campaignId: c.id, name: g.name, cpcBid: shopping || !ignored ? g.cpcBid : undefined, status, language });
+              const res = await ctx.backend.createAdGroup(ctx.accountId, {
+                campaignId: c.id,
+                name: g.name,
+                cpcBid: shopping || !ignored ? (g.cpcBid ?? placeholder ?? undefined) : undefined,
+                status,
+                language,
+                ...(start ? { startDate: start } : {}),
+                ...(input.endDate ? { endDate: input.endDate } : {}),
+                ...(input.searchPartners !== undefined ? { network: input.searchPartners ? 'OwnedAndOperatedAndSyndicatedSearch' : 'OwnedAndOperatedOnly' } : {}),
+              } as NewAdGroup);
               id = res.ids?.[0];
               if (!id) throw new Error(res.failed?.[0]?.message ?? 'Microsoft Advertising returnerede intet id.');
             } catch (e) {
@@ -614,7 +646,7 @@ The team standard is set on the campaign in the same card where it is missing: m
               try {
                 await ctx.backend.applyProductPartitionActions(ctx.accountId, [
                   { action: 'Add', adGroupId: id, tempId: -1, parentId: null, kind: 'subdivision', operand: 'All', attribute: null, excluded: false },
-                  ...row.items.map((item) => ({ action: 'Add' as const, adGroupId: id, parentId: -1, kind: 'unit' as const, operand: 'Id', attribute: item, excluded: false, bid: g.cpcBid ?? null })),
+                  ...row.items.map((item) => ({ action: 'Add' as const, adGroupId: id, parentId: -1, kind: 'unit' as const, operand: 'Id', attribute: item, excluded: false, bid: g.cpcBid ?? placeholder ?? null })),
                   { action: 'Add', adGroupId: id, parentId: -1, kind: 'unit', operand: 'Id', attribute: null, excluded: true },
                 ]);
               } catch (e) {
@@ -662,6 +694,7 @@ The team standard is set on the campaign in the same card where it is missing: m
                   if (!found) return 'annoncegruppen blev ikke fundet ved genlæsning';
                   if (!statusMatches(status, found.status)) return statusLabel(found.status);
                   if (shopping && ctx.backend.createProductAd && !s.ads.get(found.id)) return 'ingen produktannonce';
+                  if ((start && found.startDate !== start) || (input.endDate && found.endDate !== input.endDate)) return `periode ${found.startDate ?? 'nu'} – ${found.endDate ?? 'ingen slut'}`;
                   return null;
                 },
               },
