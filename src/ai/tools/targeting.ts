@@ -27,6 +27,8 @@ import {
 import { readBack, report, verify, type LineCheck, type Verified } from './checks';
 import { defineWrite, getCampaign, type ToolContext } from './context';
 
+const AUTOMATED_BIDDING = new Set(['MaxClicks', 'MaxConversions', 'MaxConversionValue', 'TargetCpa', 'TargetRoas', 'TargetImpressionShare']);
+
 /** What the campaign should end up with (left out = unchanged). */
 export interface WantedTargets {
   devices?: Partial<Record<DeviceName, number>>;
@@ -216,6 +218,9 @@ export const targetingTools = [
       };
       const t = await planTargeting(ctx, wanted, current, '');
       if (!t.lines.length) throw new Error(`"${c.name}" har allerede ${input.standard ? 'standardopsætningen' : 'præcis denne opsætning'} – intet at ændre.${t.notes.length ? ` ${t.notes.join(' ')}` : ''}`);
+      // Under automated bidding Microsoft sets the bids itself; how far it follows adjustments isn't clearly documented – -100 % on a device always stops it.
+      if (AUTOMATED_BIDDING.has(c.bidStrategy.type) && (input.devices || input.schedule?.some((b) => b.adjustment !== 0)))
+        t.notes.push(`"${c.name}" byder automatisk – Microsoft sætter selv buddene, og det er ikke klart dokumenteret, hvor meget den følger budjusteringerne. -100 % på en enhed slår den altid fra, og annonceplanens tider styrer, hvornår annoncerne vises.`);
       const increases = t.lines.some((l) => /\+/.test(String(l.after)));
       return {
         plan: {
