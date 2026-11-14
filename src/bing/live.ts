@@ -54,6 +54,7 @@ import type {
   LocationIntent,
   NewAdExtension,
   ExtensionLevel,
+  ExtensionReadLevel,
 } from './types';
 import { extractFirstFile } from './zip';
 import { CampaignCache, type CampaignStore } from './campaignCache';
@@ -836,7 +837,7 @@ export class LiveBackend implements AdsBackend {
     return batchResult(res, pairs.length);
   }
 
-  async listAdExtensionAssociations(accountId: string, kind: 'sitelink' | 'promotion', level: ExtensionLevel, entityIds: string[]): Promise<{ extensionId: string; entityId: string; text: string }[]> {
+  async listAdExtensionAssociations(accountId: string, kind: 'sitelink' | 'promotion', level: ExtensionReadLevel, entityIds: string[]): Promise<{ extensionId: string; entityId: string; text: string; status?: string }[]> {
     const res = await this.cm<Json>(accountId, 'AdExtensionsAssociations/Query', 'POST', {
       AccountId: Number(accountId),
       AdExtensionType: kind === 'sitelink' ? 'SitelinkAdExtension' : 'PromotionAdExtension',
@@ -846,7 +847,7 @@ export class LiveBackend implements AdsBackend {
     return arr<Json>(res.AdExtensionAssociationCollection).flatMap((col) =>
       arr<Json>(col.AdExtensionAssociations).map((a) => {
         const ext = (a.AdExtension ?? {}) as Json;
-        return { extensionId: str(ext.Id), entityId: str(a.EntityId), text: str(ext.DisplayText) || str(ext.PromotionItem) };
+        return { extensionId: str(ext.Id), entityId: str(a.EntityId), text: str(ext.DisplayText) || str(ext.PromotionItem), status: str(a.EditorialStatus) || undefined };
       }),
     );
   }

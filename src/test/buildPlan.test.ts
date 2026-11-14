@@ -95,4 +95,19 @@ describe('a build plan like "Black Weeks 2026"', () => {
     expect(out.matched).toBe(2);
     expect(out.notFoundItems).toEqual([{ id: 'X000558779', closest: ['c000558779'] }, { id: '9999' }]);
   });
+
+  it('lists inherited (account) sitelinks next to the campaign\'s and the ad groups\'', async () => {
+    const demo = new DemoBackend(0);
+    const groups = await demo.listAdGroups('1000001', '101');
+    const backend = Object.assign(Object.create(Object.getPrototypeOf(demo)), demo, {
+      listAdExtensionAssociations: async (_a: string, kind: string, level: string) =>
+        kind !== 'sitelink' ? [] : level === 'Account' ? [{ extensionId: '1', entityId: '1000001', text: 'Kundeservice' }] : level === 'AdGroup' ? [{ extensionId: '2', entityId: groups[0]!.id, text: 'Skriveborde', status: 'Active' }] : [],
+    }) as AdsBackend;
+    const t = getTool('list_sitelinks')!;
+    if (t.kind !== 'read') throw new Error('x');
+    const out = (await t.run(t.schema.parse({ campaignId: '101' }), ctxOf(backend))).result as { sitelinks: { inheritedFromAccount: { text: string }[]; onAdGroups: { adGroup: string }[] } };
+    expect(out.sitelinks.inheritedFromAccount).toEqual([{ text: 'Kundeservice' }]);
+    expect(out.sitelinks.onAdGroups[0]!.adGroup).toBe(groups[0]!.name);
+  });
 });
+

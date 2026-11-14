@@ -218,4 +218,36 @@ export const extensionTools = [
       };
     },
   }),
+
+  defineRead({
+    name: 'list_sitelinks',
+    kind: 'read',
+    description:
+      'The sitelinks and promotions that can show on a campaign: the account\'s own (inherited – they show on every campaign unless the campaign or ad group has its own), the campaign\'s and its ad groups\'. Use it to check a build plan ("nedarvede sitelinks") and before adding new ones. Read only – never change account-level ones to fix one campaign.',
+    schema: z.object({ campaignId: z.string() }),
+    label: () => 'Henter sitelinks',
+    async run(input, ctx) {
+      const c = await getCampaign(ctx, input.campaignId);
+      const b = ctx.backend;
+      if (!b.listAdExtensionAssociations) throw new Error('Sitelinks kan kun læses på den rigtige Microsoft-konto.');
+      const groups = await getAdGroups(ctx, c.id);
+      const nameOf = new Map(groups.map((g) => [g.id, g.name]));
+      const read = async (kind: 'sitelink' | 'promotion') => ({
+        account: await b.listAdExtensionAssociations!(ctx.accountId, kind, 'Account', [ctx.accountId]).catch(() => []),
+        campaign: await b.listAdExtensionAssociations!(ctx.accountId, kind, 'Campaign', [c.id]).catch(() => []),
+        adGroups: groups.length ? await b.listAdExtensionAssociations!(ctx.accountId, kind, 'AdGroup', groups.map((g) => g.id)).catch(() => []) : [],
+      });
+      const [sl, pr] = await Promise.all([read('sitelink'), read('promotion')]);
+      const show = (list: { text: string; status?: string; entityId: string }[], withGroup = false) => list.map((x) => ({ text: x.text, ...(x.status ? { status: x.status } : {}), ...(withGroup ? { adGroup: nameOf.get(x.entityId) ?? x.entityId } : {}) }));
+      return {
+        result: {
+          campaign: c.name,
+          sitelinks: { inheritedFromAccount: show(sl.account), onCampaign: show(sl.campaign), onAdGroups: show(sl.adGroups, true) },
+          promotions: { inheritedFromAccount: show(pr.account), onCampaign: show(pr.campaign), onAdGroups: show(pr.adGroups, true) },
+          note: 'Microsoft uses the most specific level: ad group sitelinks replace the campaign\'s, and the campaign\'s replace the account\'s.',
+        },
+        summary: `${sl.account.length + sl.campaign.length + sl.adGroups.length} sitelinks · ${c.name}`,
+      };
+    },
+  }),
 ];

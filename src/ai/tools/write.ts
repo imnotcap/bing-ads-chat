@@ -411,6 +411,7 @@ A campaign shows no ads until it has ad groups: follow up with create_ad_group (
           { entity: 'Kampagne', field: 'budstrategi', after: bidLabel(input.bidStrategy) },
           { entity: 'Kampagne', field: 'status', after: statusLabel(status) },
           { entity: 'Kampagne', field: 'sprog', after: languages.join(', ') },
+          { entity: 'Kampagne', field: 'tidszone', after: 'København (dato og annonceplan følger dansk tid)' },
           ...(store ? [{ entity: 'Kampagne', field: 'butik', after: `${store.name} (${store.id}) · Danmark` }] : []),
           ...(store ? [{ entity: 'Kampagne', field: 'prioritet', after: PRIORITY_LABEL[input.priority ?? 'low'] }] : []),
           ...targeting.lines,

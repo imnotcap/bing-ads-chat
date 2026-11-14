@@ -220,6 +220,8 @@ export type NewAdExtension =
     };
 
 export type ExtensionLevel = 'Campaign' | 'AdGroup';
+/** Reading: also the account's own (they show on every campaign – "inherited"). */
+export type ExtensionReadLevel = ExtensionLevel | 'Account';
 
 /* ---------------- targeting (devices, ad schedule, locations) ---------------- */
 
@@ -546,7 +548,7 @@ export interface AdsBackend {
   /** … and attaches them to campaigns or ad groups. */
   associateAdExtensions?(accountId: string, pairs: { extensionId: string; entityId: string }[], level: ExtensionLevel): Promise<MutationResult>;
   /** The extensions of a kind attached to these campaigns / ad groups (to read back). */
-  listAdExtensionAssociations?(accountId: string, kind: 'sitelink' | 'promotion', level: ExtensionLevel, entityIds: string[]): Promise<{ extensionId: string; entityId: string; text: string }[]>;
+  listAdExtensionAssociations?(accountId: string, kind: 'sitelink' | 'promotion', level: ExtensionReadLevel, entityIds: string[]): Promise<{ extensionId: string; entityId: string; text: string; status?: string }[]>;
   /** Every product id in the Merchant Center catalogue (lower case) with its title. */
   catalogItems?(accountId: string): Promise<Map<string, { id: string; title: string | null }>>;
   /** The customer's Microsoft Merchant Center stores (for Shopping campaigns). */
