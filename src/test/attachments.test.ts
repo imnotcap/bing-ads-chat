@@ -6,13 +6,15 @@ describe('attachments', () => {
     expect(classify({ name: 'a.png', type: 'image/png' })).toBe('image');
     expect(classify({ name: 'rapport.PDF', type: '' })).toBe('pdf');
     expect(classify({ name: 'søgeord.csv', type: '' })).toBe('text');
-    expect(classify({ name: 'data.xlsx', type: '' })).toBeNull();
+    expect(classify({ name: 'data.xlsx', type: '' })).toBe('text');
+    expect(classify({ name: 'gammel.xls', type: '' })).toBeNull();
   });
 
   it('reads text files and rejects Office files with a helpful message', async () => {
     const a = await readAttachment(new File(['a,b\n1,2'], 'data.csv', { type: 'text/csv' }));
     expect(a).toMatchObject({ kind: 'text', name: 'data.csv', data: 'a,b\n1,2' });
-    await expect(readAttachment(new File(['x'], 'ark.xlsx'))).rejects.toThrow(/CSV/);
+    await expect(readAttachment(new File(['x'], 'ark.xlsx'))).rejects.toThrow(/kunne ikke læse Excel-filen/);
+    await expect(readAttachment(new File(['x'], 'gammel.xls'))).rejects.toThrow(/\.xlsx/);
   });
 
   it('builds Messages API blocks', () => {

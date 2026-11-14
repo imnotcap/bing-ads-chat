@@ -135,7 +135,7 @@ export function ChatView() {
             <div className="text-center">
               <Upload className="mx-auto size-7 text-brand" />
               <div className="mt-2 text-[15px] font-medium text-ink">Slip filerne for at vedhæfte dem</div>
-              <div className="text-[12.5px] text-muted">Billeder, PDF, CSV og tekstfiler</div>
+              <div className="text-[12.5px] text-muted">Billeder, PDF, Excel, CSV og tekstfiler</div>
             </div>
           </motion.div>
         )}

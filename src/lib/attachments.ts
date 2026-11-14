@@ -4,6 +4,7 @@
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import { uid } from './utils';
+import { readWorkbook, workbookText } from './xlsx';
 
 export type AttachmentKind = 'image' | 'pdf' | 'text';
 
@@ -24,7 +25,8 @@ export interface Attachment extends AttachmentMeta {
 
 export const TEXT_EXTENSIONS = ['csv', 'tsv', 'txt', 'md', 'json', 'xml', 'html', 'htm', 'log', 'yaml', 'yml', 'sql', 'js', 'ts', 'py'];
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-export const ACCEPT_ALL = ['.pdf', ...TEXT_EXTENSIONS.map((e) => `.${e}`), 'image/png', 'image/jpeg', 'image/gif', 'image/webp'].join(',');
+export const SHEET_EXTENSIONS = ['xlsx', 'xlsm'];
+export const ACCEPT_ALL = ['.pdf', ...TEXT_EXTENSIONS.map((e) => `.${e}`), ...SHEET_EXTENSIONS.map((e) => `.${e}`), 'image/png', 'image/jpeg', 'image/gif', 'image/webp'].join(',');
 export const MAX_ATTACHMENTS = 20;
 
 const MAX_IMAGE_EDGE = 1568;
@@ -41,6 +43,7 @@ export function classify(file: { name: string; type: string }): AttachmentKind |
   if (IMAGE_TYPES.includes(file.type) || ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return 'image';
   if (file.type === 'application/pdf' || ext === 'pdf') return 'pdf';
   if (file.type.startsWith('text/') || TEXT_EXTENSIONS.includes(ext) || file.type === 'application/json') return 'text';
+  if (SHEET_EXTENSIONS.includes(ext) || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return 'text';
   return null;
 }
 
@@ -78,8 +81,9 @@ export async function readAttachment(file: File): Promise<Attachment> {
   const base = { id: uid('f_'), name: file.name || 'udklip.png', size: file.size };
   if (!kind) {
     const ext = extension(file.name);
-    if (['xlsx', 'xls', 'docx', 'doc', 'pptx'].includes(ext)) throw new Error(`${file.name}: Office-filer understøttes ikke direkte – gem som CSV eller PDF.`);
-    throw new Error(`${file.name}: filtypen understøttes ikke (brug billeder, PDF, CSV eller tekstfiler).`);
+    if (ext === 'xls') throw new Error(`${file.name}: det gamle Excel-format (.xls) kan ikke læses – gem filen som .xlsx (Filer → Gem som → Excel-projektmappe).`);
+    if (['docx', 'doc', 'pptx'].includes(ext)) throw new Error(`${file.name}: Word- og PowerPoint-filer understøttes ikke direkte – gem som PDF.`);
+    throw new Error(`${file.name}: filtypen understøttes ikke (brug billeder, PDF, Excel, CSV eller tekstfiler).`);
   }
   if (kind === 'image') {
     let dataUrl = await renderImage(file, MAX_IMAGE_EDGE, file.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.88);
@@ -92,6 +96,18 @@ export async function readAttachment(file: File): Promise<Attachment> {
   if (kind === 'pdf') {
     if (file.size > MAX_PDF_BYTES) throw new Error(`${file.name}: PDF'en er for stor (maks. 30 MB).`);
     return { ...base, kind, mediaType: 'application/pdf', data: arrayBufferToBase64(await file.arrayBuffer()) };
+  }
+  // Excel: every sheet read into text, the way the assistant reads a CSV export.
+  if (SHEET_EXTENSIONS.includes(extension(file.name))) {
+    let sheets;
+    try {
+      sheets = await readWorkbook(await file.arrayBuffer());
+    } catch (e) {
+      throw new Error(`${file.name}: kunne ikke læse Excel-filen (${e instanceof Error ? e.message : String(e)}). Prøv at gemme den igen som .xlsx eller CSV.`);
+    }
+    const text = workbookText(file.name, sheets);
+    if (text.length > MAX_TEXT_CHARS) throw new Error(`${file.name}: projektmappen er for stor (maks. ca. 1,5 mio. tegn) – fjern ark, du ikke skal bruge.`);
+    return { ...base, kind, mediaType: 'text/plain', data: text };
   }
   const text = await file.text();
   if (text.length > MAX_TEXT_CHARS) throw new Error(`${file.name}: filen er for stor (maks. ca. 1,5 mio. tegn) – del den op eller filtrér den først.`);

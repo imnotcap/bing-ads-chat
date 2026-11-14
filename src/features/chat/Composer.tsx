@@ -268,7 +268,7 @@ export const Composer = memo(forwardRef<
             </Tooltip>
             <DropdownMenuContent side="top" align="start" sideOffset={10} className="w-[268px]">
               <DropdownMenuItem onSelect={() => fileInput.current?.click()}>
-                <Paperclip /> <span className="flex-1">Upload filer</span> <span className="text-[11px] text-subtle">PDF, CSV, TXT</span>
+                <Paperclip /> <span className="flex-1">Upload filer</span> <span className="text-[11px] text-subtle">PDF, Excel, CSV, TXT</span>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => imageInput.current?.click()}>
                 <ImageIcon /> <span className="flex-1">Billeder</span> <span className="text-[11px] text-subtle">PNG, JPG</span>
