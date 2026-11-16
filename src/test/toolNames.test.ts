@@ -5,6 +5,7 @@ describe('tool names in replies', () => {
   it('leaves out lines that are just a tool name', () => {
     expect(withoutToolNames('Bemærk: websøgning er slået fra.\n\nsuggest_next_steps:\n\n')).toBe('Bemærk: websøgning er slået fra.\n\n');
     expect(withoutToolNames('Tekst\n`list_campaigns()`\n**find_campaigns_and_ad_groups**:\nMere')).toBe('Tekst\nMere');
+    expect(withoutToolNames('Hvis du vil rydde op.\n\nsuggest_next_steps.\n')).toBe('Hvis du vil rydde op.\n\n');
   });
 
   it('keeps tool names inside normal sentences and other text', () => {

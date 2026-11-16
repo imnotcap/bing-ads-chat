@@ -13,6 +13,7 @@ import { matchByName } from './find';
 import { rememberSearchTerms } from './searchTerms';
 import { accountBlocker, adGroupBlocker, bidLabel, bidsIgnoredReason, campaignBlocker, CONVERSION_BASED, currentAccount, editorialNote, last30, MIN_CONVERSIONS_30D } from './checks';
 import {
+  expiredReason,
   PERIOD_DESCRIPTION,
   compact,
   defineRead,
@@ -314,7 +315,7 @@ export const readTools = [
       const campaign = await getCampaign(ctx, input.campaignId);
       const groups = (await getAdGroups(ctx, campaign.id)).filter((g) => !input.adGroupId || g.id === String(input.adGroupId));
       if (input.adGroupId && !groups.length) throw new Error(`Annoncegruppe ${input.adGroupId} findes ikke i kampagne ${campaign.id}.`);
-      const lists = await Promise.all(groups.map((g) => getKeywords(ctx, g.id).then((k) => k.map((x) => ({ ...x, adGroupName: g.name })))));
+      const lists = await Promise.all(groups.map((g) => getKeywords(ctx, g.id).then((k) => k.map((x) => ({ ...x, adGroupName: expiredReason(g) ? `${g.name} (udløbet – vises ikke)` : g.name })))));
       const keywords = lists.flat();
       const metrics =
         input.includeMetrics === false ? null : await getReport(ctx, { kind: 'keyword', range: period, aggregation: 'Summary', campaignIds: [campaign.id] });
@@ -376,19 +377,25 @@ export const readTools = [
       const period = resolvePeriod(input.period, ctx);
       const campaign = await getCampaign(ctx, input.campaignId);
       const groups = (await getAdGroups(ctx, campaign.id)).filter((g) => !input.adGroupId || g.id === String(input.adGroupId));
-      const ads = (await Promise.all(groups.map((g) => ctx.backend.listAds(ctx.accountId, g.id).then((a) => a.map((x) => ({ ...x, adGroupName: g.name })))))).flat();
+      const ads = (await Promise.all(groups.map((g) => ctx.backend.listAds(ctx.accountId, g.id).then((a) => a.map((x) => ({ ...x, adGroupName: g.name, adGroupExpired: !!expiredReason(g) })))))).flat();
+      const expiredNames = groups.filter((g) => expiredReason(g)).map((g) => g.name);
       const metrics =
         input.includeMetrics === false ? null : await getReport(ctx, { kind: 'ad', range: period, aggregation: 'Summary', campaignIds: [campaign.id] });
       const byId = new Map((metrics ?? []).map((r) => [r.adId, r]));
       const rows = ads.map((a) => ({
-        ...compact({ id: a.id, adGroupId: a.adGroupId, adGroupName: a.adGroupName, type: a.type, status: a.status, editorialStatus: a.editorialStatus, path1: a.path1, path2: a.path2 }),
+        ...compact({ id: a.id, adGroupId: a.adGroupId, adGroupName: a.adGroupName, type: a.type, status: a.adGroupExpired ? `${a.status} (annoncegruppen er udløbet – vises ikke)` : a.status, editorialStatus: a.editorialStatus, path1: a.path1, path2: a.path2 }),
         headlines: a.headlines,
         descriptions: a.descriptions,
         finalUrls: a.finalUrls,
         ...(metrics ? metricFields(byId.get(a.id)) : {}),
       }));
       return {
-        result: { campaign: { id: campaign.id, name: campaign.name }, period: metrics ? period : undefined, ads: rows },
+        result: {
+          campaign: { id: campaign.id, name: campaign.name },
+          period: metrics ? period : undefined,
+          ads: rows,
+          ...(expiredNames.length ? { expiredAdGroups: { names: expiredNames, note: 'These ad groups have passed their end date: their ads do not show, whatever the ad status says, and Microsoft refuses every change in them. Do not propose changes, pauses or clean-up there.' } } : {}),
+        },
         summary: `${ads.length} annoncer`,
         preview: {
           columns: [{ key: 'headline', label: 'Overskrifter' }, { key: 'adGroupName', label: 'Annoncegruppe' }, ...(metrics ? METRIC_COLS.slice(0, 3) : [])],

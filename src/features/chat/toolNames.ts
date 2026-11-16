@@ -5,7 +5,7 @@
 import { ALL_TOOLS } from '@/ai/tools';
 
 const NAMES = [...ALL_TOOLS.map((t) => t.name), 'web_search', 'web_fetch'];
-const LINE = new RegExp(`^[ \\t]*[\`*_]*(?:${NAMES.join('|')})(?:\\(.*\\))?[\`*_]*[ \\t]*:?[ \\t]*[\`*_]*[ \\t]*(?:\\n|$)`, 'gm');
+const LINE = new RegExp(`^[ \\t]*[\`*_]*(?:${NAMES.join('|')})(?:\\(.*\\))?[\`*_]*[ \\t]*[:.…]?[ \\t]*[\`*_]*[ \\t]*(?:\\n|$)`, 'gm');
 
 export function withoutToolNames(text: string): string {
   return text.replace(LINE, '').replace(/\n{3,}/g, '\n\n');

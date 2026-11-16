@@ -95,6 +95,29 @@ export async function getAdGroup(ctx: ToolContext, campaignId: string, adGroupId
   return g;
 }
 
+/**
+ * An expired ad group (its end date has passed) shows nothing, and Microsoft refuses every change
+ * inside it (CampaignServiceAdGroupExpired). null when it is not expired.
+ */
+export function expiredReason(g: { name: string; status: string; endDate?: string | null }): string | null {
+  const ended = g.endDate ? g.endDate < todayIso() : false;
+  if (g.status !== 'Expired' && !ended) return null;
+  return `Annoncegruppen "${g.name}" er udløbet${g.endDate ? ` (slutdato ${g.endDate.split('-').reverse().join('-')})` : ''}: den viser ingen annoncer, og Microsoft tillader ingen ændringer i den. Lad den være – den skal ikke ryddes op i. Kun hvis brugeren vil genbruge den, forlænges slutdatoen med set_campaign_period.`;
+}
+
+/** The ad group – refused when it has expired (nothing in it can be changed, and nothing in it shows). */
+export async function getLiveAdGroup(ctx: ToolContext, campaignId: string, adGroupId: string) {
+  const g = await getAdGroup(ctx, campaignId, adGroupId);
+  const why = expiredReason(g);
+  if (why) throw new Error(`Ikke sendt: ${why}`);
+  return g;
+}
+
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 export const getKeywords = (ctx: ToolContext, adGroupId: string) =>
   memo(ctx, `keywords:${adGroupId}`, () => ctx.backend.listKeywords(ctx.accountId, adGroupId));
 

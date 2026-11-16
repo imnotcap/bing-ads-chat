@@ -19,7 +19,7 @@ import { googleBidsByHand, settingsFacts } from '@/features/audit/settings';
 import { benchRoas, bidAdvice, buildActions, compareProductTrees, planEdit, planMirror, performsWell, shapeOf, stateText, statsText, verifyMirror, type ItemState, type MirrorAction, type MirrorGroup } from '@/features/audit/productMirror';
 import type { ChangeLine } from '@/stores/activity';
 import { auditGoogleMatch, googleCampaigns, googleDetail, requireGoogle } from '../googleSource';
-import { PERIOD_DESCRIPTION, defineRead, defineWrite, getAdGroups, getCampaign, getReport, memo, resolvePeriod, type ExecutionResult, type ToolContext } from './context';
+import { PERIOD_DESCRIPTION, defineRead, defineWrite, expiredReason, getAdGroups, getCampaign, getReport, memo, resolvePeriod, type ExecutionResult, type ToolContext } from './context';
 
 /* ------------------------------ finding the counterpart ------------------------------ */
 
@@ -448,6 +448,8 @@ export const googleTools = [
       } else {
         const found = (await getAdGroups(ctx, c.id)).find((g) => g.id === String(input.adGroupId));
         if (!found) throw new Error(`Annoncegruppe ${input.adGroupId} findes ikke i "${c.name}". Find den med list_product_groups.`);
+        const expired = expiredReason(found);
+        if (expired) throw new Error(`Ikke sendt: ${expired}`);
         ag = { id: found.id, name: found.name, cpcBid: found.cpcBid };
         nodes = toListingNodes(await ctx.backend.listProductPartitions!(ctx.accountId, found.id, found.name));
       }
@@ -527,7 +529,9 @@ export const googleTools = [
       const { plan, shown, bingGroups } = await productPlan(ctx, c, google, period, input.includeUnshown);
       const paused = new Set(bingGroups.filter((x) => x.status === 'Paused').map((x) => x.id));
       const only = input.adGroupIds?.length ? new Set(input.adGroupIds.map(String)) : null;
-      const groups = plan.filter((g) => !only || (g.bingAdGroupId && only.has(g.bingAdGroupId)));
+      // Expired ad groups show nothing and can't be changed: left out, and said so.
+      const expiredGroups = new Map(bingGroups.filter((x) => expiredReason(x)).map((x) => [x.id, x.name]));
+      const groups = plan.filter((g) => (!only || (g.bingAdGroupId && only.has(g.bingAdGroupId))) && !(g.bingAdGroupId && expiredGroups.has(g.bingAdGroupId)));
       const skip = new Set(input.skip ?? []);
       // The user asked for single products or kinds of change: everything else stays off the card.
       const items = input.itemIds?.length ? new Set(input.itemIds.map((i) => (/^alt andet$/i.test(i.trim()) ? '' : i.trim().toLowerCase()))) : null;
@@ -572,6 +576,7 @@ export const googleTools = [
         throw new Error(`Ingen produktgrupper at rette – Microsoft ligner Google${left.length ? `, bortset fra: ${left.join(' · ')}` : ''}.${quiet}`);
       }
       const notes = [
+        ...(expiredGroups.size ? [`Ikke med – udløbet (viser intet og kan ikke ændres): ${[...expiredGroups.values()].map((n) => `"${n}"`).join(', ')}.`] : []),
         ...working.filter((g) => g.bingAdGroupId && paused.has(g.bingAdGroupId)).map((g) => `Annoncegruppen "${g.bingGroup}" er PAUSET i Microsoft – ændringerne gør intet, før den aktiveres.`),
         `Google-kampagnen "${google.name}" er ${how}. Google ændres ikke – det læses kun.`,
         ...working.filter((g) => g.convert).map((g) => `"${g.bingGroup}": Microsofts "Alle produkter" opdeles efter varenummer, ligesom i Google.`),

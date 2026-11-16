@@ -109,5 +109,18 @@ describe('a build plan like "Black Weeks 2026"', () => {
     expect(out.sitelinks.inheritedFromAccount).toEqual([{ text: 'Kundeservice' }]);
     expect(out.sitelinks.onAdGroups[0]!.adGroup).toBe(groups[0]!.name);
   });
+
+  it('refuses any change in an expired ad group before a card is shown – Microsoft would refuse it', async () => {
+    const demo = new DemoBackend(0);
+    const [g] = await demo.listAdGroups('1000001', '101');
+    const backend = Object.assign(Object.create(Object.getPrototypeOf(demo)), demo, {
+      listAdGroups: async (a: string, c: string) => (await demo.listAdGroups(a, c)).map((x) => (x.id === g!.id ? { ...x, status: 'Expired', endDate: addDays(today(), -1) } : x)),
+    }) as AdsBackend;
+    const ads = await demo.listAds('1000001', g!.id);
+    const upd = write('update_ads');
+    await expect(upd.plan(upd.schema.parse({ campaignId: '101', adGroupId: g!.id, changes: [{ adId: ads[0]!.id, status: 'Paused' }], reason: 'x' }), ctxOf(backend))).rejects.toThrow(/udløbet/);
+    const kw = write('add_keywords');
+    await expect(kw.plan(kw.schema.parse({ campaignId: '101', adGroupId: g!.id, keywords: [{ text: 'stol', matchType: 'Exact' }], reason: 'x' }), ctxOf(backend))).rejects.toThrow(/udløbet/);
+  });
 });
 

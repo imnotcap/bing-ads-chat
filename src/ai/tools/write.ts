@@ -39,7 +39,7 @@ import {
   verify,
   type LineCheck,
 } from './checks';
-import { defineWrite, getAdGroup, getAdGroups, getCampaign, getCampaigns, getKeywords, getReport, statusLabel, type ToolContext } from './context';
+import { defineWrite, expiredReason, getAdGroup, getAdGroups, getLiveAdGroup, getCampaign, getCampaigns, getKeywords, getReport, statusLabel, type ToolContext } from './context';
 
 export { bidLabel } from './checks';
 
@@ -784,6 +784,8 @@ The team standard is set on the campaign in the same card where it is missing: m
         if (!g) throw new Error(`Annoncegruppe ${ch.adGroupId} findes ikke i kampagne ${c.id}. Brug list_ad_groups for at finde det rigtige id.`);
         const find = (s: AdGroup[]) => s.find((x) => x.id === g.id);
         const inv: Record<string, unknown> = { adGroupId: g.id };
+        const expired = expiredReason(g);
+        if (expired && !(ch.status === 'Active' && g.status === 'Expired')) throw new Error(`Ikke sendt: ${expired}`);
         if (ch.status && !statusMatches(ch.status, g.status)) {
           if (ch.status === 'Active' && g.status === 'Expired') throw new Error(`"${g.name}" er udløbet (slutdatoen er passeret). Den kan kun aktiveres ved at forlænge slutdatoen (microsoft_ads_api: PUT AdGroups med EndDate).`);
           if (ch.status === 'Active') {
@@ -949,7 +951,7 @@ The team standard is set on the campaign in the same card where it is missing: m
     async plan(input, ctx) {
       const c = await getCampaign(ctx, input.campaignId);
       if (c.type !== 'Search') throw new Error(`"${c.name}" er en ${c.type}-kampagne – søgeord bruges kun i søgekampagner.`);
-      const g = await getAdGroup(ctx, c.id, input.adGroupId);
+      const g = await getLiveAdGroup(ctx, c.id, input.adGroupId);
       const ignored = bidsIgnoredReason(c);
       if (ignored && input.keywords.some((k) => k.bid)) throw new Error(`Ikke sendt: ${ignored} Tilføj søgeordene uden bud.`);
       const tooLong = input.keywords.filter((k) => normalizeKeyword(k.text).split(' ').length > 10);
@@ -1046,7 +1048,7 @@ The team standard is set on the campaign in the same card where it is missing: m
     label: (i) => `Ændrer ${i.changes.length} søgeord`,
     async plan(input, ctx) {
       const c = await getCampaign(ctx, input.campaignId);
-      const g = await getAdGroup(ctx, c.id, input.adGroupId);
+      const g = await getLiveAdGroup(ctx, c.id, input.adGroupId);
       const ignored = bidsIgnoredReason(c);
       if (ignored && input.changes.some((ch) => ch.bid !== undefined)) throw new Error(`Ikke sendt: ${ignored}`);
       const keywords = await getKeywords(ctx, g.id);
@@ -1134,7 +1136,7 @@ The team standard is set on the campaign in the same card where it is missing: m
     label: (i) => `Sletter ${i.keywordIds.length} søgeord`,
     async plan(input, ctx) {
       const c = await getCampaign(ctx, input.campaignId);
-      const g = await getAdGroup(ctx, c.id, input.adGroupId);
+      const g = await getLiveAdGroup(ctx, c.id, input.adGroupId);
       const keywords = await getKeywords(ctx, g.id);
       const targets = [...new Set(input.keywordIds.map(String))].map((id) => {
         const k = keywords.find((x) => x.id === id);
@@ -1177,7 +1179,7 @@ The team standard is set on the campaign in the same card where it is missing: m
     label: (i) => `Tilføjer ${i.keywords.length} negative søgeord`,
     async plan(input, ctx) {
       const c = await getCampaign(ctx, input.campaignId);
-      const g = input.adGroupId ? await getAdGroup(ctx, c.id, input.adGroupId) : null;
+      const g = input.adGroupId ? await getLiveAdGroup(ctx, c.id, input.adGroupId) : null;
       const target = g ? `annoncegruppen ${g.name}` : `kampagnen ${c.name}`;
       const entityType = g ? 'AdGroup' : 'Campaign';
       const entityId = g ? g.id : c.id;
@@ -1248,7 +1250,7 @@ The team standard is set on the campaign in the same card where it is missing: m
     label: (i) => `Fjerner ${i.keywords.length} negative søgeord`,
     async plan(input, ctx) {
       const c = await getCampaign(ctx, input.campaignId);
-      const g = input.adGroupId ? await getAdGroup(ctx, c.id, input.adGroupId) : null;
+      const g = input.adGroupId ? await getLiveAdGroup(ctx, c.id, input.adGroupId) : null;
       const target = g ? `annoncegruppen ${g.name}` : `kampagnen ${c.name}`;
       const entityType = g ? 'AdGroup' : 'Campaign';
       const entityId = g ? g.id : c.id;
@@ -1449,7 +1451,7 @@ The team standard is set on the campaign in the same card where it is missing: m
     async plan(input, ctx) {
       const c = await getCampaign(ctx, input.campaignId);
       if (c.type !== 'Search') throw new Error(`"${c.name}" er en ${c.type}-kampagne – responsive søgeannoncer bruges kun i søgekampagner.`);
-      const g = await getAdGroup(ctx, c.id, input.adGroupId);
+      const g = await getLiveAdGroup(ctx, c.id, input.adGroupId);
       const dup = (list: string[]) => list.filter((x, i) => list.findIndex((y) => y.toLowerCase() === x.toLowerCase()) !== i);
       // The keyword stands alone as headline 1, pinned to position 1.
       const headlines = [input.keywordHeadline, ...input.headlines];
@@ -1576,7 +1578,7 @@ The team standard is set on the campaign in the same card where it is missing: m
     label: (i) => `Ændrer ${i.changes.length} annonce${i.changes.length === 1 ? '' : 'r'}`,
     async plan(input, ctx) {
       const c = await getCampaign(ctx, input.campaignId);
-      const g = await getAdGroup(ctx, c.id, input.adGroupId);
+      const g = await getLiveAdGroup(ctx, c.id, input.adGroupId);
       const ads = await ctx.backend.listAds(ctx.accountId, g.id);
       const lines: ChangeLine[] = [];
       const checks: LineCheck<typeof ads>[] = [];
