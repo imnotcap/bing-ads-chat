@@ -3,7 +3,7 @@
  * user names something, instead of listing hundreds of campaigns and reading through them.
  */
 import { z } from 'zod';
-import { defineRead, getAdGroups, getCampaigns, getReport, statusLabel, type ToolContext } from './context';
+import { defineRead, expiredReason, getAdGroups, getCampaigns, getReport, statusLabel, type ToolContext } from './context';
 
 const fold = (s: string) =>
   s
@@ -43,6 +43,7 @@ interface FoundAdGroup {
   campaignId: string;
   campaignName: string;
   status?: string;
+  endDate?: string | null;
 }
 
 async function adGroupCandidates(ctx: ToolContext, campaignIds: string[]): Promise<FoundAdGroup[]> {
@@ -59,7 +60,7 @@ async function adGroupCandidates(ctx: ToolContext, campaignIds: string[]): Promi
   for (const id of campaignIds) {
     const c = campaigns.find((x) => x.id === id);
     const groups = await getAdGroups(ctx, id).catch(() => []);
-    for (const g of groups) out.set(g.id, { id: g.id, name: g.name, campaignId: id, campaignName: c?.name ?? '', status: g.status });
+    for (const g of groups) out.set(g.id, { id: g.id, name: g.name, campaignId: id, campaignName: c?.name ?? '', status: g.status, endDate: g.endDate });
   }
   return [...out.values()];
 }
@@ -91,6 +92,7 @@ export const findTools = [
       }
       const shownCampaigns = what === 'ad_groups' ? [] : campaigns.slice(0, limit);
       const shownGroups = adGroups.slice(0, limit);
+      const campaignById = new Map((await getCampaigns(ctx)).map((c) => [c.id, c]));
       const rows = [
         ...shownCampaigns.map((c) => ({ kind: 'Kampagne', name: c.name, where: '', status: statusLabel(c.status), id: c.id })),
         ...shownGroups.map((g) => ({ kind: 'Annoncegruppe', name: g.name, where: g.campaignName, status: g.status ? statusLabel(g.status) : '', id: g.id })),
@@ -99,7 +101,15 @@ export const findTools = [
         result: {
           query: input.query,
           campaigns: shownCampaigns.map((c) => ({ id: c.id, name: c.name, status: c.status, type: c.type, match: quality(c.score) })),
-          adGroups: shownGroups.map((g) => ({ id: g.id, name: g.name, campaignId: g.campaignId, campaignName: g.campaignName, status: g.status, match: quality(g.score) })),
+          adGroups: shownGroups.map((g) => {
+            // What stands in the way of this ad group showing ads or being changed – known up front.
+            const camp = campaignById.get(g.campaignId);
+            const expired = g.status ? expiredReason({ name: g.name, status: g.status, endDate: g.endDate }) : null;
+            const state = expired
+              ? 'EXPIRED – shows nothing and cannot be changed; leave it alone'
+              : [g.status === 'Paused' ? 'ad group paused' : '', camp && camp.status !== 'Active' ? `campaign ${camp.status}` : ''].filter(Boolean).join(', ');
+            return { id: g.id, name: g.name, campaignId: g.campaignId, campaignName: g.campaignName, status: g.status, ...(state ? { state } : {}), match: quality(g.score) };
+          }),
           ...(campaigns.length > limit || adGroups.length > limit ? { note: `More matches than shown (${campaigns.length} campaigns, ${adGroups.length} ad groups) – use more words to narrow it down.` } : {}),
           ...(!rows.length ? { note: 'Nothing matched. Try fewer or other words (a single distinctive word works best) before telling the user it does not exist.' } : {}),
         },

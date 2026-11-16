@@ -7,6 +7,7 @@
  *   spending guardrails and – when required – wait for the user's approval.
  * - Every executed, rejected or blocked change is written to the activity log.
  */
+import { callKey, withHint } from './errorHints';
 import Anthropic from '@anthropic-ai/sdk';
 import { nativeNotify } from '@/components/notifications/toast';
 import { getBackend } from '@/bing/backend';
@@ -625,7 +626,10 @@ async function executeTools(
 ): Promise<ToolResult[]> {
   const results = new Map<string, ToolResult>();
   const ok = (id: string, result: unknown, tool?: string): ToolResult => ({ type: 'tool_result', tool_use_id: id, content: serialize(result, RESULT_CHARS[tool ?? ''] ?? MAX_RESULT_CHARS) });
-  const err = (id: string, message: string): ToolResult => ({ type: 'tool_result', tool_use_id: id, is_error: true, content: message });
+  const err = (id: string, message: string): ToolResult => ({ type: 'tool_result', tool_use_id: id, is_error: true, content: withHint(message) });
+  // Calls that already failed in this turn: the same call again gets the same answer at once.
+  const failed = failedCalls.get(memo) ?? new Map<string, string>();
+  failedCalls.set(memo, failed);
 
   let ctx: ToolContext | null = null;
   try {
@@ -646,6 +650,14 @@ async function executeTools(
 
   for (const p of parsed) {
     updateTool(convId, itemId, p.use.id, { input: p.use.input, label: toolLabel(p.use.name, p.input ?? p.use.input) });
+    const before = failed.get(callKey(p.use.name, p.use.input));
+    if (before !== undefined) {
+      results.set(p.use.id, { type: 'tool_result', tool_use_id: p.use.id, is_error: true, content: `This exact call already failed in this turn and was not run again. The error was: ${before}\nChange the input, use another tool, or stop and tell the user.` });
+      updateTool(convId, itemId, p.use.id, { status: 'error', error: 'Samme kald fejlede lige før – ikke kørt igen', endedAt: Date.now() });
+      p.tool = undefined;
+      p.input = undefined;
+      continue;
+    }
     if (!p.tool) {
       results.set(p.use.id, err(p.use.id, `Unknown tool ${p.use.name}`));
       updateTool(convId, itemId, p.use.id, { status: 'error', error: 'Ukendt værktøj', endedAt: Date.now() });
@@ -833,8 +845,16 @@ async function executeTools(
     }
   }
 
-  return uses.map((u) => results.get(u.id) ?? err(u.id, 'No result'));
+  const out = uses.map((u) => results.get(u.id) ?? err(u.id, 'No result'));
+  // Remember what failed (not rejections or blocks – those are the user's and the rules' answers, already final).
+  out.forEach((r, i) => {
+    const text = typeof r.content === 'string' ? r.content : '';
+    if (r.is_error && !/already failed in this turn|REJECTED this change|BLOCKED by/.test(text)) failed.set(callKey(uses[i]!.name, uses[i]!.input), text.slice(0, 600));
+  });
+  return out;
 }
+
+const failedCalls = new WeakMap<object, Map<string, string>>();
 
 /**
  * Collects streamed text/thinking deltas and writes them to the chat store at most
