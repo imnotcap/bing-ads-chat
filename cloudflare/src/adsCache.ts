@@ -55,9 +55,28 @@ export function writeCampaigns(storage: DurableObjectStorage, accountId: string,
   storage.transactionSync(() => {
     const stored = storage.sql.exec<{ fetched_at: number }>('SELECT fetched_at FROM ads_snapshots WHERE account_id = ?', accountId).toArray()[0];
     if (stored && stored.fetched_at > at) return;
-    storage.sql.exec('DELETE FROM ads_campaigns WHERE account_id = ?', accountId);
-    for (const r of rows) storage.sql.exec('INSERT INTO ads_campaigns (account_id, id, name, status, data) VALUES (?, ?, ?, ?, ?)', accountId, r.id, r.name, r.status, r.data);
-    storage.sql.exec('INSERT OR REPLACE INTO ads_snapshots (account_id, fetched_at, count) VALUES (?, ?, ?)', accountId, at, rows.length);
+    // Only what changed is written (Durable Objects bill every row written): the same list
+    // read again – every refresh, every read-back after a change – costs one row, not hundreds.
+    const before = new Map(storage.sql.exec<{ id: string; data: string }>('SELECT id, data FROM ads_campaigns WHERE account_id = ?', accountId).toArray().map((r) => [r.id, r.data]));
+    const keep = new Set(rows.map((r) => r.id));
+    for (const id of before.keys()) if (!keep.has(id)) storage.sql.exec('DELETE FROM ads_campaigns WHERE account_id = ? AND id = ?', accountId, id);
+    for (const r of rows) {
+      if (before.get(r.id) === r.data) continue;
+      storage.sql.exec(
+        'INSERT INTO ads_campaigns (account_id, id, name, status, data) VALUES (?, ?, ?, ?, ?) ON CONFLICT (account_id, id) DO UPDATE SET name = excluded.name, status = excluded.status, data = excluded.data',
+        accountId,
+        r.id,
+        r.name,
+        r.status,
+        r.data,
+      );
+    }
+    storage.sql.exec(
+      'INSERT INTO ads_snapshots (account_id, fetched_at, count) VALUES (?, ?, ?) ON CONFLICT (account_id) DO UPDATE SET fetched_at = excluded.fetched_at, count = excluded.count',
+      accountId,
+      at,
+      rows.length,
+    );
   });
   return null;
 }

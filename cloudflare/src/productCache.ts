@@ -68,10 +68,18 @@ export function writeProducts(storage: DurableObjectStorage, accountId: string, 
       .toArray()[0];
     // Never older than what is stored (two apps may refresh at the same time).
     if (stored && stored.fetched_at > at) return;
-    storage.sql.exec('DELETE FROM ads_products WHERE account_id = ? AND period = ?', accountId, period);
-    for (const r of rows) storage.sql.exec('INSERT OR REPLACE INTO ads_products (account_id, period, id, data) VALUES (?, ?, ?, ?)', accountId, period, r.id, r.data);
+    // Only what changed is written (Durable Objects bill every row written).
+    const before = new Map(
+      storage.sql.exec<{ id: string; data: string }>('SELECT id, data FROM ads_products WHERE account_id = ? AND period = ?', accountId, period).toArray().map((r) => [r.id, r.data]),
+    );
+    const keep = new Set(rows.map((r) => r.id));
+    for (const id of before.keys()) if (!keep.has(id)) storage.sql.exec('DELETE FROM ads_products WHERE account_id = ? AND period = ? AND id = ?', accountId, period, id);
+    for (const r of rows) {
+      if (before.get(r.id) === r.data) continue;
+      storage.sql.exec('INSERT INTO ads_products (account_id, period, id, data) VALUES (?, ?, ?, ?) ON CONFLICT (account_id, period, id) DO UPDATE SET data = excluded.data', accountId, period, r.id, r.data);
+    }
     storage.sql.exec(
-      'INSERT OR REPLACE INTO ads_product_snapshots (account_id, period, fetched_at, scanned, count) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO ads_product_snapshots (account_id, period, fetched_at, scanned, count) VALUES (?, ?, ?, ?, ?) ON CONFLICT (account_id, period) DO UPDATE SET fetched_at = excluded.fetched_at, scanned = excluded.scanned, count = excluded.count',
       accountId,
       period,
       at,

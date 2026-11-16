@@ -335,8 +335,8 @@ function spendCall(sql: Sql, now: number): boolean {
   const day = copenhagen(now).date;
   const used = callsToday(sql, day);
   if (used >= DAILY_CALL_BUDGET) return false;
-  sql.exec('DELETE FROM ads_daily_calls WHERE day <> ?', day);
-  sql.exec('INSERT OR REPLACE INTO ads_daily_calls (day, calls) VALUES (?, ?)', day, used + 1);
+  if (used === 0) sql.exec('DELETE FROM ads_daily_calls WHERE day <> ?', day);
+  sql.exec('INSERT INTO ads_daily_calls (day, calls) VALUES (?, 1) ON CONFLICT (day) DO UPDATE SET calls = calls + 1', day);
   return true;
 }
 
