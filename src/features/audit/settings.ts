@@ -104,7 +104,7 @@ export function settingsFacts(s: SettingsInput): string[] {
 
   // 3. Enough data for a strategy that learns from conversions?
   if (CONVERSION_BASED.has(ms.bidStrategy.type) && conv30 < MIN_CONVERSIONS_30D)
-    out.push(`Kun ${fmtNumber(conv30, conv30 < 10 ? 1 : 0)} konverteringer pr. 30 dage i Microsoft – under de ${MIN_CONVERSIONS_30D}, en konverteringsbaseret budstrategi skal bruge for at optimere.`);
+    out.push(`Kun ${fmtNumber(conv30, conv30 < 10 ? 1 : 0)} konverteringer pr. 30 dage i Microsoft – under de ${MIN_CONVERSIONS_30D}, Microsoft anbefaler før en konverteringsbaseret budstrategi.`);
 
   // 4. What holds the campaign back: budget or rank?
   if (ms.lostToBudget !== null && ms.lostToBudget >= 10) out.push(`Microsoft mister ${fmtNumber(ms.lostToBudget, 0)} % af de mulige visninger på budget.`);

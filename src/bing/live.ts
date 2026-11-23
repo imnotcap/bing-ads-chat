@@ -67,6 +67,7 @@ const CAMPAIGN_TYPES = ['Search', 'Shopping', 'Audience', 'PerformanceMax'];
 const CAMPAIGN_FIELDS = 'MaxConversionValueBiddingScheme,TargetImpressionShareBiddingScheme,BidStrategyId';
 const POLL_ATTEMPTS = 40;
 const POLL_DELAY_MS = 2_000;
+const POLL_MAX_DELAY_MS = 10_000;
 /** The product report covers thousands of products: give Microsoft up to three minutes. */
 const PRODUCT_POLL_ATTEMPTS = 90;
 /** 250 offers per page: room for 25,000 offers per store. */
@@ -131,6 +132,15 @@ function mapCampaign(c: Json): Campaign {
 }
 
 /** One product tree change as Microsoft's REST API takes it (AdGroupCriterionAction). */
+/** Microsoft's Minute enum: schedule blocks start and end on the quarter hour. 8.5 = 08:30. */
+const MINUTES = ['Zero', 'Fifteen', 'Thirty', 'FortyFive'] as const;
+const toMinute = (h: number) => MINUTES[Math.round((h % 1) * 4) % 4]!;
+const fromMinute = (m: unknown) => Math.max(0, MINUTES.indexOf(str(m) as (typeof MINUTES)[number])) / 4;
+
+/** Microsoft: an ad group end date of 2 Jan 2050 or later means "no end date". */
+const NO_END_DATE = '2050-01-02';
+const noEnd = (d: string | null) => (d && d >= NO_END_DATE ? null : d);
+
 export function partitionActionJson(a: PartitionAction): Json {
   if (a.action === 'Delete') {
     return { Action: 'Delete', AdGroupCriterion: { Type: a.excluded ? 'NegativeAdGroupCriterion' : 'BiddableAdGroupCriterion', Id: Number(a.id), AdGroupId: Number(a.adGroupId) } };
@@ -143,6 +153,9 @@ export function partitionActionJson(a: PartitionAction): Json {
   };
   const base: Json = { AdGroupId: Number(a.adGroupId), Criterion: criterion, ...(a.tempId !== undefined ? { Id: a.tempId } : {}) };
   if (a.excluded) return { Action: 'Add', AdGroupCriterion: { Type: 'NegativeAdGroupCriterion', ...base } };
+  // Microsoft: every biddable unit needs a bid – also under automated bidding, where it is
+  // only a placeholder. Without one the whole tree is refused, so nothing is sent.
+  if (a.kind === 'unit' && !(a.bid && a.bid > 0)) throw new Error(`Produktgruppen "${a.attribute ?? (a.operand === 'All' ? 'Alle produkter' : 'alt andet')}" mangler et bud – Microsoft kræver et bud på hver produktgruppe, der bydes på (også under automatisk budgivning). Intet blev ændret.`);
   // A subdivision carries no bid; a biddable unit always does.
   return {
     Action: 'Add',
@@ -150,7 +163,7 @@ export function partitionActionJson(a: PartitionAction): Json {
       Type: 'BiddableAdGroupCriterion',
       Status: 'Active',
       ...base,
-      CriterionBid: a.kind === 'subdivision' ? null : { Type: 'FixedBid', Amount: a.bid ?? null },
+      CriterionBid: a.kind === 'subdivision' ? null : { Type: 'FixedBid', Amount: a.bid },
     },
   };
 }
@@ -167,7 +180,8 @@ export function listingGroupActionJson(a: PartitionAction): Json {
       AssetGroupId: Number(a.adGroupId),
       ...(a.tempId !== undefined ? { Id: a.tempId } : {}),
       ParentListingGroupId: a.parentId === null ? null : ownId(a.parentId),
-      ListingGroupType: a.kind === 'subdivision' ? 'Subdivision' : 'Unit',
+      // Microsoft's name (AssetGroupListingGroup, Add: required) – not ListingGroupType.
+      AssetGroupListingType: a.kind === 'subdivision' ? 'Subdivision' : 'Unit',
       IsExcluded: a.excluded,
       Dimension: { Operand: a.operand, Attribute: a.attribute },
     },
@@ -328,7 +342,7 @@ export class LiveBackend implements AdsBackend {
       status: str(g.Status),
       cpcBid: amount(g.CpcBid),
       startDate: isoDate(g.StartDate),
-      endDate: isoDate(g.EndDate),
+      endDate: noEnd(isoDate(g.EndDate)),
     }));
   }
 
@@ -453,7 +467,7 @@ export class LiveBackend implements AdsBackend {
       for (const l of arr<Json>(res.AssetGroupListingGroups)) {
         const dimension = (l.Dimension ?? {}) as Json;
         const parent = str(l.ParentListingGroupId);
-        const type = str(l.ListingGroupType ?? l.GroupNodeListingType);
+        const type = str(l.AssetGroupListingType ?? l.ListingGroupType);
         out.push({
           id: `${gid}~${str(l.Id)}`,
           parentId: parent && parent !== '0' ? `${gid}~${parent}` : null,
@@ -548,7 +562,9 @@ export class LiveBackend implements AdsBackend {
         if (p.cpcBid !== undefined) g.CpcBid = { Amount: p.cpcBid };
         if (p.name) g.Name = p.name;
         if (p.startDate) g.StartDate = msDate(p.startDate);
-        if (p.endDate) g.EndDate = msDate(p.endDate);
+        // Microsoft removes an end date only when given 2 Jan 2050 or later; null means "no change".
+        if (p.endDate === null) g.EndDate = msDate(NO_END_DATE);
+        else if (p.endDate) g.EndDate = msDate(p.endDate);
         return g;
       }),
     });
@@ -625,7 +641,7 @@ export class LiveBackend implements AdsBackend {
         .map((c) => ({ id: str(c.Id), device: str(criterion(c).DeviceName) as DeviceName, adjustment: multiplier(c) })),
       schedule: schedule.map((c) => {
         const t = criterion(c);
-        return { id: str(c.Id), day: str(t.Day) as WeekDay, from: Number(t.FromHour ?? 0), to: Number(t.ToHour ?? 0), adjustment: multiplier(c) };
+        return { id: str(c.Id), day: str(t.Day) as WeekDay, from: Number(t.FromHour ?? 0) + fromMinute(t.FromMinute), to: Number(t.ToHour ?? 0) + fromMinute(t.ToMinute), adjustment: multiplier(c) };
       }),
       locations: locations
         .filter((c) => str(c.Type) !== 'NegativeCampaignCriterion')
@@ -643,7 +659,7 @@ export class LiveBackend implements AdsBackend {
         t.kind === 'device'
           ? { Type: 'DeviceCriterion', DeviceName: t.device }
           : t.kind === 'schedule'
-            ? { Type: 'DayTimeCriterion', Day: t.day, FromHour: t.from, FromMinute: 'Zero', ToHour: t.to, ToMinute: 'Zero' }
+            ? { Type: 'DayTimeCriterion', Day: t.day, FromHour: Math.floor(t.from), FromMinute: toMinute(t.from), ToHour: Math.floor(t.to), ToMinute: toMinute(t.to) }
             : { Type: 'LocationCriterion', LocationId: Number(t.locationId) },
       CriterionBid: { Type: 'BidMultiplier', Multiplier: t.adjustment },
     });
@@ -738,8 +754,15 @@ export class LiveBackend implements AdsBackend {
     });
     if (!submit.ReportRequestId) throw new Error('Microsoft Advertising: rapporten kunne ikke bestilles.');
 
-    for (let attempt = 0; attempt < attempts; attempt++) {
-      await sleep(attempt === 0 ? 1200 : POLL_DELAY_MS, signal);
+    // Small reports are ready in seconds; bigger ones take longer, so the wait between polls
+    // grows (2 s → 10 s) instead of asking every 2 seconds – Microsoft advises polling less
+    // often, and many quick polls can hit "too many reports at once" (207).
+    const budget = attempts * POLL_DELAY_MS;
+    let waited = 0;
+    for (let attempt = 0; waited < budget; attempt++) {
+      const wait = attempt === 0 ? 1200 : Math.min(POLL_MAX_DELAY_MS, Math.round(POLL_DELAY_MS * 1.5 ** (attempt - 1)));
+      await sleep(wait, signal);
+      waited += wait;
       const poll = await this.client.call<{ ReportRequestStatus?: { Status?: string; ReportDownloadUrl?: string | null } }>(
         'reporting',
         'GenerateReport/Poll',
@@ -755,7 +778,7 @@ export class LiveBackend implements AdsBackend {
         return parseCsv(new TextDecoder().decode(await extractFirstFile(zip)));
       }
     }
-    throw new Error(`Microsoft Advertising: rapporten blev ikke klar inden for ${Math.round((attempts * POLL_DELAY_MS) / 1000)} sekunder. Prøv en kortere periode.`);
+    throw new Error(`Microsoft Advertising: rapporten blev ikke klar inden for ${Math.round(budget / 1000)} sekunder. Prøv en kortere periode.`);
   }
 
   /* -------------------------------- products -------------------------------- */
@@ -796,7 +819,8 @@ export class LiveBackend implements AdsBackend {
     const now = await this.getLocationIntent(accountId, campaignId);
     const criterion: Json = { Type: 'BiddableCampaignCriterion', CampaignId: Number(campaignId), Criterion: { Type: 'LocationIntentCriterion', IntentOption: intent } };
     if (now.id) criterion.Id = Number(now.id);
-    const res = await this.cm(accountId, 'CampaignCriterions', now.id ? 'PUT' : 'POST', { CampaignCriterions: [criterion], CriterionType: 'LocationIntent' });
+    // Location intent is a target criterion: written with CriterionType "Targets" ("LocationIntent" is only for reads).
+    const res = await this.cm(accountId, 'CampaignCriterions', now.id ? 'PUT' : 'POST', { CampaignCriterions: [criterion], CriterionType: 'Targets' });
     return batchResult(res, 1);
   }
 
@@ -805,11 +829,10 @@ export class LiveBackend implements AdsBackend {
   async addAdExtensions(accountId: string, extensions: NewAdExtension[]): Promise<MutationResult> {
     const schedule = (e: { startDate?: string; endDate?: string }) =>
       e.startDate || e.endDate ? { Scheduling: { StartDate: e.startDate ? msDate(e.startDate) : null, EndDate: e.endDate ? msDate(e.endDate) : null, DayTimeRanges: null, UseSearcherTimeZone: false } } : {};
-    const res = await this.cm(accountId, 'AdExtensions', 'POST', {
-      AccountId: Number(accountId),
-      AdExtensions: extensions.map((e) =>
+    // Microsoft: Description1 and Description2 only together – an empty one fails the whole call.
+    const json = (e: NewAdExtension): Json =>
         e.kind === 'sitelink'
-          ? { Type: 'SitelinkAdExtension', DisplayText: e.text, ...(e.description1 ? { Description1: e.description1, Description2: e.description2 ?? '' } : {}), FinalUrls: [e.finalUrl], ...schedule(e) }
+          ? { Type: 'SitelinkAdExtension', DisplayText: e.text, ...(e.description1 && e.description2 ? { Description1: e.description1, Description2: e.description2 } : {}), FinalUrls: [e.finalUrl], ...schedule(e) }
           : {
               Type: 'PromotionAdExtension',
               PromotionItem: e.item,
@@ -822,10 +845,17 @@ export class LiveBackend implements AdsBackend {
               ...(e.endDate ? { PromotionEndDate: msDate(e.endDate) } : {}),
               FinalUrls: [e.finalUrl],
               ...schedule(e),
-            },
-      ),
-    });
-    return batchResult(res, extensions.length, 'AdExtensionIdentities');
+            };
+    // AddAdExtensions takes at most 100 per call; each part keeps its items' positions.
+    const ids: string[] = [];
+    const failed: ItemError[] = [];
+    for (let start = 0; start < extensions.length; start += 100) {
+      const part = extensions.slice(start, start + 100);
+      const r = batchResult(await this.cm(accountId, 'AdExtensions', 'POST', { AccountId: Number(accountId), AdExtensions: part.map(json) }), part.length, 'AdExtensionIdentities');
+      ids.push(...(r.ids ?? []));
+      failed.push(...(r.failed ?? []).map((f) => ({ ...f, index: f.index === null ? null : f.index + start })));
+    }
+    return { ids, failed };
   }
 
   async associateAdExtensions(accountId: string, pairs: { extensionId: string; entityId: string }[], level: ExtensionLevel): Promise<MutationResult> {

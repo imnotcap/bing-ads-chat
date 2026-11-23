@@ -42,7 +42,11 @@ export const STANDARD_SCHEDULE: ScheduleBlock[] = [
 /** English names as in Microsoft's locations file. */
 export const STANDARD_LOCATIONS = ['Denmark', 'Capital Region of Denmark', 'Central Denmark Region', 'North Denmark Region', 'Region of Southern Denmark', 'Region Zealand'];
 
-export const fmtHour = (h: number) => `${String(h).padStart(2, '0')}`;
+/** "08", or "08:30" for a quarter hour (8.5) – Microsoft allows :00, :15, :30 and :45. */
+export const fmtHour = (h: number) => {
+  const minutes = Math.round((h % 1) * 60);
+  return `${String(Math.floor(h)).padStart(2, '0')}${minutes ? `:${String(minutes).padStart(2, '0')}` : ''}`;
+};
 export const fmtAdjustment = (a: number) => (a > 0 ? `+${a} %` : a < 0 ? `−${Math.abs(a)} %` : '0 %');
 const sameBlock = (a: ScheduleBlock, b: ScheduleBlock) => a.day === b.day && a.from === b.from && a.to === b.to;
 
@@ -63,15 +67,16 @@ export function scheduleGaps(blocks: ScheduleBlock[]): string[] {
   if (!blocks.length) return [];
   const out: string[] = [];
   for (const d of WEEK) {
-    const covered = new Array<boolean>(24).fill(false);
-    for (const b of blocks.filter((x) => x.day === d)) for (let h = b.from; h < b.to; h++) covered[h] = true;
+    // In quarter hours: Microsoft's blocks start and end on :00, :15, :30 or :45.
+    const covered = new Array<boolean>(96).fill(false);
+    for (const b of blocks.filter((x) => x.day === d)) for (let q = Math.round(b.from * 4); q < Math.round(b.to * 4); q++) covered[q] = true;
     const gaps: string[] = [];
-    for (let h = 0; h < 24; h++) {
-      if (covered[h]) continue;
-      let end = h;
-      while (end < 24 && !covered[end]) end++;
-      gaps.push(`${fmtHour(h)}–${fmtHour(end)}`);
-      h = end;
+    for (let q = 0; q < 96; q++) {
+      if (covered[q]) continue;
+      let end = q;
+      while (end < 96 && !covered[end]) end++;
+      gaps.push(`${fmtHour(q / 4)}–${fmtHour(end / 4)}`);
+      q = end;
     }
     if (gaps.length) out.push(`${DAY_LABELS[d]} ${gaps.join(', ')}`);
   }

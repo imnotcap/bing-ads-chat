@@ -28,14 +28,26 @@ export function extractErrorMessages(payload: unknown, out: string[] = [], depth
 }
 
 /**
- * Microsoft asking us to slow down: HTTP 429, or one of its own codes for too many calls
- * (117 CallRateExceeded, 207 and 4204 for concurrent and queued report limits).
+ * How long to wait before asking again when Microsoft says "too many calls", or null when
+ * waiting won't help (Services protocol and Operation error codes):
+ * - 117 CallRateExceeded (and HTTP 429): "resubmit the request … after waiting 60 seconds".
+ * - 207 in the Reporting service: too many reports running – wait for them. In Customer
+ *   Management the same number means an invalid address line, so it is not retried there.
+ * - 4204 is a Bulk-service limit; the app does not use Bulk.
  */
-export function isThrottled(status: number, messages: string[]): boolean {
-  return status === 429 || messages.some((m) => /\((117|207|4204)\)$/.test(m));
+export function retryAfterMs(status: number, messages: string[], reporting = false): number | null {
+  // Messages end in the symbolic code (ErrorCode, e.g. "CallRateExceeded") or, without one, the number.
+  if (status === 429 || messages.some((m) => /\((117|CallRateExceeded)\)$/.test(m))) return 60_000;
+  if (messages.some((m) => /\(ConcurrentRequestOverLimit\)$/.test(m) || (reporting && /\(207\)$/.test(m)))) return 30_000;
+  return null;
 }
 
-/** The developer token or the signed-in user was refused (105/106) – retrying will not help. */
+/** Microsoft asking us to slow down (see retryAfterMs). */
+export function isThrottled(status: number, messages: string[], reporting = false): boolean {
+  return retryAfterMs(status, messages, reporting) !== null;
+}
+
+/** The developer token or the signed-in user was refused (105 InvalidCredentials / 106 UserIsNotAuthorized) – retrying will not help. */
 export function isCredentialRejection(status: number, messages: string[]): boolean {
-  return status === 401 || messages.some((m) => /\((105|106)\)$/.test(m));
+  return status === 401 || messages.some((m) => /\((105|106|InvalidCredentials|UserIsNotAuthorized)\)$/.test(m));
 }

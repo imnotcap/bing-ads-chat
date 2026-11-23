@@ -58,7 +58,7 @@ const bidStrategySchema = z.object({
     .describe('For a target use MaxConversions + targetCpa or MaxConversionValue + targetRoas. TargetCpa/TargetRoas only to adjust a campaign that already uses them. ManualCpc only for Audience campaigns.'),
   targetCpa: z.number().positive().optional().describe('Target CPA in account currency (MaxConversions or TargetCpa).'),
   targetRoas: z.number().positive().optional().describe('Required for TargetRoas, optional for MaxConversionValue (e.g. 4 = 400 %).'),
-  maxCpc: z.number().positive().optional().describe('Optional bid cap (MaxClicks, MaxConversions, TargetCpa, TargetRoas).'),
+  maxCpc: z.number().positive().optional().describe('Bid cap – only to change a cap the campaign already has (or on a portfolio strategy): Microsoft refuses a NEW Max CPC on MaxClicks, MaxConversions, MaxConversionValue, TargetCpa and TargetRoas (error 611274).'),
 });
 
 /** YYYY-MM-DD → 16-11-2026 (the team's format). */
@@ -152,7 +152,7 @@ export const writeTools = [
     name: 'update_campaigns',
     kind: 'write',
     description: `Change one or more campaigns: status (Active/Paused), daily budget, name and/or bid strategy. Batch all campaign changes into one call.
-The tool checks feasibility first and refuses changes Microsoft would ignore or reject: shared budgets, experiment campaigns, Manual CPC outside Audience campaigns (Microsoft silently turns it into Enhanced CPC), unsupported strategies for Performance Max, portfolio bid strategies, and conversion-based strategies without enough conversion data (<15 conversions/30 days). After sending, it reads the campaigns back and reports only what Microsoft confirms.`,
+The tool checks feasibility first and refuses changes Microsoft would ignore or reject: shared budgets, experiment campaigns, Manual CPC outside Audience campaigns (Microsoft silently turns it into Enhanced CPC), unsupported strategies for Performance Max, portfolio bid strategies, and conversion-based strategies without enough conversion data (<5 conversions/30 days). After sending, it reads the campaigns back and reports only what Microsoft confirms.`,
     schema: z.object({
       changes: z
         .array(
@@ -787,7 +787,7 @@ The team standard is set on the campaign in the same card where it is missing: m
         const expired = expiredReason(g);
         if (expired && !(ch.status === 'Active' && g.status === 'Expired')) throw new Error(`Ikke sendt: ${expired}`);
         if (ch.status && !statusMatches(ch.status, g.status)) {
-          if (ch.status === 'Active' && g.status === 'Expired') throw new Error(`"${g.name}" er udløbet (slutdatoen er passeret). Den kan kun aktiveres ved at forlænge slutdatoen (microsoft_ads_api: PUT AdGroups med EndDate).`);
+          if (ch.status === 'Active' && g.status === 'Expired') throw new Error(`"${g.name}" er udløbet (slutdatoen er passeret). Den kan kun aktiveres ved at forlænge eller fjerne slutdatoen (set_campaign_period med adGroupIds).`);
           if (ch.status === 'Active') {
             const blocker = campaignBlocker(c);
             if (blocker) notes.push(`${blocker} Annoncegruppen viser derfor ikke annoncer, selvom den aktiveres.`);
@@ -850,15 +850,15 @@ The team standard is set on the campaign in the same card where it is missing: m
     name: 'set_campaign_period',
     kind: 'write',
     description:
-      'Make a campaign run only in a period (Black Week, a birthday sale, a season): sets the start and end date on its ad groups, and Microsoft then starts and stops the ads by itself on those days – also when the app is closed. Dates are YYYY-MM-DD in the campaign\'s time zone; the end date is included. A start date that is today or has passed is not sent (the ads run from now when the campaign is active). Expired ad groups become eligible again with a new end date. Does not change campaign status or budget: when the campaign is paused, also call update_campaigns to activate it (the start date holds the ads back until the day) – after the user says yes. Reads the ad groups back and reports only confirmed dates.',
+      'Make a campaign run only in a period (Black Week, a birthday sale, a season): sets the start and end date on its ad groups, and Microsoft then starts and stops the ads by itself on those days – also when the app is closed. Dates are YYYY-MM-DD in the campaign\'s time zone; the end date is included. A start date that is today or has passed is not sent (the ads run from now when the campaign is active). Expired ad groups become eligible again with a new end date. end "none" removes the end date. Microsoft cannot move the start date of an ad group that has already started (error 1216) – the tool leaves those at "from now" and says so. Does not change campaign status or budget: when the campaign is paused, also call update_campaigns to activate it (the start date holds the ads back until the day) – after the user says yes. Reads the ad groups back and reports only confirmed dates.',
     schema: z.object({
       campaignId: z.string(),
       start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('First day ads may show (YYYY-MM-DD). Leave out to start now.'),
-      end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe('Last day ads may show (YYYY-MM-DD), included.'),
+      end: z.string().regex(/^(\d{4}-\d{2}-\d{2}|none)$/).describe('Last day ads may show (YYYY-MM-DD), included – or "none" to remove the end date.'),
       adGroupIds: z.array(z.string()).max(1000).optional().describe('Only these ad groups (default: all in the campaign).'),
       reason,
     }),
-    label: (i) => `Sætter kampagneperiode til ${i.end}`,
+    label: (i) => (i.end === 'none' ? 'Fjerner kampagnens slutdato' : `Sætter kampagneperiode til ${i.end}`),
     async plan(input, ctx) {
       const c = await getCampaign(ctx, input.campaignId);
       const all = (await getAdGroups(ctx, c.id)).filter((g) => g.status !== 'Deleted');
@@ -867,22 +867,27 @@ The team standard is set on the campaign in the same card where it is missing: m
       if (!groups.length) throw new Error(only ? 'Ingen af de nævnte annoncegrupper findes i kampagnen.' : `"${c.name}" har ingen annoncegrupper – opret dem først (create_ad_group), så perioden kan sættes på dem.`);
       const now = today();
       const dk = (iso: string | null | undefined) => (iso ? iso.split('-').reverse().map((x, i) => (i < 2 ? String(Number(x)) : x)).join('-') : '');
-      if (input.end < now) throw new Error(`Slutdatoen ${dk(input.end)} er passeret.`);
-      if (input.start && input.start > input.end) throw new Error(`Startdatoen ${dk(input.start)} ligger efter slutdatoen ${dk(input.end)}.`);
+      const end = input.end === 'none' ? null : input.end;
+      if (end && end < now) throw new Error(`Slutdatoen ${dk(end)} er passeret.`);
+      if (input.start && end && input.start > end) throw new Error(`Startdatoen ${dk(input.start)} ligger efter slutdatoen ${dk(input.end)}.`);
       // Microsoft cannot hold back ads that already may run: a start today or earlier is just "from now".
       const start = input.start && input.start > now ? input.start : undefined;
       const span = (a: string | null | undefined, b: string | null | undefined) => (a || b ? `${a ? dk(a) : 'nu'} – ${b ? dk(b) : 'ingen slut'}` : 'Ingen periode');
       const lines: ChangeLine[] = [];
       const checks: LineCheck<AdGroup[]>[] = [];
-      const patches: { adGroupId: string; startDate?: string; endDate: string }[] = [];
+      const patches: { adGroupId: string; startDate?: string; endDate: string | null }[] = [];
       const undo: { adGroupId: string; endDate: string }[] = [];
+      // Microsoft refuses a new start date once the start has arrived, i.e. once the ad group
+      // has been submitted as active (1216). Without a start date an active group has started.
+      const started = groups.filter((g) => (g.startDate ? g.startDate <= now : g.status !== 'Paused'));
       for (const g of groups) {
-        const sameStart = !start || g.startDate === start;
-        if (sameStart && g.endDate === input.end) continue;
+        const ownStart = start && !started.includes(g) ? start : undefined;
+        const sameStart = !ownStart || g.startDate === ownStart;
+        if (sameStart && (g.endDate ?? null) === end) continue;
         const index = patches.length;
-        patches.push({ adGroupId: g.id, ...(start ? { startDate: start } : {}), endDate: input.end });
+        patches.push({ adGroupId: g.id, ...(ownStart ? { startDate: ownStart } : {}), endDate: end });
         if (g.endDate && g.endDate >= now) undo.push({ adGroupId: g.id, endDate: g.endDate });
-        const line: ChangeLine = { entity: 'Annoncegruppe', entityId: g.id, field: `${g.name} · periode`, before: span(g.startDate, g.endDate), after: span(start ?? (g.startDate && g.startDate > now ? g.startDate : null), input.end) };
+        const line: ChangeLine = { entity: 'Annoncegruppe', entityId: g.id, field: `${g.name} · periode`, before: span(g.startDate, g.endDate), after: span(ownStart ?? (g.startDate && g.startDate > now ? g.startDate : null), end) };
         lines.push(line);
         checks.push({
           line,
@@ -890,12 +895,18 @@ The team standard is set on the campaign in the same card where it is missing: m
           verify: (state) => {
             const x = state.find((y) => y.id === g.id);
             if (!x) return 'findes ikke';
-            return x.endDate === input.end && (!start || x.startDate === start) ? null : span(x.startDate, x.endDate);
+            return (x.endDate ?? null) === end && (!ownStart || x.startDate === ownStart) ? null : span(x.startDate, x.endDate);
           },
         });
       }
-      if (!lines.length) throw new Error(`Perioden er allerede ${span(start, input.end)} på ${groups.length === 1 ? 'annoncegruppen' : 'alle annoncegrupperne'}.`);
-      const notes: string[] = [`Microsoft starter og stopper selv annoncerne på datoerne (kampagnens tidszone) – også når appen er lukket. ${dk(input.end)} er med; annoncerne stopper ved midnat efter.`];
+      if (!lines.length) throw new Error(`Perioden er allerede ${span(start, end)} på ${groups.length === 1 ? 'annoncegruppen' : 'alle annoncegrupperne'}.`);
+      const notes: string[] = [
+        end
+          ? `Microsoft starter og stopper selv annoncerne på datoerne (kampagnens tidszone) – også når appen er lukket. ${dk(end)} er med; annoncerne stopper ved midnat efter.`
+          : 'Slutdatoen fjernes – annoncerne kører, til de sættes på pause.',
+      ];
+      const held = start ? started : [];
+      if (held.length) notes.push(`${held.length === 1 ? `"${held[0]!.name}" er` : `${held.length} annoncegrupper er`} allerede startet, og Microsoft kan ikke flytte startdatoen på en startet annoncegruppe – de kører fra nu. Skal de holdes tilbage til ${dk(start!)}, så sæt dem på pause og aktivér dem den dag.`);
       if (input.start && !start) notes.push(`Startdatoen ${dk(input.start)} er i dag eller passeret – annoncerne kører fra nu, når kampagnen er aktiv.`);
       if (!isActive(c.status)) notes.push(`Kampagnen er ${statusLabel(c.status).toLowerCase()}. Den kører først, når den aktiveres – ${start ? `startdatoen holder annoncerne tilbage til ${dk(start)}, så den kan trygt aktiveres nu.` : 'aktiveres den nu, kører annoncerne med det samme.'}`);
       const paused = groups.filter((g) => g.status === 'Paused');
@@ -906,11 +917,11 @@ The team standard is set on the campaign in the same card where it is missing: m
       return {
         plan: {
           kind: 'update',
-          title: `Periode ${span(start, input.end)} · ${c.name}`,
+          title: `Periode ${span(start, end)} · ${c.name}`,
           reason: input.reason,
           changes: lines,
           dailyBudgetDelta: 0,
-          increasesSpend: expired.length > 0,
+          increasesSpend: expired.length > 0 || (!end && groups.some((g) => g.endDate)),
           campaignIds: [c.id],
           notes,
         },
@@ -1464,7 +1475,7 @@ The team standard is set on the campaign in the same card where it is missing: m
       for (const p of [input.path1, input.path2]) if (p && p.includes('/')) throw new Error(`Visningsstien "${p}" må ikke indeholde skråstreg – brug path1 og path2 til hver sin del.`);
       const notes = await servingBlockers(ctx, c, g);
       // The same review the assistant ran on the draft: an ad that cannot serve is refused, warnings go on the card.
-      const review = reviewAd({ headlines, headlinePins, descriptions: input.descriptions, descriptionPins, evidence: input.evidence, ...(await adReviewContext(ctx, c.id, g.id)) });
+      const review = reviewAd({ headlines, headlinePins, descriptions: input.descriptions, descriptionPins, evidence: input.evidence, finalUrl: input.finalUrl, path1: input.path1, path2: input.path2, ...(await adReviewContext(ctx, c.id, g.id)) });
       const errors = issueLines(review, ['error']);
       if (errors.length) throw new Error(`Annoncen kan ikke oprettes som skrevet: ${errors.join(' ')}`);
       notes.push(...issueLines(review, ['warning']), ...review.issues.filter((i) => i.code === 'shared_position_1').map((i) => i.text));

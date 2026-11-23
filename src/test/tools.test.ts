@@ -112,6 +112,8 @@ describe('set_campaign_period – Black Week and other periods', () => {
     const tool = getTool('set_campaign_period')!;
     if (tool.kind !== 'write') throw new Error('unexpected');
     const groups = await c.backend.listAdGroups(c.accountId, '101');
+    // A Black Week campaign waits paused: only an ad group that hasn't started can get a start date.
+    await c.backend.updateAdGroups(c.accountId, '101', groups.map((g) => ({ adGroupId: g.id, status: 'Paused' as const })));
     const { plan, execute } = await tool.plan(tool.schema.parse({ campaignId: '101', start: inDays(10), end: inDays(17), reason: 'Black Week' }), c);
     expect(plan!.changes).toHaveLength(groups.length);
     expect(plan!.notes!.join(' ')).toMatch(/starter og stopper selv/);
@@ -129,6 +131,36 @@ describe('set_campaign_period – Black Week and other periods', () => {
     expect(plan!.notes!.join(' ')).toMatch(/kører fra nu/);
     expect(String(plan!.changes[0]!.after)).toMatch(/^nu – /);
     await expect(tool.plan(tool.schema.parse({ campaignId: '101', end: inDays(-1), reason: 'x' }), c)).rejects.toThrow(/passeret/);
+  });
+
+  it('never moves the start of an ad group that has already started (Microsoft error 1216) – and says how to hold it back', async () => {
+    const c = ctx();
+    const tool = getTool('set_campaign_period')!;
+    if (tool.kind !== 'write') throw new Error('unexpected');
+    const groups = await c.backend.listAdGroups(c.accountId, '101');
+    expect(groups.some((g) => g.status === 'Active' && !g.startDate)).toBe(true);
+    const { plan, execute } = await tool.plan(tool.schema.parse({ campaignId: '101', start: inDays(10), end: inDays(17), reason: 'Black Week' }), c);
+    expect(plan!.notes!.join(' ')).toMatch(/allerede startet.*kan ikke flytte startdatoen.*pause/);
+    await execute();
+    const after = await c.backend.listAdGroups(c.accountId, '101');
+    for (const g of after.filter((x) => groups.find((y) => y.id === x.id)?.status === 'Active')) {
+      expect(g.startDate ?? null).toBe(groups.find((y) => y.id === g.id)!.startDate ?? null);
+      expect(g.endDate).toBe(inDays(17));
+    }
+  });
+
+  it('removes an end date with end "none"', async () => {
+    const c = ctx();
+    const tool = getTool('set_campaign_period')!;
+    if (tool.kind !== 'write') throw new Error('unexpected');
+    const first = await tool.plan(tool.schema.parse({ campaignId: '101', end: inDays(5), reason: 'x' }), c);
+    await first.execute();
+    const { plan, execute } = await tool.plan(tool.schema.parse({ campaignId: '101', end: 'none', reason: 'Kør videre' }), c);
+    expect(plan!.changes.every((l) => /ingen slut|Ingen periode/.test(String(l.after)))).toBe(true);
+    expect(plan!.increasesSpend).toBe(true);
+    const done = await execute();
+    expect((done.result as { outcome: string }).outcome).toBe('confirmed');
+    expect((await c.backend.listAdGroups(c.accountId, '101')).every((g) => !g.endDate)).toBe(true);
   });
 });
 

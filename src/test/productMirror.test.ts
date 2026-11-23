@@ -391,7 +391,7 @@ describe('what Microsoft gets for Performance Max', () => {
     expect(listingGroupActionJson({ action: 'Delete', adGroupId: '77', id: '77~5', excluded: false })).toEqual({ Action: 'Delete', ListingGroup: { AssetGroupId: 77, Id: 5 } });
     expect(listingGroupActionJson({ action: 'Add', adGroupId: '77', tempId: -1, parentId: null, kind: 'subdivision', operand: 'All', attribute: null, excluded: false })).toEqual({
       Action: 'Add',
-      ListingGroup: { AssetGroupId: 77, Id: -1, ParentListingGroupId: null, ListingGroupType: 'Subdivision', IsExcluded: false, Dimension: { Operand: 'All', Attribute: null } },
+      ListingGroup: { AssetGroupId: 77, Id: -1, ParentListingGroupId: null, AssetGroupListingType: 'Subdivision', IsExcluded: false, Dimension: { Operand: 'All', Attribute: null } },
     });
     expect(listingGroupActionJson({ action: 'Add', adGroupId: '77', parentId: -1, kind: 'unit', operand: 'Id', attribute: 'SKU-1', excluded: true }).ListingGroup).toMatchObject({ ParentListingGroupId: -1, IsExcluded: true, Dimension: { Operand: 'Id', Attribute: 'SKU-1' } });
   });

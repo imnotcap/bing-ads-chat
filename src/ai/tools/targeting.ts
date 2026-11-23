@@ -18,6 +18,7 @@ import {
   describeDay,
   deviceChanges,
   fmtAdjustment,
+  fmtHour,
   isEmptyChange,
   mergeChanges,
   scheduleChanges,
@@ -176,7 +177,7 @@ export const targetingTools = [
     description: `Set a campaign's bid adjustments by device (computer, mobile, tablet), its ad schedule (days and hours with bid adjustments) and/or add locations – in one card the user approves; read back afterwards. Never use microsoft_ads_api for these.
 - standard: true sets the team standard for whatever you leave out: mobile and tablet -90 %, computer 0 %; the standard ad schedule (only if the campaign has none); Denmark and its five regions (only if the campaign has no locations).
 - devices: % per device (-100 … 900); all three are always sent together (missing = 0 %).
-- schedule: the WHOLE schedule – it replaces the campaign's current one. Whole hours; "19–00" is from 19 to 24. Group days with the same blocks (e.g. Monday–Thursday). No ads are shown outside the blocks, so cover all 7 days × 24 hours unless the user wants pauses. Adjustment -90 … 900 (0 = no change).
+- schedule: the WHOLE schedule – it replaces the campaign's current one. Hours, or quarter hours as decimals (8.5 = 08:30, 16.75 = 16:45 – Microsoft allows :00, :15, :30, :45); "19–00" is from 19 to 24. Group days with the same blocks (e.g. Monday–Thursday). No ads are shown outside the blocks, so cover all 7 days × 24 hours unless the user wants pauses. Adjustment -90 … 900 (0 = no change).
 - locations: English names as in Microsoft's location file (e.g. "Denmark", "Region Zealand", "Capital Region of Denmark"); they are added, existing ones are kept.`,
     schema: z.object({
       campaignId: z.string(),
@@ -192,8 +193,8 @@ export const targetingTools = [
         .array(
           z.object({
             days: z.array(DAYS).min(1),
-            from: z.number().int().min(0).max(23),
-            to: z.number().int().min(1).max(24),
+            from: z.number().min(0).max(23.75).multipleOf(0.25),
+            to: z.number().min(0.25).max(24).multipleOf(0.25),
             adjustment: z.number().int().min(-90).max(900),
           }),
         )
@@ -208,7 +209,7 @@ export const targetingTools = [
       if (!ctx.backend.applyCampaignTargets) throw new Error('Enheder, tidsplan og lokationer kan ikke sættes på denne konto.');
       const current = await readTargets(ctx, c.id);
       const standard = input.standard ? standardFor(current) : {};
-      for (const b of input.schedule ?? []) if (b.from >= b.to) throw new Error(`Tidsrummet ${b.from}–${b.to} slutter før det starter. Brug fx 19–24 for "19–00".`);
+      for (const b of input.schedule ?? []) if (b.from >= b.to) throw new Error(`Tidsrummet ${fmtHour(b.from)}–${fmtHour(b.to)} slutter før det starter. Brug fx 19–24 for "19–00".`);
       const wanted: WantedTargets = {
         devices: input.devices
           ? { Computers: input.devices.computers ?? 0, Smartphones: input.devices.smartphones ?? 0, Tablets: input.devices.tablets ?? 0 }
@@ -221,6 +222,8 @@ export const targetingTools = [
       // Under automated bidding Microsoft sets the bids itself; how far it follows adjustments isn't clearly documented – -100 % on a device always stops it.
       if (AUTOMATED_BIDDING.has(c.bidStrategy.type) && (input.devices || input.schedule?.some((b) => b.adjustment !== 0)))
         t.notes.push(`"${c.name}" byder automatisk – Microsoft sætter selv buddene, og det er ikke klart dokumenteret, hvor meget den følger budjusteringerne. -100 % på en enhed slår den altid fra, og annonceplanens tider styrer, hvornår annoncerne vises.`);
+      // Microsoft: an ad group's own devices, schedule or locations replace the campaign's for that group.
+      const OWN_TARGETING = 'Har en annoncegruppe sin egen målretning (enheder, tidsplan eller lokationer), gælder dens egen i stedet for kampagnens for den gruppe – tjek det under annoncegruppens indstillinger i Microsoft Ads.';
       const increases = t.lines.some((l) => /\+/.test(String(l.after)));
       return {
         plan: {
@@ -231,7 +234,7 @@ export const targetingTools = [
           dailyBudgetDelta: 0,
           increasesSpend: increases,
           campaignIds: [c.id],
-          notes: t.notes,
+          notes: [...t.notes, OWN_TARGETING],
         },
         execute: async () => report(await applyTargeting(ctx, c.id, wanted, t), { noun: ['indstilling', 'indstillinger'], warnings: t.notes }),
       };

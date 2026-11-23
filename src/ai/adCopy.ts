@@ -44,6 +44,10 @@ export interface ReviewInput {
   existing?: { headlines: string[]; descriptions: string[]; enabled: boolean }[];
   evidence?: EvidenceItem[];
   brand?: string;
+  /** The final URL and display paths – Microsoft takes ASCII only. */
+  finalUrl?: string;
+  path1?: string;
+  path2?: string;
 }
 
 export interface Claim {
@@ -64,8 +68,16 @@ export interface Review {
 
 /* --------------------------------- text helpers --------------------------------- */
 
-/** Dynamic text ({KeyWord:Default}) counts – and reads – as its default text. */
-export const plain = (text: string) => text.replace(/\{[^}:]*:([^}]*)\}/g, '$1').trim();
+/**
+ * Dynamic text ({KeyWord:Default}) counts – and reads – as its default text. A countdown
+ * ({COUNTDOWN(2026-11-27 23:59:59,5)}) has no default: Microsoft shows the time left, read
+ * here as "X dage" (its colons are part of the time, not a default text).
+ */
+export const plain = (text: string) =>
+  text
+    .replace(/\{(GLOBAL_)?COUNTDOWN\([^)]*\)\}/gi, 'X dage')
+    .replace(/\{[^}:]*:([^}]*)\}/g, '$1')
+    .trim();
 
 const words = (text: string) => plain(text).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 
@@ -255,10 +267,11 @@ export function reviewAd(input: ReviewInput): Review {
   if (sharePos1 > 1) add('tip', 'shared_position_1', `${sharePos1} overskrifter er fastgjort til position 1 – de skifter, så den første ikke altid vises.`);
 
   /* ---- wording Microsoft's style rules reject ---- */
-  const bang = headlines.filter((h) => h.includes('!'));
-  if (bang.length) add('warning', 'exclamation', `Udråbstegn i overskrift: ${quoteAll(bang.slice(0, 3))}. Microsofts stilregler afviser unødvendige symboler og gentagen tegnsætning, og udråbstegn i en overskrift kan give en afvisning – fjern dem.`);
-  const repeated = all.filter((t) => /[!?.]{2,}/.test(t));
-  if (repeated.length) add('warning', 'repeated_punctuation', `Gentaget tegnsætning: ${quoteAll(repeated.slice(0, 3))}.`);
+  // Microsoft: one ! or ? per sentence is allowed; consecutive symbols ("!!", "?!") are not.
+  const repeated = all.filter((t) => /[!?.…]{2,}|…/.test(plain(t)));
+  if (repeated.length) add('error', 'repeated_punctuation', `Gentaget tegnsætning: ${quoteAll(repeated.slice(0, 3))}. Microsoft tillader højst ét ! eller ? pr. sætning og afviser tegn efter hinanden – fjern de ekstra.`);
+  const bang = headlines.filter((h) => h.includes('!') && !repeated.includes(h));
+  if (bang.length) add('tip', 'exclamation', `Udråbstegn i overskrift: ${quoteAll(bang.slice(0, 3))}. Microsoft tillader ét pr. sætning, men de virker ofte råbende – overvej at fjerne dem.`);
   const brand = (input.brand ?? '').toUpperCase();
   const shouting = [...new Set(all.flatMap((t) => plain(t).match(SHOUTING) ?? []))].filter((w) => w !== brand);
   if (shouting.length) add('warning', 'caps', `Ord med store bogstaver: ${shouting.slice(0, 5).join(', ')}. Microsoft kræver korrekt brug af store og små bogstaver.`);
@@ -279,7 +292,29 @@ export function reviewAd(input: ReviewInput): Review {
   else if (open.length) add('warning', 'claims_unbacked', `Citaterne dækker ikke: ${open.map((c) => `"${c.text}"`).join(', ')}. Tallet og enheden skal stå på siden.`);
   const boast = all.filter((t) => SUPERLATIVE.test(t));
   if (boast.length) add('warning', 'superlative', `Overdrivelser, der kræver dokumentation: ${quoteAll(boast.slice(0, 3))}. Uden dokumentation kan de afvises og er vildledende.`);
-  if (rawClaims.some((c) => c.family === 'money') && !all.some((t) => /moms/i.test(t))) add('tip', 'vat', 'Annoncen nævner en pris uden at sige, om den er ekskl. eller inkl. moms.');
+  if (rawClaims.some((c) => c.family === 'money') && !all.some((t) => /moms/i.test(t)))
+    add('tip', 'vat', 'Annoncen nævner en pris uden at sige noget om moms. Priser til forbrugere skal være inkl. moms (Microsofts EU-regler) – skriv kun "ekskl. moms", når tilbuddet tydeligt er til erhverv.');
+  // Microsoft: "Only one price or % allowed per ad" – not clearly per text or per shown combination for RSAs.
+  const pricesIn = (t: string) => new Set(extractClaims([t]).filter((c) => c.family === 'money' || c.family === 'percent').map((c) => `${c.family}|${c.digits}`));
+  const ladders = all.filter((t) => pricesIn(t).size > 1);
+  if (ladders.length) add('warning', 'one_price', `Flere priser eller procenter i samme tekst: ${quoteAll(ladders.slice(0, 3))}. Microsoft tillader kun én pris eller procent pr. annonce – behold én.`);
+  else if (new Set(all.flatMap((t) => [...pricesIn(t)])).size > 1)
+    add('tip', 'one_price', 'Annoncens tekster nævner forskellige priser eller procenter. Microsoft tillader én pris eller procent pr. annonce, og det er uklart, om det gælder hver tekst eller den viste kombination – brug helst den samme.');
+
+  /* ---- the final URL and display paths: Microsoft takes ASCII only ---- */
+  const nonAscii = [input.finalUrl, input.path1, input.path2].filter((t): t is string => !!t && /[^\x20-\x7e]/.test(t));
+  if (nonAscii.length)
+    add('error', 'ascii_url', `${quoteAll(nonAscii)} indeholder æ, ø, å eller andre tegn uden for ASCII. Microsoft afviser slut-URL'er og visningsstier med dem – skriv fx "moebler" eller "kontormobler", eller brug sidens URL, som den står i adresselinjen (med %-koder).`);
+  if (input.finalUrl && (input.path1 || input.path2)) {
+    let host = '';
+    try {
+      host = new URL(input.finalUrl).hostname.replace(/^www\./, '');
+    } catch {
+      /* the tool checks the URL itself */
+    }
+    const shown = [host, input.path1, input.path2].filter(Boolean).join('/');
+    if (host && shown.length > 67) add('error', 'display_url_length', `Visnings-URL'en "${shown}" er ${shown.length} tegn – Microsoft tillader højst 67 tegn for domæne og stier. Gør stierne kortere.`);
+  }
 
   /* ---- the keywords it is for ---- */
   let keywordCoverage: Review['keywordCoverage'] = null;

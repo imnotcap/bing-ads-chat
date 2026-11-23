@@ -39,14 +39,19 @@ export function bidLabel(b: BidStrategy | undefined): string {
 const AUTOMATED = new Set(['MaxClicks', 'MaxConversions', 'TargetCpa', 'TargetRoas', 'MaxConversionValue', 'TargetImpressionShare']);
 /** Strategies that learn from conversion data. */
 export const CONVERSION_BASED = new Set(['MaxConversions', 'TargetCpa', 'TargetRoas', 'MaxConversionValue']);
-/** Microsoft: below 15 conversions in 30 days these strategies stop optimising. */
-export const MIN_CONVERSIONS_30D = 15;
+/**
+ * Below this a conversion-based strategy needs the user's explicit go-ahead. Microsoft
+ * (Nov 2026): start conversion-based from 5 conversions, below that Enhanced CPC.
+ */
+export const MIN_CONVERSIONS_30D = 5;
 /** The team's playbook: automated strategies need at least 30 conversions in 30 days. */
 export const RECOMMENDED_CONVERSIONS_30D = 30;
 
 const LEVER: Record<string, string> = {
-  MaxClicks: 'kampagnens budget eller maks. CPC-loft',
-  MaxConversions: 'kampagnens budget eller maks. CPC-loft (eller skift til Mål-CPA)',
+  // Not a max CPC cap: a new one is refused on non-portfolio campaigns (611274), and
+  // standalone Target CPA is retired – a target goes on Maximize conversions instead.
+  MaxClicks: 'kampagnens budget',
+  MaxConversions: 'kampagnens budget eller et mål-CPA på Maksimér konverteringer',
   TargetCpa: 'kampagnens mål-CPA eller budget',
   TargetRoas: 'kampagnens mål-ROAS eller budget',
   MaxConversionValue: 'kampagnens budget eller mål-ROAS',
@@ -64,7 +69,14 @@ export function bidsIgnoredReason(c: Campaign): string | null {
 }
 
 /** Bid strategies Microsoft accepts for the campaign type (documented limits). */
-export function bidStrategyProblem(c: Pick<Campaign, 'name' | 'type'> & { bidStrategy?: BidStrategy }, b: BidStrategy): string | null {
+/** Microsoft (release notes): these strategies take no NEW Max CPC on a campaign without a portfolio strategy – error 611274. */
+const NO_NEW_MAX_CPC = new Set(['MaxClicks', 'MaxConversions', 'MaxConversionValue', 'TargetCpa', 'TargetRoas']);
+
+export function bidStrategyProblem(c: Pick<Campaign, 'name' | 'type'> & { bidStrategy?: BidStrategy; portfolioBidStrategyId?: string | null }, b: BidStrategy): string | null {
+  // An existing Max CPC may still be edited or removed; only adding one is refused.
+  if (b.maxCpc && NO_NEW_MAX_CPC.has(b.type) && !c.portfolioBidStrategyId && !(c.bidStrategy?.type === b.type && c.bidStrategy.maxCpc)) {
+    return `Microsoft tillader ikke længere at tilføje en maks. CPC til ${bidLabel(b)} på en kampagne uden porteføljebudstrategi (fejl 611274) – kun at rette eller fjerne en, kampagnen allerede har. Send budstrategien uden maxCpc.`;
+  }
   if (b.type === 'ManualCpc' && c.type !== 'Audience') {
     return `Manuel CPC findes kun for Audience-kampagner. Microsoft ignorerer det for "${c.name}" uden fejl og bruger Forbedret CPC i stedet – vælg Forbedret CPC (EnhancedCpc), hvis du vil styre buddene selv.`;
   }
@@ -114,7 +126,7 @@ export function strategyDataCheck(c: Campaign, b: BidStrategy, d: ConversionData
   const conv = Math.round(d.conversions * 10) / 10;
   if (CONVERSION_BASED.has(b.type)) {
     if (d.conversions === 0) problems.push(`"${c.name}" har 0 konverteringer de sidste 30 dage – ${BID_LABELS[b.type]} har intet at optimere efter (tjek UET-tag og konverteringsmål først).`);
-    else if (d.conversions < MIN_CONVERSIONS_30D) problems.push(`"${c.name}" har kun ${conv} konverteringer de sidste 30 dage. Microsoft stopper med at optimere under ${MIN_CONVERSIONS_30D} pr. 30 dage.`);
+    else if (d.conversions < MIN_CONVERSIONS_30D) problems.push(`"${c.name}" har kun ${conv} konverteringer de sidste 30 dage. Microsoft anbefaler først en konverteringsbaseret strategi fra ${MIN_CONVERSIONS_30D} konverteringer – under det Forbedret CPC.`);
     else if (d.conversions < RECOMMENDED_CONVERSIONS_30D) warnings.push(`"${c.name}" har ${conv} konverteringer de sidste 30 dage – under de ${RECOMMENDED_CONVERSIONS_30D}, jeres playbook kræver for automatiske strategier. Forvent ustabile resultater.`);
   }
   if ((b.type === 'TargetRoas' || b.type === 'MaxConversionValue') && d.revenue === 0 && d.conversions > 0) {

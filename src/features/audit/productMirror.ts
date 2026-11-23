@@ -472,7 +472,8 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
     const actions: PartitionAction[] = [];
     // Deleting the root takes its whole tree with it.
     if (b.kind === 'ids' || b.kind === 'all') actions.push({ action: 'Delete', adGroupId, id: b.root.id, excluded: b.root.excluded });
-    actions.push({ action: 'Add', adGroupId, parentId: null, kind: 'unit', operand: 'All', attribute: null, excluded: false, bid: group.bid });
+    const bid = rows.find((r) => r.action === 'all' || r.action === 'collapse')?.bid || group.bid;
+    actions.push({ action: 'Add', adGroupId, parentId: null, kind: 'unit', operand: 'All', attribute: null, excluded: false, bid });
     return actions;
   }
 
