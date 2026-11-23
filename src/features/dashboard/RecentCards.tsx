@@ -1,4 +1,4 @@
-/** Overblik → "Til i dag": a short list of the planning cards to start on (recentCards.ts). */
+/** Overblik → "Til i dag": a short list of the planning cards to start on (todayCards.ts). */
 import { motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { ArrowRight, Sparkles } from '@/components/icons';
@@ -11,7 +11,7 @@ import { fmtRelative } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { AGENT_BOARD, fmtDue, useBoard } from '@/stores/board';
 import { useUi } from '@/stores/ui';
-import { RECENT_DAYS, todayCards } from './recentCards';
+import { RECENT_DAYS, todayCards } from './todayCards';
 
 export function RecentCards() {
   const boards = useBoard((s) => s.boards);
