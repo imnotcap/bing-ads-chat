@@ -237,7 +237,7 @@ describe('the request that failed: nine Shopping ad groups, devices and an ad sc
       reason: 'Enheder og tidsplan',
     });
     const planned = await tool.plan(input, c);
-    expect(planned.plan!.notes).toEqual([]); // no gaps
+    expect(planned.plan!.notes!.filter((n) => !/egen målretning/.test(n))).toEqual([]); // no gaps – only the reminder that an ad group's own targeting wins
     expect(planned.plan!.increasesSpend).toBe(true); // +10 % in the middle of the day
     const exec = await planned.execute();
     expect(exec.summary).toBe('Bekræftet hos Microsoft: 10 indstillinger');

@@ -34,6 +34,7 @@ function live() {
     if (path === 'Accounts/Search') return { Accounts: [{ Id: 5, ParentCustomerId: 7 }] };
     calls.push({ path, body });
     if (path === 'CampaignCriterions/QueryByIds') return { CampaignCriterions: [{ Id: '9', Criterion: { Type: 'LocationIntentCriterion', IntentOption: 'PeopleInOrSearchingForOrViewingPages' } }] };
+    if (path === 'CampaignCriterions' && Array.isArray(body.CampaignCriterions)) return { CampaignCriterionIds: (body.CampaignCriterions as unknown[]).map((_, i) => String(200 + i)), PartialErrors: [] };
     if (path === 'AdExtensions') return { AdExtensionIdentities: (body.AdExtensions as unknown[]).map((_, i) => ({ Id: String(100 + i), Version: 1 })), NestedPartialErrors: [] };
     return { PartialErrors: [] };
   };
@@ -124,5 +125,36 @@ describe('5. "Too many calls": wait as long as Microsoft says', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     await failed;
     expect(fetches).toHaveLength(4);
+  });
+});
+
+describe('6. The smaller risks from the report', () => {
+  it('removes an ad group end date the documented way (2 Jan 2050) and reads 2050 back as none', async () => {
+    const { backend, calls } = live();
+    await backend.updateAdGroups('5', '900', [{ adGroupId: '1', endDate: null }, { adGroupId: '2', endDate: '2026-12-01' }, { adGroupId: '3', name: 'x' }]);
+    const groups = calls.find((c) => c.path === 'AdGroups')!.body.AdGroups as Record<string, unknown>[];
+    expect(groups[0]!.EndDate).toEqual({ Day: 2, Month: 1, Year: 2050 });
+    expect(groups[1]!.EndDate).toEqual({ Day: 1, Month: 12, Year: 2026 });
+    expect(groups[2]).not.toHaveProperty('EndDate');
+  });
+
+  it('never sends a biddable product group without a bid – Microsoft would refuse the whole tree', async () => {
+    const { backend, calls } = live();
+    await expect(
+      backend.applyProductPartitionActions!('5', [
+        { action: 'Add', adGroupId: '77', tempId: -1, parentId: null, kind: 'subdivision', operand: 'All', attribute: null, excluded: false },
+        { action: 'Add', adGroupId: '77', parentId: -1, kind: 'unit', operand: 'Id', attribute: 'SKU-1', excluded: false },
+        { action: 'Add', adGroupId: '77', parentId: -1, kind: 'unit', operand: 'Id', attribute: null, excluded: true },
+      ]),
+    ).rejects.toThrow(/"SKU-1" mangler et bud/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('writes and reads ad schedule blocks on the quarter hour', async () => {
+    const { backend, calls } = live();
+    await backend.applyCampaignTargets!('5', '900', { add: [{ kind: 'schedule', day: 'Monday', from: 8.5, to: 16.75, adjustment: 0 }, { kind: 'schedule', day: 'Monday', from: 19, to: 24, adjustment: -20 }], update: [], delete: [] });
+    const sent = (calls.find((c) => c.path === 'CampaignCriterions')!.body.CampaignCriterions as { Criterion: Record<string, unknown> }[]).map((c) => c.Criterion);
+    expect(sent[0]).toMatchObject({ FromHour: 8, FromMinute: 'Thirty', ToHour: 16, ToMinute: 'FortyFive' });
+    expect(sent[1]).toMatchObject({ FromHour: 19, FromMinute: 'Zero', ToHour: 24, ToMinute: 'Zero' });
   });
 });

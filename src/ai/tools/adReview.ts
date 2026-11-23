@@ -73,7 +73,7 @@ export const adReviewTools = [
     name: 'review_ad_copy',
     kind: 'read',
     description:
-      'Check a DRAFT responsive search ad before you propose it. It tests what Microsoft requires (pinning must leave every position fillable), what its style rules reject (exclamation marks, capitals, urgency, repeated words, phone numbers, unproven superlatives), whether every factual claim is backed by a quote from the landing page, how much of the ad group\'s keywords (weighted by clicks) the texts contain, near-duplicate headlines, the mix of angles (offer, trust, call to action), and how the ad relates to the other ads in the group. Returns errors and warnings to fix – and tips. Always call it with your draft (all headlines in order, the keyword headline first) and the evidence for your claims, fix what it flags, and only then call create_responsive_search_ad. It changes nothing.',
+      'Check a DRAFT responsive search ad before you propose it. It tests what Microsoft requires (pinning must leave every position fillable), what its style rules reject (repeated punctuation, capitals, urgency, repeated words, phone numbers, unproven superlatives, more than one price or percentage, non-ASCII final URLs and paths, display URL over 67 characters), whether every factual claim is backed by a quote from the landing page, how much of the ad group\'s keywords (weighted by clicks) the texts contain, near-duplicate headlines, the mix of angles (offer, trust, call to action), and how the ad relates to the other ads in the group. Returns errors and warnings to fix – and tips. Always call it with your draft (all headlines in order, the keyword headline first) and the evidence for your claims, fix what it flags, and only then call create_responsive_search_ad. It changes nothing.',
     schema: z.object({
       campaignId: z.string(),
       adGroupId: z.string(),
@@ -81,6 +81,9 @@ export const adReviewTools = [
       headlinePins: z.array(z.enum(['', '1', '2', '3'])).max(15).optional().describe('Per headline: "" = any position, "1"–"3" = pinned. Headline 1 is normally pinned to "1".'),
       descriptions: z.array(z.string().min(1).max(200)).min(2).max(4),
       descriptionPins: z.array(z.enum(['', '1', '2'])).max(4).optional(),
+      finalUrl: z.string().optional().describe('The final URL – Microsoft takes ASCII only (no æ/ø/å).'),
+      path1: z.string().optional(),
+      path2: z.string().optional(),
       evidence: evidenceSchema,
     }),
     label: () => 'Gennemgår annoncetekst',
@@ -94,6 +97,9 @@ export const adReviewTools = [
         descriptions: input.descriptions,
         descriptionPins: pins(input.descriptionPins, input.descriptions.length),
         evidence,
+        finalUrl: input.finalUrl,
+        path1: input.path1,
+        path2: input.path2,
         ...(await adReviewContext(ctx, c.id, g.id)),
       });
       const result = reviewResult(review);

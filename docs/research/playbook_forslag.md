@@ -10,7 +10,7 @@ Sådan læses filen:
 
 **Status:** Alle 68 rettelser er lagt ind i koden, med tre afvigelser:
 - **Q11:** Roden "Alle produkter" kan ikke selv udelukkes, men edit_product_groups kan stoppe alle produkter ved at dele roden og udelukke "alt andet" (kun når brugeren udtrykkeligt beder om det). Teksten siger det i stedet for kun "pause annoncegruppen".
-- **Q16 og P5:** Tilføjet, at appens egne værktøjer stadig advarer under 15 konverteringer (`MIN_CONVERSIONS_30D`), da det er en husregel, teamet ikke har ændret endnu.
+- **Q16 og P5:** Teamet har besluttet at sætte `MIN_CONVERSIONS_30D` til 5; teksterne siger, at værktøjerne kræver et udtrykkeligt ja under 5 og advarer under 30.
 
 Desuden:
 - `LEVER`-teksterne i `checks.ts` nævner ikke længere maks. CPC-loft eller skift til Mål-CPA.

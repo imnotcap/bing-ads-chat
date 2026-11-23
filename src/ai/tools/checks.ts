@@ -39,8 +39,11 @@ export function bidLabel(b: BidStrategy | undefined): string {
 const AUTOMATED = new Set(['MaxClicks', 'MaxConversions', 'TargetCpa', 'TargetRoas', 'MaxConversionValue', 'TargetImpressionShare']);
 /** Strategies that learn from conversion data. */
 export const CONVERSION_BASED = new Set(['MaxConversions', 'TargetCpa', 'TargetRoas', 'MaxConversionValue']);
-/** Microsoft: below 15 conversions in 30 days these strategies stop optimising. */
-export const MIN_CONVERSIONS_30D = 15;
+/**
+ * Below this a conversion-based strategy needs the user's explicit go-ahead. Microsoft
+ * (Nov 2026): start conversion-based from 5 conversions, below that Enhanced CPC.
+ */
+export const MIN_CONVERSIONS_30D = 5;
 /** The team's playbook: automated strategies need at least 30 conversions in 30 days. */
 export const RECOMMENDED_CONVERSIONS_30D = 30;
 
@@ -123,7 +126,7 @@ export function strategyDataCheck(c: Campaign, b: BidStrategy, d: ConversionData
   const conv = Math.round(d.conversions * 10) / 10;
   if (CONVERSION_BASED.has(b.type)) {
     if (d.conversions === 0) problems.push(`"${c.name}" har 0 konverteringer de sidste 30 dage – ${BID_LABELS[b.type]} har intet at optimere efter (tjek UET-tag og konverteringsmål først).`);
-    else if (d.conversions < MIN_CONVERSIONS_30D) problems.push(`"${c.name}" har kun ${conv} konverteringer de sidste 30 dage. Microsoft stopper med at optimere under ${MIN_CONVERSIONS_30D} pr. 30 dage.`);
+    else if (d.conversions < MIN_CONVERSIONS_30D) problems.push(`"${c.name}" har kun ${conv} konverteringer de sidste 30 dage. Microsoft anbefaler først en konverteringsbaseret strategi fra ${MIN_CONVERSIONS_30D} konverteringer – under det Forbedret CPC.`);
     else if (d.conversions < RECOMMENDED_CONVERSIONS_30D) warnings.push(`"${c.name}" har ${conv} konverteringer de sidste 30 dage – under de ${RECOMMENDED_CONVERSIONS_30D}, jeres playbook kræver for automatiske strategier. Forvent ustabile resultater.`);
   }
   if ((b.type === 'TargetRoas' || b.type === 'MaxConversionValue') && d.revenue === 0 && d.conversions > 0) {

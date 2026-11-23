@@ -274,7 +274,8 @@ export interface AdGroupPatch {
   name?: string;
   /** YYYY-MM-DD. Microsoft starts and stops the ad group's ads on these days by itself. */
   startDate?: string;
-  endDate?: string;
+  /** null removes the end date (Microsoft: a date from 2 Jan 2050 or later, read back as none). */
+  endDate?: string | null;
 }
 
 export interface NewKeyword {

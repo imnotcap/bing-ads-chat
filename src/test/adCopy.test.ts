@@ -75,8 +75,11 @@ describe('structure', () => {
 describe('wording Microsoft rejects', () => {
   const bad = (headlines: string[]) => reviewAd({ ...GOOD, headlines: [...GOOD.headlines.slice(0, 10 - headlines.length), ...headlines] });
 
-  it('warns about exclamation marks, shouting, urgency, phone numbers and repeated words', () => {
-    expect(codes(bad(['Køb nu!']), 'warning')).toContain('exclamation');
+  it('warns about shouting, urgency, phone numbers and repeated words – one "!" per sentence is allowed, "!!" is not', () => {
+    expect(codes(bad(['Køb nu!']), 'warning')).not.toContain('exclamation');
+    expect(codes(bad(['Køb nu!']), 'tip')).toContain('exclamation');
+    expect(codes(bad(['Køb nu!!']), 'error')).toContain('repeated_punctuation');
+    expect(codes(bad(['Vil du spare?!']), 'error')).toContain('repeated_punctuation');
     expect(codes(bad(['KØB DE BEDSTE STOLE']), 'warning')).toContain('caps');
     expect(codes(bad(['Sidste chance for rabat']), 'warning')).toContain('urgency');
     expect(codes(bad(['Ring 12 34 56 78']), 'warning')).toContain('phone');
@@ -92,6 +95,26 @@ describe('wording Microsoft rejects', () => {
   it('reads dynamic text as its default', () => {
     expect(plain('{KeyWord:Kontorstole}')).toBe('Kontorstole');
     expect(plain('Køb {KeyWord:stole} nu')).toBe('Køb stole nu');
+  });
+
+  it('reads a countdown as the time left – its colons are not a default text', () => {
+    expect(plain('Black Week slutter om {COUNTDOWN(2026-11-27 23:59:59,5)}')).toBe('Black Week slutter om X dage');
+    expect(plain('{GLOBAL_COUNTDOWN(2026-11-27 23:59:59,5)} tilbage')).toBe('X dage tilbage');
+  });
+
+  it('allows one price or percentage per text, and says so when the ad mixes them', () => {
+    expect(codes(bad(['Spar 25 % – nu 50 %']), 'warning')).toContain('one_price');
+    expect(codes(bad(['Nu 899 kr før 1.299 kr']), 'warning')).toContain('one_price');
+    expect(codes(bad(['Spar 25 % i dag', 'Fra 499 kr']), 'tip')).toContain('one_price');
+    expect(codes(bad(['Spar 25 % i dag']), 'warning')).not.toContain('one_price');
+  });
+
+  it('refuses æ/ø/å in the final URL and paths, and a display URL over 67 characters', () => {
+    expect(codes(reviewAd({ ...GOOD, finalUrl: 'https://shop.dk/møbler' }), 'error')).toContain('ascii_url');
+    expect(codes(reviewAd({ ...GOOD, finalUrl: 'https://shop.dk/x', path1: 'Kontormøbler' }), 'error')).toContain('ascii_url');
+    expect(codes(reviewAd({ ...GOOD, finalUrl: 'https://shop.dk/moebler', path1: 'Kontormobler' }), 'error')).toEqual([]);
+    const long = 'https://www.' + 'a'.repeat(45) + '.dk/x';
+    expect(codes(reviewAd({ ...GOOD, finalUrl: long, path1: 'Kontorstole', path2: 'Ergonomiske' }), 'error')).toContain('display_url_length');
   });
 });
 

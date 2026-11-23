@@ -610,7 +610,39 @@ Kilde: api_v13.md, afsnit 10. Fejlene er fundet ved at sammenligne koden med dok
 - `addAdExtensions` deler op i portioner af 100, og fejl-positionerne passer stadig.
 - Sitelinks: tekst højst 25 tegn med beskrivelser (35 uden), begge beskrivelser eller ingen, højst 20 pr. sted – tjekkes i `add_ad_extensions`, før noget sendes.
 
-**Øvrige risici (ikke rettet endnu – punkterne markeret ✔ er rettet, se ovenfor):**
+**Øvrige risici – status efter anden runde (nov. 2026):**
+
+Rettet:
+- **207 og 4204:** 207 betyder kun "vent" i Reporting, og 4204 (Bulk) prøves ikke igen.
+- **Annoncegruppers datoer (`set_campaign_period`, `updateAdGroups`):**
+  - `end: "none"` fjerner slutdatoen; appen sender 2. jan. 2050 og læser 2050 tilbage som "ingen slut".
+  - En startdato sendes ikke til en gruppe, der allerede er startet (1216). Kortet siger, at de kører fra nu, og at de kan sættes på pause til dagen.
+  - Udløbne grupper (1215) peger nu på `set_campaign_period`, ikke på det rå API.
+- **Produktgrupper:** en bydbar enhed uden bud sendes aldrig – appen stopper med en dansk forklaring, før noget sendes. "Byd på alle produkter" bruger nu rækkens eget bud, når gruppen ikke har et standardbud.
+- **Annonceplan:** kvarterer (:15, :30, :45) kan skrives og læses (8.5 = 08:30). Før blev minutterne ignoreret ved læsning.
+- **Målretning:** godkendelseskortet siger, at en annoncegruppes egen målretning erstatter kampagnens.
+- **`addAdExtensions`:** opdeles i portioner af 100; sitelink-tekst højst 25 tegn med beskrivelser.
+- **Rapport-polling:** ventetiden vokser fra 2 til 10 sekunder i stedet for at spørge hvert 2. sekund; den samlede ventetid er den samme.
+- **`adCopy.ts`:**
+  - `{COUNTDOWN(…)}` og `{GLOBAL_COUNTDOWN(…)}` læses som "X dage".
+  - Ét ! eller ? pr. sætning er tilladt (kun et tip); "!!" og "?!" er en fejl.
+  - Én pris eller procent pr. tekst (advarsel), forskellige priser i annoncen (tip).
+  - Moms-tippet siger inkl. moms til forbrugere.
+  - Slut-URL og visningsstier med æ/ø/å afvises, og domæne + stier må højst være 67 tegn.
+- **`checks.ts`:** `MIN_CONVERSIONS_30D` er sat til 5 efter teamets beslutning; under 30 giver stadig en advarsel. `LEVER`-teksterne nævner ikke længere maks. CPC-loft.
+
+Ikke et problem i praksis:
+- **`addKeywords` ved 1.000:** værktøjet tager højst 200 søgeord pr. kald.
+- **`updateKeywords` med `bid: null`:** typen tillader kun et tal, så null kan ikke sendes.
+- **Promotion PercentOff:** skemaet tager procent (60 = 60 %), som Microsoft vil have.
+
+Ikke rettet (bevidst):
+- **Annoncegruppers egen målretning læses ikke.** Det kræver tre kald pr. annoncegruppe og risikerer "for mange kald"; kortet advarer i stedet.
+- **Negative lokationer** kan ikke skrives – en ny funktion, ikke en fejl.
+- **`create_campaign`: AI Max, IsPolitical.** Det præcise API-felt til AI Max er ikke bekræftet (noterne nævner `AISearchSetting` uden dokumentation), og et ukendt felt kan få oprettelsen til at fejle. Det bør testes mod en rigtig konto først. Lokationer sættes allerede altid via teamets standard.
+- **Ændring kun af bud med Action "Update" i produktgrupper** – en optimering, ikke en fejl.
+
+**Den oprindelige liste med kilder:**
 
 - ✔ **207 og 4204 behandles som 117.**
   - 207 betyder i Reporting "vent på kørende rapporter", men i Customer Management "Address Line3 invalid". `isThrottled` skelner ikke.
@@ -651,7 +683,7 @@ Kilde: api_v13.md, afsnit 10. Fejlene er fundet ved at sammenligne koden med dok
 
 Fra de andre noter:
 - **`checks.ts`:**
-  - `MIN_CONVERSIONS_30D = 15` og dens kommentar har ingen kilde (Microsoft siger 30, og ≥5 for at starte). Ikke ændret: det er en adfærdsændring, teamet skal beslutte. Playbook og prompt siger nu, at 15 er en husregel.
+  - `MIN_CONVERSIONS_30D = 15` og dens kommentar har ingen kilde (Microsoft siger 30, og ≥5 for at starte). Rettet: sat til 5 efter teamets beslutning (nov. 2026); under 30 giver stadig en advarsel.
   - `LEVER`-teksterne for MaxClicks/MaxConversions nævner "maks. CPC-loft" og "skift til Mål-CPA", men begge dele er forældede.
   - Kilde: bidding_budgets.md afsnit 7; [Budget and Bid Strategies](https://learn.microsoft.com/en-us/advertising/guides/budget-bid-strategies?view=bingads-13); [Bid strategies help](https://learn.microsoft.com/en-us/advertising/msa-help/hlp_ba_conc_bidstrategy).
 - **`adCopy.ts`:**

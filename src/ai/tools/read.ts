@@ -566,7 +566,7 @@ Rows contain dimensions plus impressions, clicks, spend, conversions, revenue, c
       const camp = campaignBlocker(campaign);
       if (camp) blockers.push(camp);
       if (data && CONVERSION_BASED.has(campaign.bidStrategy.type) && data.conversions < MIN_CONVERSIONS_30D) {
-        warnings.push(`${bidLabel(campaign.bidStrategy)} har kun ${Math.round(data.conversions * 10) / 10} konverteringer de sidste 30 dage – Microsoft optimerer ikke ordentligt under ${MIN_CONVERSIONS_30D}.`);
+        warnings.push(`${bidLabel(campaign.bidStrategy)} har kun ${Math.round(data.conversions * 10) / 10} konverteringer de sidste 30 dage – Microsoft anbefaler Forbedret CPC under ${MIN_CONVERSIONS_30D}.`);
       }
       const adGroups = await Promise.all(
         groups.map(async (g) => {

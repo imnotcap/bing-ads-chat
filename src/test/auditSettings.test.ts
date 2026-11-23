@@ -19,7 +19,7 @@ describe('the campaign setup, side by side', () => {
   });
 
   it('says there is too little data for the strategy, and what holds it back', () => {
-    expect(all).toMatch(/Kun 0 konverteringer pr\. 30 dage i Microsoft – under de 15/);
+    expect(all).toMatch(/Kun 0 konverteringer pr\. 30 dage i Microsoft – under de 5/);
     expect(all).toMatch(/mister 76 % af de mulige visninger på rang/);
     expect(all).not.toMatch(/på budget\./);
     expect(all).toMatch(/bruger kun 13 % af dagsbudgettet/);
