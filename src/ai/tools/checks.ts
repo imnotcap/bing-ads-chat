@@ -45,8 +45,10 @@ export const MIN_CONVERSIONS_30D = 15;
 export const RECOMMENDED_CONVERSIONS_30D = 30;
 
 const LEVER: Record<string, string> = {
-  MaxClicks: 'kampagnens budget eller maks. CPC-loft',
-  MaxConversions: 'kampagnens budget eller maks. CPC-loft (eller skift til Mål-CPA)',
+  // Not a max CPC cap: a new one is refused on non-portfolio campaigns (611274), and
+  // standalone Target CPA is retired – a target goes on Maximize conversions instead.
+  MaxClicks: 'kampagnens budget',
+  MaxConversions: 'kampagnens budget eller et mål-CPA på Maksimér konverteringer',
   TargetCpa: 'kampagnens mål-CPA eller budget',
   TargetRoas: 'kampagnens mål-ROAS eller budget',
   MaxConversionValue: 'kampagnens budget eller mål-ROAS',

@@ -32,7 +32,7 @@ describe('the assistant\'s rules – quality checks', () => {
   });
 
   it('stays within a size the model reads in full', () => {
-    // ~15–17k tokens with the playbook – read in full; a ceiling so it doesn't creep.
-    expect(prompt.length).toBeLessThan(70_000);
+    // ~20k tokens with the playbook (research update Nov 2026) – read in full; a ceiling so it doesn't creep.
+    expect(prompt.length).toBeLessThan(85_000);
   });
 });
