@@ -16,7 +16,7 @@ import { adReviewContext, evidenceSchema } from './adReview';
 import { blockedBy } from './searchTerms';
 import { presetRange, today } from '@/lib/format';
 import { activeDailyBudget } from '@/bing/spend';
-import { findOperation, isReadOperation, missingRequired, searchOperations } from '@/bing/msOperations';
+import { findOperation, isReadOperation, missingRequired, searchOperations, type MsOperation } from '@/bing/msOperations';
 import type { AdGroup, Campaign, NewAdGroup, ItemError, Keyword, MsService, NegativeKeyword, PinPosition, ProductTreeNode } from '@/bing/types';
 import { applyTargeting, joinVerified, planTargeting, readTargets, standardFor } from './targeting';
 import { useActivity, type ChangeLine } from '@/stores/activity';
@@ -1677,10 +1677,11 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
         throw new Error(`Microsoft Advertising har ingen operation ${input.method} ${input.service}/${path} – kaldet ville fejle. ${hint ? `Mente du: ${hint}? ` : ''}Slå den rigtige operation op med find_api_operation.`);
       }
       const readOnly = isReadOperation(op);
-      const missing = missingRequired(op, input.body);
+      const body = normalizeRawBody(op, input.body, readOnly);
+      const missing = missingRequired(op, body);
       // Product groups only change as a whole tree per ad group (ApplyProductPartitionActions);
       // one raw call per item breaks the tree or does something else than it says.
-      if (/ProductPartition|ListingGroup/i.test(`${path} ${JSON.stringify(input.body ?? {})}`)) {
+      if (/ProductPartition|ListingGroup/i.test(`${path} ${JSON.stringify(body ?? {})}`)) {
         throw new Error(
           readOnly
             ? 'Produktgrupper læses med list_product_groups (Shopping) eller compare_with_google (også Performance Max) – ikke med det direkte API.'
@@ -1688,7 +1689,7 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
         );
       }
       // Devices, ad schedule and locations have their own tool (Microsoft's "Targets" rules: all three devices at once, no overlaps …).
-      const criterionBody = JSON.stringify(input.body ?? {});
+      const criterionBody = JSON.stringify(body ?? {});
       if (!readOnly && /^(Campaign|AdGroup)Criterions$/i.test(path) && /DeviceCriterion|DayTimeCriterion|"LocationCriterion"|"(Device|DayTime)"/i.test(criterionBody)) {
         throw new Error('Enheder, tidsplan og lokationer sættes med set_campaign_targeting – ikke med det direkte API. Det sender dem i Microsofts format (CriterionType "Targets", alle tre enheder samlet) og læser dem tilbage.');
       }
@@ -1698,26 +1699,33 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
       if (!readOnly && input.method === 'POST' && /^Campaigns$/i.test(path) && /"CampaignType"\s*:\s*"(Search|Shopping)"/i.test(criterionBody)) {
         throw new Error('Søge- og Shopping-kampagner oprettes med create_campaign (med sprog, butik og teamets standard for enheder, tidsplan og lokationer) – ikke med det direkte API.');
       }
+      if (readOnly && /Criterions\/QueryByIds$/i.test(path) && body?.CriterionType === 'Targets')
+        throw new Error(
+          'CriterionType "Targets" bruges kun til at oprette, ændre og slette – læs én type ad gangen (fx "Device", "DayTime", "Location"). Enheder, tidsplan og lokationer læses nemmest med get_campaign_targeting.',
+        );
       // A read without the ids/types Microsoft requires only comes back as an error ("The request message is null").
       const missingKeys = missing.filter((m) => /(Id|Ids|Type)$/.test(m));
       if (readOnly && missingKeys.length)
         throw new Error(`${op.op} kræver ${missingKeys.join(', ')} i body (null er tilladt, hvor listen kan være tom). Kaldet er ikke sendt – tilføj felterne og prøv igen.`);
       const run = async () => {
-        const result = await ctx.backend.rawRequest(ctx.accountId, input.service as MsService, op.path, op.method as 'GET' | 'POST' | 'PUT' | 'DELETE', input.body).catch((e: unknown) => {
+        const result = await ctx.backend.rawRequest(ctx.accountId, input.service as MsService, op.path, op.method as 'GET' | 'POST' | 'PUT' | 'DELETE', body).catch((e: unknown) => {
           if (missing.length && e instanceof Error) e.message += ` (Dokumentationen for ${op.op} kræver også: ${missing.join(', ')}.)`;
+          // Microsoft answers "the request message is null" when it cannot read the body at all.
+          if (e instanceof Error && /NullRequest|request message is null/i.test(e.message))
+            e.message += ` – Microsoft kunne ikke læse body'en. Det skyldes typisk en ugyldig værdi (fx en enum – CriterionType "Device", ikke "DeviceCriterion"), et forkert feltnavn eller en forkert type. Tjek felterne med find_api_operation.`;
           throw e;
         });
         if (!readOnly) fresh(ctx);
         const text = JSON.stringify(result ?? null);
-        const body = text.length > 60_000 ? { truncated: true, json: text.slice(0, 60_000) } : result;
-        if (readOnly) return { result: body, summary: `Svar modtaget (${Math.round(text.length / 1024)} kB)` };
+        const response = text.length > 60_000 ? { truncated: true, json: text.slice(0, 60_000) } : result;
+        if (readOnly) return { result: response, summary: `Svar modtaget (${Math.round(text.length / 1024)} kB)` };
         const errors = rawErrors(result);
         if (errors.allFailed) throw new Error(`Microsoft Advertising afviste kaldet – intet blev ændret: ${errors.messages.join(' · ') || 'alle id’er i svaret er tomme'}`);
         return {
           result: {
             outcome: errors.messages.length ? 'partially_applied' : 'sent_unverified',
             ...(errors.messages.length ? { errors: errors.messages } : {}),
-            response: body,
+            response,
             instruction: 'Microsoft accepted the request, but raw writes are not verified. Read the entity back (a …/Query… call) before you tell the user the change is in place; some settings are accepted without error but ignored.',
           },
           summary: errors.messages.length ? `Sendt – Microsoft meldte ${errors.messages.length} fejl` : 'Sendt uden fejl (ikke verificeret endnu)',
@@ -1727,8 +1735,8 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
       if (input.service === 'customer' || input.service === 'billing') {
         throw new Error('Ændringer af konti, brugere og fakturering må ikke laves fra chatten – gør det i Microsoft Advertising.');
       }
-      const amounts = collectAmounts(input.body);
-      const campaignIds = collectCampaignIds(input.body);
+      const amounts = collectAmounts(body);
+      const campaignIds = collectCampaignIds(body);
       const notes: string[] = [`Operation: ${op.op}${op.summary ? ` – ${op.summary}` : ''}`];
       if (missing.length) notes.push(`Dokumentationen kræver disse felter, som mangler i kaldet: ${missing.join(', ')}.`);
       if (ctx.rules.protectedCampaignIds.length && !campaignIds.length) notes.push('Kaldet nævner ingen kampagne-id, så det kan ikke afgøres automatisk, om det rammer en beskyttet kampagne – tjek det selv.');
@@ -1737,7 +1745,7 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
           kind: 'raw',
           title: `${input.method} ${input.service}/${path}`,
           reason: input.reason,
-          changes: [{ entity: 'API-kald', field: `${input.method} ${path}`, after: JSON.stringify(input.body ?? {}).slice(0, 600) }],
+          changes: [{ entity: 'API-kald', field: `${input.method} ${path}`, after: JSON.stringify(body ?? {}).slice(0, 600) }],
           dailyBudgetDelta: 0,
           increasesSpend: true,
           campaignIds,
@@ -1751,6 +1759,30 @@ Reads (POST to …/Query…, …/Search, or GET) run immediately; every other ca
   }),
 ];
 
+
+const CRITERION_TYPE_ALIASES: Record<string, string> = { Devices: 'Device', Schedule: 'DayTime', AdSchedule: 'DayTime', Locations: 'Location' };
+
+/**
+ * Fixes the body mistakes Microsoft only answers with "The request message is null" (it cannot
+ * deserialize the body): the criterion class name as CriterionType ("DeviceCriterion" → "Device"),
+ * and – for reads – a documented "null = all" id list that is left out or sent empty.
+ */
+export function normalizeRawBody(op: MsOperation, body: Record<string, unknown> | undefined, readOnly: boolean): Record<string, unknown> | undefined {
+  if (!body && !(readOnly && op.method === 'POST')) return body;
+  const out: Record<string, unknown> = { ...body };
+  if (typeof out.CriterionType === 'string') {
+    const t = out.CriterionType.trim().replace(/^(Biddable|Negative)(Campaign|AdGroup)?/, '').replace(/Criterions?$/, '');
+    if (t) out.CriterionType = CRITERION_TYPE_ALIASES[t] ?? t;
+  }
+  if (readOnly) {
+    for (const r of op.request) {
+      if (!/Ids$/.test(r.name) || !/if this element is null/i.test(r.note)) continue;
+      const v = out[r.name];
+      if (v === undefined || (Array.isArray(v) && v.length === 0)) out[r.name] = null;
+    }
+  }
+  return out;
+}
 
 /** Errors in a raw write response, and whether nothing at all went through. */
 export function rawErrors(result: unknown): { messages: string[]; allFailed: boolean } {

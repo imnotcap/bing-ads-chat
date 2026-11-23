@@ -315,8 +315,71 @@ describe('product groups never go through the raw API', () => {
   });
 
   it('does not send a read that lacks the fields Microsoft requires', async () => {
-    await expect(plan('microsoft_ads_api', { service: 'campaign', path: 'AdGroupCriterions/QueryByIds', method: 'POST', body: { AdGroupId: 1, CriterionType: 'Age' }, reason: 'x' })).rejects.toThrow(
-      /kræver AdGroupCriterionIds.*ikke sendt/s,
+    await expect(plan('microsoft_ads_api', { service: 'campaign', path: 'AdGroupCriterions/QueryByIds', method: 'POST', body: { CriterionType: 'Age' }, reason: 'x' })).rejects.toThrow(
+      /kræver AdGroupId.*ikke sendt/s,
     );
+  });
+});
+
+describe('raw criterion reads Microsoft can deserialize', () => {
+  function capture() {
+    const sent: unknown[] = [];
+    const backend = new DemoBackend(0);
+    backend.rawRequest = (async (...args: unknown[]) => {
+      sent.push(args[4]);
+      return { CampaignCriterions: [] };
+    }) as typeof backend.rawRequest;
+    return { sent, c: ctx(backend) };
+  }
+
+  it('sends the criterion type, not its class name, and "all" as null', async () => {
+    const { sent, c } = capture();
+    for (const body of [
+      { CampaignId: 581652625, CriterionType: 'DeviceCriterion' },
+      { CampaignId: 581652625, CriterionType: 'DeviceCriterion', CampaignCriterionIds: [] },
+      { CampaignId: 581652625, CriterionType: 'Device', CampaignCriterionIds: null },
+    ]) {
+      const planned = await plan('microsoft_ads_api', { service: 'campaign', path: 'CampaignCriterions/QueryByIds', method: 'POST', body, reason: 'x' }, c);
+      expect(planned.plan).toBeNull();
+      await planned.execute();
+    }
+    expect(sent).toEqual(Array(3).fill({ CampaignId: 581652625, CriterionType: 'Device', CampaignCriterionIds: null }));
+  });
+
+  it('keeps the ids asked for and refuses "Targets" on a read', async () => {
+    const { sent, c } = capture();
+    await (await plan('microsoft_ads_api', { service: 'campaign', path: 'CampaignCriterions/QueryByIds', method: 'POST', body: { CampaignId: 1, CriterionType: 'LocationCriterion', CampaignCriterionIds: [5] }, reason: 'x' }, c)).execute();
+    expect(sent[0]).toEqual({ CampaignId: 1, CriterionType: 'Location', CampaignCriterionIds: [5] });
+    await expect(plan('microsoft_ads_api', { service: 'campaign', path: 'CampaignCriterions/QueryByIds', method: 'POST', body: { CampaignId: 1, CriterionType: 'Targets' }, reason: 'x' }, c)).rejects.toThrow(
+      /get_campaign_targeting/,
+    );
+  });
+
+  it('explains "The request message is null"', async () => {
+    const backend = new DemoBackend(0);
+    backend.rawRequest = async () => {
+      throw new Error('Microsoft Advertising (400): The request message is null. (NullRequest)');
+    };
+    const planned = await plan('microsoft_ads_api', { service: 'campaign', path: 'CampaignCriterions/QueryByIds', method: 'POST', body: { CampaignId: 1, CriterionType: 'Device' }, reason: 'x' }, ctx(backend));
+    await expect(planned.execute()).rejects.toThrow(/kunne ikke læse body'en.*find_api_operation/s);
+  });
+});
+
+describe('reading campaign targeting', () => {
+  it('shows devices, schedule and locations without the raw API', async () => {
+    const backend = new DemoBackend(0);
+    const c = ctx(backend);
+    const id = (await backend.listCampaigns('1000001'))[0]!.id;
+    await backend.applyCampaignTargets!('1000001', id, { delete: [], update: [], add: [{ kind: 'device', device: 'Smartphones', adjustment: -90 }, { kind: 'schedule', day: 'Monday', from: 8, to: 16, adjustment: 10 }] });
+    const tool = getTool('get_campaign_targeting')!;
+    if (tool.kind !== 'read') throw new Error('unexpected');
+    const out = (await tool.run(tool.schema.parse({ campaignIds: [id] }), c)) as { result: { campaigns: { devices: { device: string; adjustment: string }[]; schedule: { day: string; blocks: string }[] }[] } };
+    const [camp] = out.result.campaigns;
+    expect(camp!.devices).toEqual([
+      { device: 'Computer', adjustment: '0 %' },
+      { device: 'Mobil', adjustment: '−90 %' },
+      { device: 'Tablet', adjustment: '0 %' },
+    ]);
+    expect(camp!.schedule[0]).toEqual({ day: 'Mandag', blocks: '08–16 +10 %' });
   });
 });
