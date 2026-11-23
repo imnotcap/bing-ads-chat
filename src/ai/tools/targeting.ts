@@ -26,7 +26,7 @@ import {
   scheduleOverlaps,
 } from '../targetingDefaults';
 import { readBack, report, verify, type LineCheck, type Verified } from './checks';
-import { defineWrite, getCampaign, type ToolContext } from './context';
+import { defineRead, defineWrite, getCampaign, type ToolContext } from './context';
 
 const AUTOMATED_BIDDING = new Set(['MaxClicks', 'MaxConversions', 'MaxConversionValue', 'TargetCpa', 'TargetRoas', 'TargetImpressionShare']);
 
@@ -171,6 +171,42 @@ export function joinVerified(a: Verified, b: Verified): Verified {
 const DAYS = z.enum(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']);
 
 export const targetingTools = [
+  defineRead({
+    name: 'get_campaign_targeting',
+    kind: 'read',
+    description:
+      "Reads campaigns' current bid adjustments by device (computer, mobile, tablet), their ad schedule (days, hours, adjustments) and their locations. Use this – not microsoft_ads_api – to see devices, schedule or locations before proposing or changing them with set_campaign_targeting.",
+    schema: z.object({ campaignIds: z.array(z.string()).min(1).max(20) }),
+    label: () => 'Læser enheder, tidsplan og lokationer',
+    async run(input, ctx) {
+      if (!ctx.backend.getCampaignTargets) throw new Error('Enheder, tidsplan og lokationer kan ikke læses på denne konto.');
+      const campaigns = await Promise.all(
+        [...new Set(input.campaignIds)].map(async (id) => {
+          const c: Campaign = await getCampaign(ctx, id);
+          const t = await readTargets(ctx, c.id);
+          const devices = (Object.keys(DEVICE_LABELS) as DeviceName[]).map((d) => ({
+            device: DEVICE_LABELS[d],
+            adjustment: fmtAdjustment(t.devices.find((x) => x.device === d)?.adjustment ?? 0),
+          }));
+          const gaps = scheduleGaps(t.schedule);
+          return {
+            campaignId: c.id,
+            campaign: c.name,
+            devices,
+            ...(t.devices.length ? {} : { devicesNote: 'No device adjustments set – all devices at 0 %.' }),
+            schedule: t.schedule.length ? WEEK.map((d) => ({ day: DAY_LABELS[d], blocks: describeDay(t.schedule.filter((b) => b.day === d)) })) : 'No ad schedule – ads can show all hours, every day.',
+            ...(gaps.length ? { noAdsShown: gaps } : {}),
+            locations: t.locations.length ? t.locations.map((l) => `${l.name.split('|')[0]}${l.adjustment ? ` (${fmtAdjustment(l.adjustment)})` : ''}`) : 'No locations – the campaign targets all locations.',
+          };
+        }),
+      );
+      return {
+        result: { campaigns, note: "An ad group's own devices, schedule or locations replace the campaign's for that ad group." },
+        summary: campaigns.length === 1 ? `${campaigns[0]!.campaign}: ${campaigns[0]!.devices.map((d) => `${d.device} ${d.adjustment}`).join(', ')}` : `${campaigns.length} kampagner læst`,
+      };
+    },
+  }),
+
   defineWrite({
     name: 'set_campaign_targeting',
     kind: 'write',
