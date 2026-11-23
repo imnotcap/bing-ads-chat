@@ -396,7 +396,8 @@ async function reporting(sql: Sql, deps: SyncDeps, job: Job, path: string, body:
     if (res.status === 401 && !fresh) continue;
     const messages = extractErrorMessages(parsed);
     const detail = messages.join(' · ') || `HTTP ${res.status}`;
-    if (isThrottled(res.status, messages)) return { ok: false, kind: 'throttle', message: `Microsoft bad os vente. (${detail})` };
+    // The Reporting service: 207 here means too many reports running (elsewhere it is an address error).
+    if (isThrottled(res.status, messages, true)) return { ok: false, kind: 'throttle', message: `Microsoft bad os vente. (${detail})` };
     if (isCredentialRejection(res.status, messages)) return { ok: false, kind: 'auth', message: `Microsoft Advertising afviste nøglerne. (${detail})` };
     if (res.status >= 500) return { ok: false, kind: 'transient', message: `Microsoft Advertising svarede med en fejl. (${detail})` };
     return { ok: false, kind: 'fatal', message: `Microsoft Advertising afviste rapporten. (${detail})` };

@@ -7,7 +7,8 @@
  * Docs: https://learn.microsoft.com/advertising/guides/migrate-to-rest
  */
 import { msFetch } from '@/lib/platform';
-import { extractErrorMessages, isThrottled } from './msErrors';
+import { sleep } from '@/lib/utils';
+import { extractErrorMessages, retryAfterMs } from './msErrors';
 import type { MsService } from './types';
 
 export { extractErrorMessages };
@@ -99,7 +100,9 @@ export class MsAdsClient {
     const method = opts.method ?? 'POST';
 
     let lastError: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    const reporting = /\/Reporting\//i.test(url);
+    // One more try after Microsoft's own wait (60 s for 117) – a second refusal is reported.
+    for (let attempt = 0; attempt < 2; attempt++) {
       const res = await msFetch(url, {
         method,
         headers,
@@ -116,10 +119,12 @@ export class MsAdsClient {
       if (res.ok) return json as T;
 
       const messages = extractErrorMessages(json);
-      const throttled = isThrottled(res.status, messages);
-      if (throttled && attempt < 2) {
-        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+      const wait = retryAfterMs(res.status, messages, reporting);
+      if (wait !== null) {
         lastError = json;
+        if (attempt > 0) break;
+        // Stop still works while waiting.
+        await sleep(wait, opts.signal);
         continue;
       }
       if (res.status === 401) this.stale = true;
@@ -129,7 +134,7 @@ export class MsAdsClient {
         json,
       );
     }
-    throw new MsApiError('Microsoft Advertising: for mange forespørgsler – prøv igen om lidt.', 429, lastError);
+    throw new MsApiError('Microsoft Advertising: for mange forespørgsler – Microsoft beder om at vente et minut, før der prøves igen.', 429, lastError);
   }
 
   /** Downloads a binary resource (report ZIP) from a pre-signed URL. */

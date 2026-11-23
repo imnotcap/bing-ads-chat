@@ -57,13 +57,13 @@ export const extensionTools = [
     name: 'add_sitelinks',
     kind: 'write',
     description:
-      'Add sitelinks (and at most one promotion, e.g. "Op til 60 % på møbler og inventar") to a campaign or to some of its ad groups – with the days they may show. Microsoft: sitelink text max 25 characters, the two descriptions max 35 each (both or none); a promotion item max 20 characters, percentOff 60 = 60 %. Each sitelink is attached where it is listed (adGroupIds empty = the campaign). Read back from Microsoft; new extensions are reviewed by Microsoft before they show.',
+      'Add sitelinks (and at most one promotion, e.g. "Op til 60 % på møbler og inventar") to a campaign or to some of its ad groups – with the days they may show. Microsoft: sitelink text max 25 characters with descriptions (35 without), the two descriptions max 35 each (both or none), at most 20 sitelinks per campaign or ad group; a promotion item max 20 characters, percentOff 60 = 60 %. Each sitelink is attached where it is listed (adGroupIds empty = the campaign). Read back from Microsoft; new extensions are reviewed by Microsoft before they show.',
     schema: z.object({
       campaignId: z.string(),
       sitelinks: z
         .array(
           z.object({
-            text: z.string().min(1).max(25),
+            text: z.string().min(1).max(35).describe('Max 25 characters with descriptions, 35 without.'),
             description1: z.string().max(35).optional(),
             description2: z.string().max(35).optional(),
             finalUrl: z.string().url(),
@@ -96,7 +96,15 @@ export const extensionTools = [
       if (input.endDate && input.endDate < today()) throw new Error('Slutdatoen er passeret.');
       if (input.startDate && input.endDate && input.startDate > input.endDate) throw new Error('Startdatoen ligger efter slutdatoen.');
       if (input.promotion && !input.promotion.percentOff === !input.promotion.amountOff) throw new Error('En kampagne skal have enten procent eller beløb i rabat – ikke begge.');
-      for (const s of input.sitelinks ?? []) if (!!s.description1 !== !!s.description2) throw new Error(`Sitelinket "${s.text}" skal have begge beskrivelser eller ingen.`);
+      for (const s of input.sitelinks ?? []) {
+        if (!!s.description1 !== !!s.description2) throw new Error(`Sitelinket "${s.text}" skal have begge beskrivelser eller ingen.`);
+        if (s.description1 && s.text.length > 25) throw new Error(`Sitelinket "${s.text}" er for langt: med beskrivelser må teksten højst være 25 tegn (35 uden).`);
+      }
+      // Microsoft: at most 20 sitelinks per campaign or ad group.
+      const perPlace = new Map<string, number>();
+      for (const s of input.sitelinks ?? []) for (const w of s.adGroupIds?.length ? s.adGroupIds.map(String) : ['']) perPlace.set(w, (perPlace.get(w) ?? 0) + 1);
+      const crowded = [...perPlace].find(([, n]) => n > 20);
+      if (crowded) throw new Error(`Microsoft tillader højst 20 sitelinks pr. ${crowded[0] ? 'annoncegruppe' : 'kampagne'} – der er ${crowded[1]}.`);
       const groups = await getAdGroups(ctx, c.id);
       const nameOf = new Map(groups.map((g) => [g.id, g.name]));
       for (const id of [...(input.sitelinks ?? []).flatMap((s) => s.adGroupIds ?? []), ...(input.promotion?.adGroupIds ?? [])])

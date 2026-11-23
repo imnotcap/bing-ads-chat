@@ -167,7 +167,8 @@ export function listingGroupActionJson(a: PartitionAction): Json {
       AssetGroupId: Number(a.adGroupId),
       ...(a.tempId !== undefined ? { Id: a.tempId } : {}),
       ParentListingGroupId: a.parentId === null ? null : ownId(a.parentId),
-      ListingGroupType: a.kind === 'subdivision' ? 'Subdivision' : 'Unit',
+      // Microsoft's name (AssetGroupListingGroup, Add: required) – not ListingGroupType.
+      AssetGroupListingType: a.kind === 'subdivision' ? 'Subdivision' : 'Unit',
       IsExcluded: a.excluded,
       Dimension: { Operand: a.operand, Attribute: a.attribute },
     },
@@ -453,7 +454,7 @@ export class LiveBackend implements AdsBackend {
       for (const l of arr<Json>(res.AssetGroupListingGroups)) {
         const dimension = (l.Dimension ?? {}) as Json;
         const parent = str(l.ParentListingGroupId);
-        const type = str(l.ListingGroupType ?? l.GroupNodeListingType);
+        const type = str(l.AssetGroupListingType ?? l.ListingGroupType);
         out.push({
           id: `${gid}~${str(l.Id)}`,
           parentId: parent && parent !== '0' ? `${gid}~${parent}` : null,
@@ -796,7 +797,8 @@ export class LiveBackend implements AdsBackend {
     const now = await this.getLocationIntent(accountId, campaignId);
     const criterion: Json = { Type: 'BiddableCampaignCriterion', CampaignId: Number(campaignId), Criterion: { Type: 'LocationIntentCriterion', IntentOption: intent } };
     if (now.id) criterion.Id = Number(now.id);
-    const res = await this.cm(accountId, 'CampaignCriterions', now.id ? 'PUT' : 'POST', { CampaignCriterions: [criterion], CriterionType: 'LocationIntent' });
+    // Location intent is a target criterion: written with CriterionType "Targets" ("LocationIntent" is only for reads).
+    const res = await this.cm(accountId, 'CampaignCriterions', now.id ? 'PUT' : 'POST', { CampaignCriterions: [criterion], CriterionType: 'Targets' });
     return batchResult(res, 1);
   }
 
@@ -805,11 +807,10 @@ export class LiveBackend implements AdsBackend {
   async addAdExtensions(accountId: string, extensions: NewAdExtension[]): Promise<MutationResult> {
     const schedule = (e: { startDate?: string; endDate?: string }) =>
       e.startDate || e.endDate ? { Scheduling: { StartDate: e.startDate ? msDate(e.startDate) : null, EndDate: e.endDate ? msDate(e.endDate) : null, DayTimeRanges: null, UseSearcherTimeZone: false } } : {};
-    const res = await this.cm(accountId, 'AdExtensions', 'POST', {
-      AccountId: Number(accountId),
-      AdExtensions: extensions.map((e) =>
+    // Microsoft: Description1 and Description2 only together – an empty one fails the whole call.
+    const json = (e: NewAdExtension): Json =>
         e.kind === 'sitelink'
-          ? { Type: 'SitelinkAdExtension', DisplayText: e.text, ...(e.description1 ? { Description1: e.description1, Description2: e.description2 ?? '' } : {}), FinalUrls: [e.finalUrl], ...schedule(e) }
+          ? { Type: 'SitelinkAdExtension', DisplayText: e.text, ...(e.description1 && e.description2 ? { Description1: e.description1, Description2: e.description2 } : {}), FinalUrls: [e.finalUrl], ...schedule(e) }
           : {
               Type: 'PromotionAdExtension',
               PromotionItem: e.item,
@@ -822,10 +823,17 @@ export class LiveBackend implements AdsBackend {
               ...(e.endDate ? { PromotionEndDate: msDate(e.endDate) } : {}),
               FinalUrls: [e.finalUrl],
               ...schedule(e),
-            },
-      ),
-    });
-    return batchResult(res, extensions.length, 'AdExtensionIdentities');
+            };
+    // AddAdExtensions takes at most 100 per call; each part keeps its items' positions.
+    const ids: string[] = [];
+    const failed: ItemError[] = [];
+    for (let start = 0; start < extensions.length; start += 100) {
+      const part = extensions.slice(start, start + 100);
+      const r = batchResult(await this.cm(accountId, 'AdExtensions', 'POST', { AccountId: Number(accountId), AdExtensions: part.map(json) }), part.length, 'AdExtensionIdentities');
+      ids.push(...(r.ids ?? []));
+      failed.push(...(r.failed ?? []).map((f) => ({ ...f, index: f.index === null ? null : f.index + start })));
+    }
+    return { ids, failed };
   }
 
   async associateAdExtensions(accountId: string, pairs: { extensionId: string; entityId: string }[], level: ExtensionLevel): Promise<MutationResult> {

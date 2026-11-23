@@ -64,7 +64,14 @@ export function bidsIgnoredReason(c: Campaign): string | null {
 }
 
 /** Bid strategies Microsoft accepts for the campaign type (documented limits). */
-export function bidStrategyProblem(c: Pick<Campaign, 'name' | 'type'> & { bidStrategy?: BidStrategy }, b: BidStrategy): string | null {
+/** Microsoft (release notes): these strategies take no NEW Max CPC on a campaign without a portfolio strategy – error 611274. */
+const NO_NEW_MAX_CPC = new Set(['MaxClicks', 'MaxConversions', 'MaxConversionValue', 'TargetCpa', 'TargetRoas']);
+
+export function bidStrategyProblem(c: Pick<Campaign, 'name' | 'type'> & { bidStrategy?: BidStrategy; portfolioBidStrategyId?: string | null }, b: BidStrategy): string | null {
+  // An existing Max CPC may still be edited or removed; only adding one is refused.
+  if (b.maxCpc && NO_NEW_MAX_CPC.has(b.type) && !c.portfolioBidStrategyId && !(c.bidStrategy?.type === b.type && c.bidStrategy.maxCpc)) {
+    return `Microsoft tillader ikke længere at tilføje en maks. CPC til ${bidLabel(b)} på en kampagne uden porteføljebudstrategi (fejl 611274) – kun at rette eller fjerne en, kampagnen allerede har. Send budstrategien uden maxCpc.`;
+  }
   if (b.type === 'ManualCpc' && c.type !== 'Audience') {
     return `Manuel CPC findes kun for Audience-kampagner. Microsoft ignorerer det for "${c.name}" uden fejl og bruger Forbedret CPC i stedet – vælg Forbedret CPC (EnhancedCpc), hvis du vil styre buddene selv.`;
   }

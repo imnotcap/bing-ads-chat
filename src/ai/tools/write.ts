@@ -58,7 +58,7 @@ const bidStrategySchema = z.object({
     .describe('For a target use MaxConversions + targetCpa or MaxConversionValue + targetRoas. TargetCpa/TargetRoas only to adjust a campaign that already uses them. ManualCpc only for Audience campaigns.'),
   targetCpa: z.number().positive().optional().describe('Target CPA in account currency (MaxConversions or TargetCpa).'),
   targetRoas: z.number().positive().optional().describe('Required for TargetRoas, optional for MaxConversionValue (e.g. 4 = 400 %).'),
-  maxCpc: z.number().positive().optional().describe('Optional bid cap (MaxClicks, MaxConversions, TargetCpa, TargetRoas).'),
+  maxCpc: z.number().positive().optional().describe('Bid cap – only to change a cap the campaign already has (or on a portfolio strategy): Microsoft refuses a NEW Max CPC on MaxClicks, MaxConversions, MaxConversionValue, TargetCpa and TargetRoas (error 611274).'),
 });
 
 /** YYYY-MM-DD → 16-11-2026 (the team's format). */
