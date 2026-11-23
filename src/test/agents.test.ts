@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { followUpVerdict, isoAdd, pickSearchTerms, readiness } from '@/agents/logic';
-import { runFollowUp, runPeriods, runRejections, runSearchTerms, type AgentEnv } from '@/agents/run';
+import { followUpVerdict, isoAdd, pageKey, pickSearchTerms, readiness, stockFindings } from '@/agents/logic';
+import { runFollowUp, runPeriods, runRejections, runSearchTerms, runStock, type AgentEnv } from '@/agents/run';
 import { useActivity } from '@/stores/activity';
 import type { AdsBackend } from '@/bing/types';
 import { today } from '@/lib/format';
@@ -94,6 +94,53 @@ describe('the agents write cards on the "Agenter" board', () => {
     expect(await runRejections(e)).toBe(1);
     expect(agentCards().some((c) => c.title.startsWith('Afvisninger') && c.description.includes('annonce-id 700'))).toBe(true);
     expect(await runRejections(e)).toBe(0);
+  });
+});
+
+describe('the stock watch (Lagervagt)', () => {
+  it('compares landing pages without protocol, www, query or trailing slash', () => {
+    expect(pageKey('https://www.Inventarland.dk/kontorstol-x/?utm_source=bing#top')).toBe('inventarland.dk/kontorstol-x');
+    expect(pageKey('http://inventarland.dk/kontorstol-x')).toBe('inventarland.dk/kontorstol-x');
+    expect(pageKey('ikke en url')).toBeNull();
+  });
+
+  it('finds sold-out products that were selling and the search ads pointing at them', () => {
+    const products = [
+      { id: 'a', title: 'Stol A', link: 'https://inventarland.dk/stol-a', status: 'outofstock', revenue: 900, conversions: 3 },
+      { id: 'b', title: 'Stol B', link: 'https://inventarland.dk/stol-b', status: 'ok', revenue: 5000, conversions: 9 },
+      { id: 'c', title: 'Reol C', link: 'https://inventarland.dk/reol-c', status: 'notincatalog', revenue: 4000, conversions: 2 },
+    ];
+    const ad = (adId: string, url: string) => ({ campaignId: '1', campaignName: 'Søg', adGroupId: 'g', adGroupName: 'Stole', adId, finalUrls: [url] });
+    const f = stockFindings(products, [ad('1', 'https://www.inventarland.dk/stol-a?x=1'), ad('2', 'https://inventarland.dk/stol-b')]);
+    expect(f.soldOut.map((p) => p.id)).toEqual(['c', 'a']);
+    expect(f.ads.map((a) => [a.adId, a.product.id])).toEqual([['1', 'a']]);
+  });
+
+  it('puts one card on the board, and none again while the list is the same', async () => {
+    const m = (revenue: number) => ({ impressions: 100, clicks: 10, spend: 50, conversions: revenue ? 2 : 0, revenue });
+    const claimed = new Set<string>();
+    const backend = {
+      productPerformance: async () => [
+        { id: 'a', title: 'Stol A', brand: null, category: null, productType: null, price: 999, imageUrl: null, link: 'https://inventarland.dk/stol-a', metrics: m(1800), previous: m(0), placements: [], status: { status: 'outofstock', servingCampaigns: 0, totalCampaigns: 3, issues: [] } },
+        { id: 'b', title: 'Stol B', brand: null, category: null, productType: null, price: 999, imageUrl: null, link: 'https://inventarland.dk/stol-b', metrics: m(900), previous: m(0), placements: [], status: { status: 'ok', servingCampaigns: 1, totalCampaigns: 3, issues: [] } },
+      ],
+      listCampaigns: async () => [{ id: '9', name: 'Søg | Stole', status: 'Active', type: 'Search', dailyBudget: 100, bidStrategy: { type: 'ManualCpc' } }],
+      listAdGroups: async () => [{ id: '90', campaignId: '9', name: 'Stol A', status: 'Active', cpcBid: 2 }],
+      listAds: async () => [{ id: '900', adGroupId: '90', type: 'ResponsiveSearch', status: 'Active', headlines: ['Stol A'], descriptions: [], finalUrls: ['https://inventarland.dk/stol-a/'], editorialStatus: 'Active' }],
+    } as unknown as AdsBackend;
+    const env: AgentEnv = { backend, accountId: 'stock-1', currency: 'DKK', claim: async (k) => (claimed.has(k) ? false : (claimed.add(k), true)), tool: { backend, accountId: 'stock-1', currency: 'DKK', rules: DEFAULT_SPEND_RULES, defaultPreset: 'last30', memo: new Map() } };
+    expect(await runStock(env)).toBe(1);
+    const card = Object.values(useBoard.getState().cards).find((c) => c.title.startsWith('Lagervagt'))!;
+    expect(card.title).toBe('Lagervagt: 1 sælgende vare udsolgt – 1 annoncegruppe sender trafik dertil');
+    expect(card.description).toMatch(/Stol A \(a\) – udsolgt/);
+    expect(card.description).toMatch(/annonce-id 900/);
+    expect(card.description).not.toMatch(/Stol B/);
+    expect(card.priority).toBe('high');
+    expect(card.ask).toMatch(/pause/);
+    const board = useBoard.getState().boards.find((b) => b.id === AGENT_BOARD)!;
+    expect(card.labelIds).toEqual([`${AGENT_BOARD}_stock`]);
+    expect(board.labels.some((l) => l.id === `${AGENT_BOARD}_stock` && l.name === 'Lager')).toBe(true);
+    expect(await runStock(env)).toBe(0);
   });
 });
 

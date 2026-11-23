@@ -29,6 +29,7 @@ import { cn, errorMessage } from '@/lib/utils';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
 import { useUi } from '@/stores/ui';
 import { InsightBox } from './InsightBox';
+import { RecentCards } from './RecentCards';
 import { buildInsights, type InsightPage } from './insights';
 import { axisLabels, periodOf, type Granularity, type Period } from './period';
 
@@ -557,6 +558,8 @@ export function DashboardPage() {
             <motion.div variants={fadeUp}>
               <InsightBox title={granularity === 'week' ? 'Ugens indsigt' : 'Månedens indsigt'} pages={insights} loading={!t || !campaigns.data} onAsk={ask} />
             </motion.div>
+
+            <RecentCards />
 
             <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
               {kpis ? kpis.map((k) => <KpiCard key={k.label} kpi={k} />) : Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-[118px]" />)}

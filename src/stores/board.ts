@@ -129,12 +129,13 @@ function newCard(boardId: string, listId: string, title: string, memberId: strin
 }
 
 export const AGENT_BOARD = 'b_agents';
-export type AgentLabel = 'followup' | 'searchterms' | 'period' | 'rejections';
+export type AgentLabel = 'followup' | 'searchterms' | 'period' | 'rejections' | 'stock';
 export const AGENT_LABELS: Record<AgentLabel, { name: string; color: LabelColor }> = {
   followup: { name: 'Opfølgning', color: 'teal' },
   searchterms: { name: 'Søgetermer', color: 'orange' },
   period: { name: 'Periode', color: 'purple' },
   rejections: { name: 'Afvisninger', color: 'red' },
+  stock: { name: 'Lager', color: 'yellow' },
 };
 
 function isoDay(offset: number) {
@@ -335,7 +336,12 @@ export const useBoard = create<BoardState>()(
           const boardId = get().ensureAgentBoard();
           const board = get().boards.find((b) => b.id === boardId)!;
           const list = board.lists.find((l) => l.id === `${AGENT_BOARD}_new`) ?? board.lists[0]!;
-          const label = board.labels.find((l) => l.id === `${AGENT_BOARD}_${a.label}`);
+          // Agent boards made before a label existed get it the first time it is used.
+          let label = board.labels.find((l) => l.id === `${AGENT_BOARD}_${a.label}`);
+          if (!label) {
+            label = { id: `${AGENT_BOARD}_${a.label}`, name: AGENT_LABELS[a.label].name, color: AGENT_LABELS[a.label].color };
+            op({ type: 'addLabel', boardId, label });
+          }
           const card = newCard(boardId, list.id, a.title, get().meId, {
             description: a.description,
             due: a.due ?? null,

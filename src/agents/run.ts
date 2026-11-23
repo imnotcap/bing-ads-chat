@@ -9,14 +9,17 @@
  * - searchTerms (team, Mondays): search terms that cost money without selling, not blocked yet.
  * - periods (team): campaigns whose period starts tomorrow (ready?) or ended (how did it go?).
  * - rejections (team): disapproved ads and keywords, and selling products with Merchant Center problems.
+ * - stock (team): products that sold in the last 30 days and are now sold out in Merchant Center, and
+ *   the search ads that still send people to their pages.
  */
 import type { AdsBackend, Campaign } from '@/bing/types';
-import { addDays, fmtMoney, fmtNumber, today } from '@/lib/format';
+import { addDays, fmtMoney, fmtNumber, presetRange, today } from '@/lib/format';
 import { useActivity } from '@/stores/activity';
 import { useBoard } from '@/stores/board';
 import { canSeeBoard, type Card } from '@/board/model';
 import { getTool, type ToolContext } from '@/ai/tools';
-import { daysBetween, dk, followUpVerdict, isoAdd, pickSearchTerms, readiness, sum, type NegativeRule, type TermRow } from './logic';
+import { loadProducts, PRODUCTS_FRESH_MS } from '@/workspace/products';
+import { daysBetween, dk, followUpVerdict, isoAdd, pickSearchTerms, readiness, stockFindings, sum, type NegativeRule, type StockAd, type TermRow } from './logic';
 
 export interface AgentEnv {
   backend: AdsBackend;
@@ -226,6 +229,66 @@ export async function runRejections(env: AgentEnv): Promise<number> {
     description: found.slice(0, 60).map((f) => `• ${f.line}`).join('\n') + (found.length > 60 ? `\n… og ${found.length - 60} mere` : ''),
     priority: found.some((f) => f.key.startsWith('ad:') || f.line.includes('afvist')) ? 'high' : 'medium',
     ask: ['Afvisnings-agenten fandt dette, der ikke kører:', ...found.slice(0, 60).map((f) => `- ${f.line}`), 'Find årsagen til hver (Microsofts afvisningsgrund), og foreslå rettelser – nye annoncetekster, søgeord eller hvad der skal rettes i feedet. Vis ændringerne til godkendelse, før noget sker.'].join('\n'),
+  });
+  return 1;
+}
+
+/* ---------------------------------- 6. stock ---------------------------------- */
+
+export async function runStock(env: AgentEnv): Promise<number> {
+  if (!env.backend.productPerformance) return 0;
+  const range = presetRange('last30');
+  let overview = await loadProducts(env.accountId, range, { backend: env.backend });
+  // Stock changes overnight: an old shared copy (the morning, before office hours) is read again.
+  if (Date.now() - overview.fetchedAt > PRODUCTS_FRESH_MS) overview = await loadProducts(env.accountId, range, { backend: env.backend, force: true });
+  const products = overview.products.map((p) => ({ id: p.id, title: p.title, link: p.link, status: p.status?.status ?? null, revenue: p.metrics.revenue, conversions: p.metrics.conversions }));
+  if (!products.some((p) => p.status === 'outofstock' || p.status === 'notincatalog')) return 0;
+
+  // The active search ads – a sold-out product's page still gets their clicks.
+  const campaigns = (await env.backend.listCampaigns(env.accountId)).filter((c) => c.status === 'Active' && c.type === 'Search');
+  const groupLists = await pool(campaigns, 4, (c) => env.backend.listAdGroups(env.accountId, c.id).catch(() => []));
+  const groups = campaigns.flatMap((c: Campaign, i) => groupLists[i]!.filter((g) => g.status === 'Active').map((g) => ({ c, g })));
+  const ads: StockAd[] = (
+    await pool(groups, 4, async ({ c, g }) =>
+      (await env.backend.listAds(env.accountId, g.id).catch(() => []))
+        .filter((a) => a.status === 'Active' && a.finalUrls.length)
+        .map((a) => ({ campaignId: c.id, campaignName: c.name, adGroupId: g.id, adGroupName: g.name, adId: a.id, finalUrls: a.finalUrls })),
+    )
+  ).flat();
+
+  const found = stockFindings(products, ads);
+  if (!found.soldOut.length && !found.ads.length) return 0;
+  const signature = hash([...found.soldOut.map((p) => `p:${p.id}`), ...found.ads.map((a) => `a:${a.adId}`)].sort().join(','));
+  if (!(await env.claim(`stock:${env.accountId}:${signature}`))) return 0;
+
+  const kr = (v: number) => fmtMoney(v, env.currency);
+  const gone = (status: string | null) => (status === 'notincatalog' ? 'væk fra kataloget' : 'udsolgt');
+  const lost = found.soldOut.reduce((n, p) => n + p.revenue, 0);
+  const productLines = found.soldOut.slice(0, 30).map((p) => `${p.title} (${p.id}) – ${gone(p.status)}, solgte for ${kr(p.revenue)} (${fmtNumber(p.conversions, 1)} salg) de seneste 30 dage`);
+  const adLines = found.ads.slice(0, 30).map((a) => `${a.campaignName} › ${a.adGroupName}: annonce-id ${a.adId} sender til "${a.product.title}" (${gone(a.product.status)}) – kampagne-id ${a.campaignId}, annoncegruppe-id ${a.adGroupId}`);
+  const adGroupCount = new Set(found.ads.map((a) => a.adGroupId)).size;
+  const parts = [
+    found.soldOut.length ? `${found.soldOut.length} sælgende ${found.soldOut.length === 1 ? 'vare' : 'varer'} udsolgt` : '',
+    found.ads.length ? `${adGroupCount} ${adGroupCount === 1 ? 'annoncegruppe sender' : 'annoncegrupper sender'} trafik dertil` : '',
+  ].filter(Boolean);
+  useBoard.getState().addAgentCard({
+    label: 'stock',
+    title: `Lagervagt: ${parts.join(' – ')}`,
+    description: [
+      ...(productLines.length
+        ? [`Udsolgt eller væk fra kataloget i Merchant Center – de vises ikke længere i Shopping. Tilsammen ${kr(lost)} i omsætning de seneste 30 dage:`, ...productLines.map((l) => `• ${l}`)]
+        : []),
+      ...(found.soldOut.length > 30 ? [`… og ${found.soldOut.length - 30} mere`] : []),
+      ...(adLines.length ? [...(productLines.length ? [''] : []), 'Søgeannoncer, der stadig sender kunder til en udsolgt vare (de koster penge uden at kunne sælge):', ...adLines.map((l) => `• ${l}`)] : []),
+      ...(found.ads.length > 30 ? [`… og ${found.ads.length - 30} mere`] : []),
+    ].join('\n'),
+    priority: found.ads.length ? 'high' : lost > 5000 ? 'high' : 'medium',
+    ask: [
+      'Lagervagten fandt varer, der er udsolgt eller væk fra kataloget i Merchant Center:',
+      ...productLines.map((l) => `- ${l}`),
+      ...(adLines.length ? ['Søgeannoncer, der stadig sender kunder til dem:', ...adLines.map((l) => `- ${l}`)] : []),
+      'For hver søgeannonce: foreslå at sætte annoncen eller annoncegruppen på pause, eller at skifte landingssiden til en vare eller kategori, der er på lager – det, der giver mest mening. For de udsolgte bestsellere: find lignende varer på lager, der kan tage trafikken (list_products), og sig, om budgettet bør flyttes. Vis ændringerne til godkendelse, før noget sker.',
+    ].join('\n'),
   });
   return 1;
 }

@@ -73,6 +73,7 @@ export interface AgentSettings {
   searchTerms: boolean;
   periods: boolean;
   rejections: boolean;
+  stock: boolean;
 }
 
 interface SettingsState {
@@ -99,7 +100,7 @@ interface SettingsState {
 export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
-      agents: { followUp: true, searchTerms: true, periods: true, rejections: true },
+      agents: { followUp: true, searchTerms: true, periods: true, rejections: true, stock: true },
       setAgents: (patch) => set((s) => ({ agents: { ...s.agents, ...patch } })),
       spend: DEFAULT_SPEND_RULES,
       ai: { model: 'claude-opus-5-5', effort: 'medium', showThinking: true, usdToDkk: 6.9, maxToolRounds: 30, enabledModels: [], customModels: [], connectors: {}, followUps: true, followUpOutlook: true, followUpMail: true },

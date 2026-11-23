@@ -155,3 +155,62 @@ export const dk = (iso: string) => {
   const [y, m, d] = iso.split('-');
   return `${Number(d)}-${Number(m)}-${y}`;
 };
+
+/* ---------------------------------- stock ---------------------------------- */
+
+/** A landing page, compared without protocol, www, query, fragment or trailing slash. */
+export function pageKey(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url.trim());
+    const path = decodeURIComponent(u.pathname).replace(/\/+$/, '');
+    return `${u.hostname.replace(/^www\./i, '')}${path}`.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+export interface StockProduct {
+  id: string;
+  title: string;
+  link: string | null;
+  /** 'outofstock' | 'notincatalog' | … (Merchant Center, src/bing/products.ts) */
+  status: string | null;
+  revenue: number;
+  conversions: number;
+}
+
+export interface StockAd {
+  campaignId: string;
+  campaignName: string;
+  adGroupId: string;
+  adGroupName: string;
+  adId: string;
+  finalUrls: string[];
+}
+
+export interface StockFindings {
+  /** Products that sold in the period and are now sold out or gone from the catalogue – largest revenue first. */
+  soldOut: StockProduct[];
+  /** Active search ads whose landing page is one of those products. */
+  ads: (StockAd & { product: StockProduct })[];
+}
+
+const GONE = new Set(['outofstock', 'notincatalog']);
+
+/** Lagervagt: sold-out products that were selling, and the search ads still sending people to them. */
+export function stockFindings(products: StockProduct[], ads: StockAd[]): StockFindings {
+  const soldOut = products.filter((p) => p.status && GONE.has(p.status) && (p.revenue > 0 || p.conversions > 0)).sort((a, b) => b.revenue - a.revenue);
+  const byPage = new Map<string, StockProduct>();
+  // Every sold-out product counts for the ads, also one that didn't sell in the period.
+  for (const p of products) {
+    const k = pageKey(p.link);
+    if (k && p.status && GONE.has(p.status) && !byPage.has(k)) byPage.set(k, p);
+  }
+  const hits: StockFindings['ads'] = [];
+  for (const a of ads) {
+    const product = a.finalUrls.map((u) => byPage.get(pageKey(u) ?? '')).find(Boolean);
+    if (product) hits.push({ ...a, product });
+  }
+  return { soldOut, ads: hits };
+}
