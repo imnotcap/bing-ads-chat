@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Board, BoardData, Card } from '@/board/model';
-import { todayCards } from '@/features/dashboard/recentCards';
+import { todayCards } from '@/features/dashboard/todayCards';
 
 const NOW = new Date(2026, 10, 23, 9, 0);
 const DAY = 86_400_000;
