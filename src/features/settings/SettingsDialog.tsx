@@ -559,6 +559,7 @@ function AgentsCard() {
       <SwitchRow label="Søgetermer uden salg" description="Hver mandag: søgetermer de seneste 30 dage med klik og forbrug, men ingen salg – og som ikke allerede er stoppet af et negativt søgeord." checked={agents.searchTerms} onCheckedChange={(searchTerms) => setAgents({ searchTerms })} />
       <SwitchRow label="Periode-vagt" description="Dagen før en kampagneperiode (Black Week osv.) starter: er kampagnen aktiv, har den budget, godkendte annoncer og aktive annoncegrupper? Og når perioden er slut: hvordan gik den." checked={agents.periods} onCheckedChange={(periods) => setAgents({ periods })} />
       <SwitchRow label="Afvisninger" description="Afviste annoncer og søgeord i aktive kampagner, og sælgende produkter med advarsler eller afvisninger i Merchant Center – et nyt kort, når listen ændrer sig." checked={agents.rejections} onCheckedChange={(rejections) => setAgents({ rejections })} />
+      <SwitchRow label="Lagervagt" description="Varer, der har solgt de seneste 30 dage, men nu er udsolgt eller væk fra kataloget i Merchant Center – og søgeannoncer, der stadig sender kunder til dem. Et nyt kort, når listen ændrer sig." checked={agents.stock} onCheckedChange={(stock) => setAgents({ stock })} />
       <div className="flex flex-wrap items-center justify-between gap-3 py-3">
         <div className="grid gap-0.5">
           <span className="text-sm font-medium text-ink">Kør nu</span>

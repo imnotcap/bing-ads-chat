@@ -12,7 +12,7 @@ import { useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
 import { useSettings, type AgentSettings } from '@/stores/settings';
 import { claimAgentRun } from '@/workspace/shared';
-import { runFollowUp, runPeriods, runRejections, runSearchTerms, type AgentEnv } from './run';
+import { runFollowUp, runPeriods, runRejections, runSearchTerms, runStock, type AgentEnv } from './run';
 
 type AgentId = keyof AgentSettings;
 
@@ -20,6 +20,7 @@ const AGENTS: { id: AgentId; name: string; run: (env: AgentEnv) => Promise<numbe
   { id: 'followUp', name: 'Opfølgning', run: runFollowUp },
   { id: 'periods', name: 'Periode-vagt', run: runPeriods },
   { id: 'rejections', name: 'Afvisninger', run: runRejections },
+  { id: 'stock', name: 'Lagervagt', run: runStock },
   { id: 'searchTerms', name: 'Søgetermer', run: runSearchTerms, weekly: true },
 ];
 
