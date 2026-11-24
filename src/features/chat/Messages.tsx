@@ -15,6 +15,7 @@ import { fmtTime, fmtUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { AssistantItem, NoticePart, Part, ToolPart, UserItem } from '@/stores/chat';
 import { useUi } from '@/stores/ui';
+import { ApprovalBatch } from './ApprovalBatch';
 import { ApprovalCard } from './ApprovalCard';
 import { FollowUpCard } from './FollowUpCard';
 import { Markdown } from './Markdown';
@@ -79,7 +80,10 @@ function NoticeLine({ part }: { part: NoticePart }) {
   );
 }
 
-type Group = { kind: 'steps'; parts: ToolPart[] } | { kind: 'part'; part: Part };
+type Group = { kind: 'steps'; parts: ToolPart[] } | { kind: 'part'; part: Part } | { kind: 'cards'; parts: ToolPart[] };
+
+/** From this many approval cards in a row they are shown as one (ApprovalBatch). */
+export const BATCH_FROM = 3;
 
 /** Consecutive read/display tools are shown together as one steps card. */
 function groupParts(parts: Part[]): Group[] {
@@ -92,6 +96,42 @@ function groupParts(parts: Part[]): Group[] {
     if (isStep && last?.kind === 'steps') last.parts.push(p as ToolPart);
     else if (isStep) out.push({ kind: 'steps', parts: [p as ToolPart] });
     else out.push({ kind: 'part', part: p });
+  }
+  return batchCards(out);
+}
+
+/**
+ * Approval cards next to each other – only empty text or thinking between them – become one
+ * batch from BATCH_FROM cards (the parallel changes of one reply).
+ */
+export function batchCards(groups: Group[]): Group[] {
+  const out: Group[] = [];
+  const isCard = (g: Group) => g.kind === 'part' && g.part.type === 'tool' && !!g.part.plan;
+  const isFiller = (g: Group) => g.kind === 'part' && ((g.part.type === 'text' && !g.part.text.trim()) || g.part.type === 'thinking');
+  for (let i = 0; i < groups.length; ) {
+    if (!isCard(groups[i]!)) {
+      out.push(groups[i++]!);
+      continue;
+    }
+    const cards: ToolPart[] = [];
+    const between: Group[] = [];
+    let j = i;
+    while (j < groups.length && (isCard(groups[j]!) || isFiller(groups[j]!))) {
+      const g = groups[j]!;
+      if (isCard(g)) cards.push((g as { part: ToolPart }).part);
+      else between.push(g);
+      j++;
+    }
+    // Thinking after the last card belongs to what comes next.
+    while (j > i && !isCard(groups[j - 1]!)) {
+      j--;
+      between.pop();
+    }
+    if (cards.length >= BATCH_FROM) {
+      out.push(...between.filter((g) => g.kind === 'part' && g.part.type === 'thinking'));
+      out.push({ kind: 'cards', parts: cards });
+    } else out.push(...groups.slice(i, j));
+    i = j;
   }
   return out;
 }
@@ -198,6 +238,8 @@ export const AssistantMessage = memo(function AssistantMessage({ item, currency,
           {groups.map((g, i) =>
             g.kind === 'steps' ? (
               <ToolSteps key={g.parts[0]!.id} parts={g.parts} currency={currency} />
+            ) : g.kind === 'cards' ? (
+              <ApprovalBatch key={g.parts[0]!.id} parts={g.parts} currency={currency} />
             ) : g.part.type === 'text' ? (
               withoutToolNames(g.part.text).trim() ? (
                 <div key={g.part.id} className={cn(live && i === groups.length - 1 && 'streaming-caret')}>

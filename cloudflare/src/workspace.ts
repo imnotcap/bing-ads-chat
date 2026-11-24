@@ -157,6 +157,9 @@ interface StockSheetConnection {
   key?: ServiceAccountKey;
 }
 
+/** Per item id (lower case): the bid the item had in the ad group when it was excluded. */
+type OldBids = Record<string, { bid: number; at: number; by: string }>;
+
 /** A row from the app, checked: short texts, a few topics. */
 function cleanNote(raw: unknown): NoteInput | null {
   const o = (raw ?? {}) as Record<string, unknown>;
@@ -611,6 +614,37 @@ export class Workspace extends DurableObject<Env> {
       const entries = Object.entries(done).sort((a, b) => b[1].at - a[1].at).slice(0, 5000);
       await this.ctx.storage.put('stockdone', Object.fromEntries(entries));
       return json({ done: Object.fromEntries(entries) });
+    }
+    // Old product bids: the bid an item had in an ad group when the app excluded it, so a
+    // re-activation can give it the same bid back (src/workspace/oldBids.ts). One stored value
+    // per ad group ("oldbids:<account>:<adGroupId>" → item id → bid), so none grows large.
+    if (path === '/workspace/oldbids' && (method === 'GET' || method === 'POST')) {
+      const body = method === 'POST' ? ((await req.json().catch(() => ({}))) as { account?: unknown; bids?: unknown }) : {};
+      const account = String(method === 'GET' ? (url.searchParams.get('account') ?? '') : (body.account ?? '')).trim();
+      if (!/^\d{1,20}$/.test(account)) return fail('Ugyldig konto.', 400);
+      const prefix = `oldbids:${account}:`;
+      if (method === 'POST') {
+        const byGroup = new Map<string, { itemId: string; bid: number }[]>();
+        for (const b of Array.isArray(body.bids) ? body.bids.slice(0, 5000) : []) {
+          const adGroupId = typeof b?.adGroupId === 'string' ? b.adGroupId.trim().slice(0, 30) : '';
+          const itemId = typeof b?.itemId === 'string' ? b.itemId.trim().slice(0, 100).toLowerCase() : '';
+          const bid = Number(b?.bid);
+          if (!/^\d+$/.test(adGroupId) || !itemId || !(bid > 0 && bid < 10_000)) continue;
+          byGroup.set(adGroupId, [...(byGroup.get(adGroupId) ?? []), { itemId, bid: Math.round(bid * 100) / 100 }]);
+        }
+        for (const [adGroupId, list] of byGroup) {
+          const k = prefix + adGroupId;
+          const stored = (await this.ctx.storage.get<OldBids>(k)) ?? {};
+          for (const x of list) stored[x.itemId] = { bid: x.bid, at: Date.now(), by: user.name };
+          // The newest 2.000 per ad group.
+          await this.ctx.storage.put(k, Object.fromEntries(Object.entries(stored).sort((a, b) => b[1].at - a[1].at).slice(0, 2000)));
+        }
+        return json({ saved: [...byGroup.values()].reduce((n, l) => n + l.length, 0) });
+      }
+      const groups = await this.ctx.storage.list<OldBids>({ prefix });
+      const bids: Record<string, OldBids> = {};
+      for (const [k, v] of groups) bids[k.slice(prefix.length)] = v;
+      return json({ bids });
     }
     // Watched products (Produkter → Overvågede): the team's shared list.
     if (path === '/workspace/watch' && method === 'GET') return json({ items: (await this.ctx.storage.get<WatchItem[]>('watch')) ?? [] });

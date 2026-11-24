@@ -1,6 +1,6 @@
 /**
  * apply_stock_sheet: the sold-out sheet (Google Sheets, read by the Worker) applied to
- * Microsoft's product groups – Udsolgt / Fjernet excluded, På lager shown again – on ONE
+ * Microsoft's product groups – Udsolgt / Fjernet excluded, På lager shown again at the bid it had before – on ONE
  * approval card for every Shopping ad group and Performance Max asset group (features/stock/stockPlan.ts).
  * Sent per group in one call and read back. What was done is remembered in the workspace, so
  * the dashboard's Lager tab stops asking.
@@ -9,7 +9,9 @@ import { z } from 'zod';
 import type { AdGroup, Campaign } from '@/bing/types';
 import { toListingNodes } from '@/features/audit/bingDetail';
 import type { DListingNode } from '@/features/audit/detail';
-import { planEdit, type MirrorGroup } from '@/features/audit/productMirror';
+import { planEdit, type EditRequest, type MirrorGroup } from '@/features/audit/productMirror';
+import { fmtMoney } from '@/lib/format';
+import { loadOldBids, oldBidOf } from '@/workspace/oldBids';
 import { OUT, stockEdit } from '@/features/stock/stockPlan';
 import type { ChangeLine } from '@/stores/activity';
 import { getStockSheet, markStockDone } from '@/workspace/shared';
@@ -58,6 +60,9 @@ export const stockTools = [
       if (!campaigns.length) throw new Error('Ingen aktive Shopping- eller Performance Max-kampagner at rette i.');
       const planned: Planned[] = [];
       const notes: string[] = [];
+      const old = await loadOldBids(ctx.accountId);
+      let reused = 0;
+      const raisedToMin: string[] = [];
       const touched = new Set<string>();
       for (const c of campaigns) {
         const pmax = c.type === 'PerformanceMax';
@@ -81,7 +86,30 @@ export const stockTools = [
         for (const t of trees) {
           const req = stockEdit(t.nodes, out, back, shown.items ? (shown.items.byGroup.get(t.id) ?? new Set()) : null);
           if (!req.exclude.length && !req.remove.length && !req.include.length) continue;
-          const g = planEdit(t.nodes, { id: t.id, name: `${c.name} › ${t.name}`, cpcBid: t.cpcBid }, { ...req, noBids: pmax });
+          const group = { id: t.id, name: `${c.name} › ${t.name}`, cpcBid: t.cpcBid };
+          let edit: EditRequest = { ...req, noBids: pmax };
+          if (!pmax && (req.remove.length || req.include.length)) {
+            // Back at the bid it had before it was excluded (workspace/oldBids.ts) – else under "alt andet"
+            // again, or (where "alt andet" is excluded) at the group's bid, at least the minimum bid.
+            const itemBids: Record<string, number> = {};
+            const remove: string[] = [];
+            const include: string[] = [];
+            for (const id of [...req.remove, ...req.include]) {
+              const bid = oldBidOf(old, t.id, id);
+              if (bid) {
+                itemBids[id] = bid;
+                reused++;
+              } else (req.remove.includes(id) ? remove : include).push(id);
+            }
+            edit = { ...edit, remove, include, itemBids };
+            const first = planEdit(t.nodes, group, edit);
+            const min = ctx.rules.minCpcBid;
+            if (include.length && min && first.bid !== null && first.bid < min) {
+              edit = { ...edit, include: [], itemBids: { ...itemBids, ...Object.fromEntries(include.map((id) => [id, min])) } };
+              raisedToMin.push(...include);
+            }
+          }
+          const g = planEdit(t.nodes, group, edit);
           if (g.status === 'unsupported') {
             notes.push(g.reason ?? `"${t.name}" kunne ikke rettes.`);
             continue;
@@ -117,11 +145,19 @@ export const stockTools = [
           dailyBudgetDelta: 0,
           increasesSpend: backCount > 0,
           campaignIds: planned.map((p) => p.campaign.id),
-          newBids: [],
+          // The bids items get back – checked against the spending rules (minimum and maximum bid).
+          newBids: planned.flatMap((p) => p.groups.flatMap((g) => g.rows.filter((r) => r.action === 'to_bid' || r.action === 'add_bid').map((r) => r.bid ?? g.bid).filter((b): b is number => !!b))),
           notes: [
             `Arket læst ${new Date(sheet.readAt).toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' })}: ${out.length} udsolgte/fjernede og ${back.length} på lager.`,
             ...(nothing.length ? [`${nothing.length} ${nothing.length === 1 ? 'vare' : 'varer'} kræver intet: de er allerede som arket siger, eller Microsoft har ikke vist dem de seneste 90 dage.`] : []),
-            ...(backCount ? ['Genaktiverede varer falder under "alt andet" igen – eller får gruppens sædvanlige bud, hvor "alt andet" er udelukket.'] : []),
+            ...(backCount
+              ? [
+                  `Genaktiverede varer får det bud, de havde, før de blev udelukket${reused ? ` (${reused} gemt)` : ''} – ellers falder de under "alt andet" igen, eller får gruppens bud, hvor "alt andet" er udelukket.`,
+                ]
+              : []),
+            ...(raisedToMin.length && ctx.rules.minCpcBid
+              ? [`${new Set(raisedToMin).size} ${new Set(raisedToMin).size === 1 ? 'vare' : 'varer'} uden gemt bud får mindstebuddet ${fmtMoney(ctx.rules.minCpcBid, ctx.currency, 2)}, fordi gruppens bud er lavere.`]
+              : []),
             ...(unknown.length ? [`${unknown.length} ${unknown.length === 1 ? 'række' : 'rækker'} har en status, appen ikke kender (${unknown.slice(0, 3).map((r) => `række ${r.row}: "${r.statusText}"`).join(', ')}) – brug Udsolgt, Fjernet eller På lager.`] : []),
             ...notes,
           ],
