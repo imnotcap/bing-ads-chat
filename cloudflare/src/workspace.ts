@@ -20,7 +20,7 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import { applyOp, boardOfOp, canSeeBoard, dataFor, isBoardData, mayApply, memberIdOf, type BoardData, type BoardOp } from '../../src/board/model';
-import { INVENTARLAND_URL, INVENTARLAND_VIEWS, type AdsAccess, type CompanyInfo, type Invitation, type Role, type InventarlandView, type SharedKeyName, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
+import { INVENTARLAND_URL, INVENTARLAND_VIEWS, type AdsAccess, type CompanyInfo, type Invitation, type Role, type InventarlandView, type SharedKeyName, type StockDone, type WorkspaceInfo, type WorkspaceUser } from '../../src/workspace/types';
 import { LIMIT_BRANCH_IDS, cleanLimits, isLimitBranchId, type StoredLimits } from '../../src/ai/branchLimits';
 import { BRANCH_IDS, MAX_SECTION_CHARS, SECTION_IDS, cleanSections, defaultPlaybook, isBranchId, type PlaybookSections, type SectionId, type StoredPlaybook } from '../../src/ai/playbooks';
 import { ACTIVE_CONNECTOR_IDS, DAISYCON_REDIRECT_URI, connectorDef, isArchivedConnector, isConnectorId, type ConnectorId, type ConnectorSaveResult } from '../../src/workspace/connectors';
@@ -29,6 +29,7 @@ import { AdsKeyError, adsAccountCustomers, adsProbe, adsRefresh, mergeAdsKeys, t
 import { clearCampaigns, initAdsCache, readCampaigns, writeCampaigns } from './adsCache';
 import { changeAudit, parseOp, readAudits } from './audit';
 import { appendNotes, readSheet, type NoteInput, type NoteSheet } from './notesheet';
+import { connectStockSheet, readStockRows, type StockRow, type StockSheet } from './stocksheet';
 import { DETAIL_PARTS } from '../../src/features/audit/detail';
 import {
   GoogleAdsError,
@@ -150,6 +151,12 @@ interface NoteSheetConnection {
   key?: ServiceAccountKey;
 }
 
+/** The sold-out sheet (read only), and – when it was connected with one – the service account's own key. */
+interface StockSheetConnection {
+  sheet: StockSheet;
+  key?: ServiceAccountKey;
+}
+
 /** A row from the app, checked: short texts, a few topics. */
 function cleanNote(raw: unknown): NoteInput | null {
   const o = (raw ?? {}) as Record<string, unknown>;
@@ -215,6 +222,8 @@ export class Workspace extends DurableObject<Env> {
   private adsPending: Promise<string> | null = null;
   private invCache = new Map<string, { at: number; body: string }>();
   private googleToken: { value: string; expiresAt: number; who: string } | null = null;
+  /** The sold-out sheet's rows, read at most every 2 minutes. */
+  private stockRows: { at: number; rows: StockRow[] } | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -532,6 +541,76 @@ export class Workspace extends DurableObject<Env> {
       if (user.role !== 'admin') return fail('Kun administratorer kan fjerne notatarket.', 403);
       await this.ctx.storage.delete('notesheet');
       return json(await this.info());
+    }
+    /* ------------------- the sold-out sheet (Google Sheets, read only) ------------------- */
+    // Columns A–E: item id and name among A–C, D the status (Udsolgt / Fjernet / På lager), E a
+    // date. Read with the same service account as the notes sheet (stocksheet.ts → assertStockSheetCall).
+    if (path === '/workspace/stocksheet' && method === 'PUT') {
+      if (user.role !== 'admin') return fail('Kun administratorer kan forbinde udsolgt-arket.', 403);
+      const body = (await req.json()) as { url?: string; key?: string };
+      const [google, notes, old] = await Promise.all([
+        this.ctx.storage.get<GoogleConnection>('google'),
+        this.ctx.storage.get<NoteSheetConnection>('notesheet'),
+        this.ctx.storage.get<StockSheetConnection>('stocksheet'),
+      ]);
+      try {
+        const own = body.key?.trim() ? parseServiceAccountKey(body.key) : old?.key;
+        const key = own ?? notes?.key ?? google?.key;
+        if (!key) return fail('Udsolgt-arket læses med service-kontoen gsc-chat. Vælg dens JSON-nøgle.', 400);
+        const sheet = await connectStockSheet(fetch, key, body.url ?? '', Date.now(), user.name);
+        await this.ctx.storage.put('stocksheet', { sheet, ...(own ? { key: own } : {}) } satisfies StockSheetConnection);
+        this.stockRows = null;
+      } catch (e) {
+        if (e instanceof GoogleAdsError) return fail(e.message, 400);
+        throw e;
+      }
+      return json(await this.info());
+    }
+    if (path === '/workspace/stocksheet' && method === 'DELETE') {
+      if (user.role !== 'admin') return fail('Kun administratorer kan fjerne udsolgt-arket.', 403);
+      await this.ctx.storage.delete(['stocksheet', 'stockdone']);
+      this.stockRows = null;
+      return json(await this.info());
+    }
+    if (path === '/workspace/stocksheet/rows' && method === 'GET') {
+      const [conn, notes, google] = await Promise.all([
+        this.ctx.storage.get<StockSheetConnection>('stocksheet'),
+        this.ctx.storage.get<NoteSheetConnection>('notesheet'),
+        this.ctx.storage.get<GoogleConnection>('google'),
+      ]);
+      if (!conn) return fail('Udsolgt-arket er ikke forbundet.', 409);
+      const key = conn.key ?? notes?.key ?? google?.key;
+      if (!key) return fail('Udsolgt-arket mangler service-kontoens nøgle – forbind det igen under Indstillinger → Forbindelser.', 409);
+      const fresh = url.searchParams.get('fresh') === '1';
+      try {
+        // Read again at most every 2 minutes (every app's dashboard asks).
+        if (fresh || !this.stockRows || Date.now() - this.stockRows.at > 120_000) {
+          this.stockRows = { at: Date.now(), rows: await readStockRows(fetch, key, conn.sheet, Date.now()) };
+          if (conn.sheet.error) await this.ctx.storage.put('stocksheet', { ...conn, sheet: { ...conn.sheet, error: null } });
+        }
+      } catch (e) {
+        if (!(e instanceof GoogleAdsError)) throw e;
+        await this.ctx.storage.put('stocksheet', { ...conn, sheet: { ...conn.sheet, error: e.message } });
+        return fail(e.message, 502);
+      }
+      const done = (await this.ctx.storage.get<StockDone>('stockdone')) ?? {};
+      return json({ rows: this.stockRows.rows, readAt: this.stockRows.at, done });
+    }
+    // The app excluded or re-activated these items in Microsoft (after approval): remembered, so
+    // the dashboard stops asking until the sheet says something new.
+    if (path === '/workspace/stocksheet/done' && method === 'POST') {
+      const body = (await req.json().catch(() => ({}))) as { items?: unknown };
+      const done: StockDone = (await this.ctx.storage.get<StockDone>('stockdone')) ?? {};
+      for (const it of Array.isArray(body.items) ? body.items.slice(0, 2000) : []) {
+        const id = typeof it?.id === 'string' ? it.id.trim().slice(0, 100).toLowerCase() : '';
+        const status = it?.status;
+        if (!id || !['soldout', 'removed', 'instock'].includes(status)) continue;
+        done[id] = { status, at: Date.now(), by: user.name };
+      }
+      // Keep the newest 5.000.
+      const entries = Object.entries(done).sort((a, b) => b[1].at - a[1].at).slice(0, 5000);
+      await this.ctx.storage.put('stockdone', Object.fromEntries(entries));
+      return json({ done: Object.fromEntries(entries) });
     }
     // Watched products (Produkter → Overvågede): the team's shared list.
     if (path === '/workspace/watch' && method === 'GET') return json({ items: (await this.ctx.storage.get<WatchItem[]>('watch')) ?? [] });
@@ -867,12 +946,13 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async info(): Promise<WorkspaceInfo> {
-    const [ads, keys, inv, google, notes] = await Promise.all([
+    const [ads, keys, inv, google, notes, stock] = await Promise.all([
       this.ctx.storage.get<AdsConnection>('ads'),
       this.ctx.storage.get<Keys>('keys'),
       this.ctx.storage.get<InventarlandConnection>('inventarland'),
       this.ctx.storage.get<GoogleConnection>('google'),
       this.ctx.storage.get<NoteSheetConnection>('notesheet'),
+      this.ctx.storage.get<StockSheetConnection>('stocksheet'),
     ]);
     const keyInfo = (k?: { value: string; by: string; at: number }) => (k ? { hint: hint(k.value), by: k.by, at: k.at } : null);
     return {
@@ -929,6 +1009,18 @@ export class Workspace extends DurableObject<Env> {
             error: notes.sheet.error ?? null,
           }
         : { connected: false, name: null, tab: null, url: null, serviceAccount: google?.key?.clientEmail ?? null, columns: [], connectedBy: null, connectedAt: null, lastWrite: null, error: null },
+      stocksheet: stock
+        ? {
+            connected: true,
+            name: stock.sheet.name,
+            tab: stock.sheet.title,
+            url: `https://docs.google.com/spreadsheets/d/${stock.sheet.spreadsheetId}/edit#gid=${stock.sheet.sheetId}`,
+            serviceAccount: (stock.key ?? notes?.key ?? google?.key)?.clientEmail ?? null,
+            connectedBy: stock.sheet.connectedBy,
+            connectedAt: stock.sheet.connectedAt,
+            error: stock.sheet.error ?? null,
+          }
+        : { connected: false, name: null, tab: null, url: null, serviceAccount: (notes?.key ?? google?.key)?.clientEmail ?? null, connectedBy: null, connectedAt: null, error: null },
     };
   }
 

@@ -83,6 +83,24 @@ export interface SharedKeyInfo {
 
 export type SharedKeyName = 'anthropic' | 'google';
 
+/** A row of the sold-out sheet (cloudflare/src/stocksheet.ts). */
+export type StockStatus = 'soldout' | 'removed' | 'instock' | 'unknown';
+
+export interface StockRow {
+  /** 1-based row in the sheet. */
+  row: number;
+  itemId: string;
+  title: string;
+  status: StockStatus;
+  /** The status as written in the sheet. */
+  statusText: string;
+  /** Column E as ISO date (yyyy-mm-dd), when it is one. */
+  date: string | null;
+}
+
+/** Per item id (lower case): the status the app last acted on in Microsoft (excluded or re-activated). */
+export type StockDone = Record<string, { status: StockStatus; at: number; by: string }>;
+
 /** The connections everyone in the app shares. Never contains the secrets themselves. */
 export interface WorkspaceInfo {
   ads: {
@@ -144,6 +162,21 @@ export interface WorkspaceInfo {
     connectedBy: string | null;
     connectedAt: number | null;
     lastWrite: { at: number; rows: number } | null;
+    error: string | null;
+  };
+  /**
+   * The sold-out sheet in Google Sheets (cloudflare/src/stocksheet.ts – read only): item id
+   * and name in A–C, status in D (Udsolgt / Fjernet / På lager), a date in E. Missing on
+   * Workers older than the sheet.
+   */
+  stocksheet?: {
+    connected: boolean;
+    name: string | null;
+    tab: string | null;
+    url: string | null;
+    serviceAccount: string | null;
+    connectedBy: string | null;
+    connectedAt: number | null;
     error: string | null;
   };
 }

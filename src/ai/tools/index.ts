@@ -8,6 +8,7 @@ import { findTools } from './find';
 import { googleTools } from './google';
 import { noteTools } from './notes';
 import { researchTools } from './research';
+import { stockTools } from './stock';
 export { TERMINAL_TOOLS } from './display';
 import { inventarlandTools } from './inventarland';
 import { readTools } from './read';
@@ -15,7 +16,7 @@ import { targetingTools } from './targeting';
 import { trainingTools } from './training';
 import { writeTools } from './write';
 
-export const ALL_TOOLS: AnyTool[] = [...findTools, ...researchTools, ...adReviewTools, ...readTools, ...googleTools, ...inventarlandTools, ...writeTools, ...targetingTools, ...extensionTools, ...noteTools, ...trainingTools, ...displayTools];
+export const ALL_TOOLS: AnyTool[] = [...findTools, ...researchTools, ...adReviewTools, ...readTools, ...googleTools, ...inventarlandTools, ...writeTools, ...targetingTools, ...stockTools, ...extensionTools, ...noteTools, ...trainingTools, ...displayTools];
 
 const byName = new Map(ALL_TOOLS.map((t) => [t.name, t]));
 

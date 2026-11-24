@@ -78,7 +78,7 @@ async function productPlan(ctx: ToolContext, bing: Campaign, google: GoogleCampa
  * excludes but Microsoft never showed needs no exclusion. When the report cannot be read,
  * every exclusion is kept – and the reason is passed on.
  */
-async function shownItems(ctx: ToolContext, campaignId: string, skip: boolean): Promise<{ items: ShownItems | null; error?: string }> {
+export async function shownItems(ctx: ToolContext, campaignId: string, skip: boolean): Promise<{ items: ShownItems | null; error?: string }> {
   if (skip) return { items: null };
   try {
     return { items: await memo(ctx, `shown:${campaignId}`, () => bingShownItems(ctx.accountId, campaignId, ctx.backend)) };
@@ -115,22 +115,22 @@ async function settingsOf(ctx: ToolContext, c: Campaign, g: GoogleCampaign, rang
  * and reads the tree back: only what Microsoft shows afterwards counts as done.
  */
 /** How a product tree is sent and read back: Shopping ad groups, or Performance Max asset groups. */
-interface TreeIO {
+export interface TreeIO {
   apply: (actions: PartitionAction[]) => Promise<unknown>;
   read: (group: MirrorGroup) => Promise<DListingNode[]>;
 }
 
-const shoppingIO = (ctx: ToolContext): TreeIO => ({
+export const shoppingIO = (ctx: ToolContext): TreeIO => ({
   apply: (actions) => ctx.backend.applyProductPartitionActions!(ctx.accountId, actions),
   read: async (g) => toListingNodes(await ctx.backend.listProductPartitions!(ctx.accountId, g.bingAdGroupId!, g.bingGroup!)),
 });
 
-const pmaxIO = (ctx: ToolContext, campaignId: string): TreeIO => ({
+export const pmaxIO = (ctx: ToolContext, campaignId: string): TreeIO => ({
   apply: (actions) => ctx.backend.applyAssetGroupListingGroupActions!(ctx.accountId, actions),
   read: async (g) => toListingNodes(await ctx.backend.listAssetGroupListingGroups!(ctx.accountId, campaignId)).filter((n) => n.groupId === g.bingAdGroupId),
 });
 
-async function applyGroups(ctx: ToolContext, groups: MirrorGroup[], lines: ChangeLine[], also: string, io: TreeIO = shoppingIO(ctx)): Promise<ExecutionResult> {
+export async function applyGroups(ctx: ToolContext, groups: MirrorGroup[], lines: ChangeLine[], also: string, io: TreeIO = shoppingIO(ctx)): Promise<ExecutionResult> {
   const chosen = new Set(lines.map((l) => l.pickKey!));
   const confirmed: string[] = [];
   const missing: string[] = [];
@@ -169,7 +169,7 @@ async function applyGroups(ctx: ToolContext, groups: MirrorGroup[], lines: Chang
 }
 
 /** A row of the product group card. */
-const cardLine = (g: MirrorGroup, r: MirrorGroup['rows'][number], skip: Set<string>): ChangeLine | null =>
+export const cardLine = (g: MirrorGroup, r: MirrorGroup['rows'][number], skip: Set<string>): ChangeLine | null =>
   skip.has(r.key)
     ? null
     : {
@@ -184,7 +184,7 @@ const cardLine = (g: MirrorGroup, r: MirrorGroup['rows'][number], skip: Set<stri
 
 const BID_ROWS: MirrorAction[] = ['add_bid', 'to_bid', 'rebid', 'else_bid', 'all', 'collapse'];
 
-const PICK = {
+export const PICK = {
   skipPath: ['skip'],
   group: 'group',
   itemLabel: 'Varenummer',

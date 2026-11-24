@@ -18,7 +18,8 @@ export type LogoId =
   | 'magento'
   | 'klaviyo'
   | 'pim'
-  | 'google_sheets';
+  | 'google_sheets'
+  | 'stock_sheet';
 
 const BRANDS: Partial<Record<LogoId, Brand>> = { claude: 'claude', microsoft_ads: 'microsoft_ads', google_ads: 'google_ads', meta_ads: 'meta', linkedin_ads: 'linkedin' };
 
@@ -30,6 +31,7 @@ const LETTERS: Partial<Record<LogoId, { letter: string; bg: string; fg?: string 
   klaviyo: { letter: 'K', bg: '#232426' },
   inventarland: { letter: 'I', bg: '#6d5cf6' },
   google_sheets: { letter: 'N', bg: '#0F9D58' },
+  stock_sheet: { letter: 'U', bg: '#0F9D58' },
 };
 
 /** `small`: a 20 px chip logo (branch pickers) instead of the 44 px card tile. */

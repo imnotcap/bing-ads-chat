@@ -1,9 +1,14 @@
-/** Overblik → "Til i dag": a short list of the planning cards to start on (todayCards.ts). */
+/**
+ * Overblik → "Til i dag": a short list of the planning cards to start on (todayCards.ts) and –
+ * when the sold-out sheet is connected – a Lager tab (features/stock/StockPanel.tsx).
+ */
 import { motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { ArrowRight, Sparkles } from '@/components/icons';
 import { fadeUp } from '@/components/motion';
 import { Button } from '@/components/ui/button';
+import { Segmented } from '@/components/ui/controls';
+import { StockPanel, useStockTodo } from '@/features/stock/StockPanel';
 import { CardDialog } from '@/features/board/CardDialog';
 import { LabelPill, PriorityTag } from '@/features/board/parts';
 import { startChat } from '@/features/chat/startChat';
@@ -22,20 +27,41 @@ export function RecentCards() {
   const openBoard = useUi((s) => s.openBoard);
   const [open, setOpen] = useState<string | null>(null);
   const { cards: list, total } = useMemo(() => todayCards({ boards, cards, members }, meId, new Date(), 5), [boards, cards, members, meId]);
-  if (!boards.length) return null;
+  const stock = useStockTodo();
+  const [tab, setTab] = useState<'cards' | 'stock'>('cards');
+  if (!boards.length && !stock.connected) return null;
+  const showing = stock.connected ? tab : 'cards';
 
   const seeAll = () => (boards.some((b) => b.id === AGENT_BOARD) ? openBoard(AGENT_BOARD) : go('board'));
+  const count = (n: number) => (n > 0 ? <span className="ml-1.5 rounded-full bg-surface px-1.5 text-[11px] font-semibold text-ink-2">{n}</span> : null);
   return (
     <motion.section variants={fadeUp} className="card flex flex-col p-5">
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <h2 className="text-[14.5px] font-semibold tracking-[-0.01em] text-ink">Til i dag</h2>
-        {total > 0 && <span className="rounded-full bg-line-2 px-2 py-0.5 text-[11.5px] font-medium text-muted">{total}</span>}
-        <span className="text-[12.5px] text-muted">Forfaldne kort og nye kort fra de seneste {RECENT_DAYS} dage</span>
-        <Button variant="ghost" size="xs" className="ml-auto" onClick={seeAll}>
-          Se planlægningen <ArrowRight />
-        </Button>
+        {stock.connected ? (
+          <Segmented
+            size="sm"
+            layoutId="today-tab"
+            value={showing}
+            onChange={setTab}
+            options={[
+              { value: 'cards', label: <span className="inline-flex items-center">Kort{count(total)}</span> },
+              { value: 'stock', label: <span className="inline-flex items-center">Lager{count(stock.count)}</span>, title: 'Udsolgt-arket: varer der skal genaktiveres eller snart er på lager' },
+            ]}
+          />
+        ) : (
+          total > 0 && <span className="rounded-full bg-line-2 px-2 py-0.5 text-[11.5px] font-medium text-muted">{total}</span>
+        )}
+        <span className="text-[12.5px] text-muted">{showing === 'cards' ? `Forfaldne kort og nye kort fra de seneste ${RECENT_DAYS} dage` : 'Fra udsolgt-arket'}</span>
+        {showing === 'cards' && boards.length > 0 && (
+          <Button variant="ghost" size="xs" className="ml-auto" onClick={seeAll}>
+            Se planlægningen <ArrowRight />
+          </Button>
+        )}
       </div>
-      {list.length ? (
+      {showing === 'stock' ? (
+        <StockPanel />
+      ) : list.length ? (
         <ul className="grid gap-1.5">
           {list.map(({ card, boardTitle, urgent }) => {
             const board = boards.find((b) => b.id === card.boardId);

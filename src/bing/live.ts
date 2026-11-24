@@ -801,6 +801,10 @@ export class LiveBackend implements AdsBackend {
     return productStatuses(products, catalog?.offers ?? null, catalog?.issues ?? null, active);
   }
 
+  async productsInRange(accountId: string, range: DateRange, signal?: AbortSignal): Promise<ProductPerformance[]> {
+    return aggregateProducts(await this.reportCsv(accountId, buildProductReportRequest(accountId, range, true), signal, PRODUCT_POLL_ATTEMPTS), []);
+  }
+
   async catalogItems(accountId: string): Promise<Map<string, { id: string; title: string | null }>> {
     const { offers } = await this.merchantCatalog(accountId);
     return new Map([...offers].map(([k, o]) => [k, { id: k, title: o.title }]));
