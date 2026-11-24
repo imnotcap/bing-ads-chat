@@ -20,6 +20,7 @@ import { cn, errorMessage } from '@/lib/utils';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 import type { DerivedMetrics } from '@/bing/types';
+import { ConversionsDialog, type ConversionsTarget } from './ConversionsDialog';
 import { DEFAULT_ROAS_SCALE, dayRows, monthRows, roasColor, totalOf, validScale, weekRows, type Grain, type PeriodRow, type RoasScale } from './daily';
 
 /** How far back the month arrows go. */
@@ -139,6 +140,7 @@ export function DailyPage() {
   const saved = useSettings((s) => (accountId ? s.roasScales[accountId] : undefined));
   const setRoasScale = useSettings((s) => s.setRoasScale);
   const scale = validScale(saved ?? DEFAULT_ROAS_SCALE);
+  const [conversions, setConversions] = useState<ConversionsTarget | null>(null);
 
   const history = useDailyHistory();
   const view = history.data;
@@ -301,7 +303,22 @@ export function DailyPage() {
                         {detail && <td className="border-b border-line-2 px-3 py-2.5 text-ink-2">{r.detail}</td>}
                         {COLUMNS.map((c) => (
                           <td key={c.label} className="border-b border-line-2 px-3 py-2.5 text-right tabular text-ink-2">
-                            {c.cell(r.metrics, currency)}
+                            {c.label === 'Konv.' && r.metrics.conversions > 0 ? (
+                              <Tooltip content="Se hvilke produkter der konverterede">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setConversions({ range: { from: r.from, to: r.to }, label: r.label, conversions: r.metrics.conversions });
+                                  }}
+                                  className="-mx-1.5 rounded-md px-1.5 py-0.5 font-medium text-brand underline decoration-brand/30 underline-offset-2 transition-colors hover:bg-brand-50 hover:decoration-brand"
+                                >
+                                  {c.cell(r.metrics, currency)}
+                                </button>
+                              </Tooltip>
+                            ) : (
+                              c.cell(r.metrics, currency)
+                            )}
                           </td>
                         ))}
                         <RoasCell roas={r.metrics.roas} scale={scale} />
@@ -331,8 +348,9 @@ export function DailyPage() {
           Uger og måneder er summer af dagene, og alle forhold (CTR, CPC, ROAS …) regnes af summerne. De seneste 30 dage hentes igen hver morgen, fordi
           konverteringer kommer til i dagene efter klikket.
           {view && !view.office && ' Uden for hverdage 8–16 hentes der kun nyt, når du trykker Opdatér.'}
-          {view?.error && <span className="text-negative"> Seneste hentning fejlede: {view.error}</span>}
+          {view?.error && <span className="text-negative"> Seneste hentning fejlede: {view.error}</span>} Klik på antallet af konverteringer for at se, hvilke produkter de kom fra.
         </p>
+        <ConversionsDialog target={conversions} currency={currency} onClose={() => setConversions(null)} />
       </div>
     </motion.div>
   );

@@ -18,6 +18,7 @@ import { rankCandidates, suggestMatch } from '@/features/audit/match';
 import { googleBidsByHand, settingsFacts } from '@/features/audit/settings';
 import { benchRoas, bidAdvice, buildActions, compareProductTrees, planEdit, planMirror, performsWell, shapeOf, stateText, statsText, verifyMirror, type ItemState, type MirrorAction, type MirrorGroup } from '@/features/audit/productMirror';
 import type { ChangeLine } from '@/stores/activity';
+import { exclusionBids, loadOldBids, oldBidOf, saveOldBids } from '@/workspace/oldBids';
 import { auditGoogleMatch, googleCampaigns, googleDetail, requireGoogle } from '../googleSource';
 import { PERIOD_DESCRIPTION, defineRead, defineWrite, expiredReason, getAdGroups, getCampaign, getReport, memo, resolvePeriod, type ExecutionResult, type ToolContext } from './context';
 
@@ -78,7 +79,7 @@ async function productPlan(ctx: ToolContext, bing: Campaign, google: GoogleCampa
  * excludes but Microsoft never showed needs no exclusion. When the report cannot be read,
  * every exclusion is kept – and the reason is passed on.
  */
-async function shownItems(ctx: ToolContext, campaignId: string, skip: boolean): Promise<{ items: ShownItems | null; error?: string }> {
+export async function shownItems(ctx: ToolContext, campaignId: string, skip: boolean): Promise<{ items: ShownItems | null; error?: string }> {
   if (skip) return { items: null };
   try {
     return { items: await memo(ctx, `shown:${campaignId}`, () => bingShownItems(ctx.accountId, campaignId, ctx.backend)) };
@@ -115,22 +116,22 @@ async function settingsOf(ctx: ToolContext, c: Campaign, g: GoogleCampaign, rang
  * and reads the tree back: only what Microsoft shows afterwards counts as done.
  */
 /** How a product tree is sent and read back: Shopping ad groups, or Performance Max asset groups. */
-interface TreeIO {
+export interface TreeIO {
   apply: (actions: PartitionAction[]) => Promise<unknown>;
   read: (group: MirrorGroup) => Promise<DListingNode[]>;
 }
 
-const shoppingIO = (ctx: ToolContext): TreeIO => ({
+export const shoppingIO = (ctx: ToolContext): TreeIO => ({
   apply: (actions) => ctx.backend.applyProductPartitionActions!(ctx.accountId, actions),
   read: async (g) => toListingNodes(await ctx.backend.listProductPartitions!(ctx.accountId, g.bingAdGroupId!, g.bingGroup!)),
 });
 
-const pmaxIO = (ctx: ToolContext, campaignId: string): TreeIO => ({
+export const pmaxIO = (ctx: ToolContext, campaignId: string): TreeIO => ({
   apply: (actions) => ctx.backend.applyAssetGroupListingGroupActions!(ctx.accountId, actions),
   read: async (g) => toListingNodes(await ctx.backend.listAssetGroupListingGroups!(ctx.accountId, campaignId)).filter((n) => n.groupId === g.bingAdGroupId),
 });
 
-async function applyGroups(ctx: ToolContext, groups: MirrorGroup[], lines: ChangeLine[], also: string, io: TreeIO = shoppingIO(ctx)): Promise<ExecutionResult> {
+export async function applyGroups(ctx: ToolContext, groups: MirrorGroup[], lines: ChangeLine[], also: string, io: TreeIO = shoppingIO(ctx)): Promise<ExecutionResult> {
   const chosen = new Set(lines.map((l) => l.pickKey!));
   const confirmed: string[] = [];
   const missing: string[] = [];
@@ -153,6 +154,9 @@ async function applyGroups(ctx: ToolContext, groups: MirrorGroup[], lines: Chang
     missing.push(...v.missing.map((t) => `${g.bingGroup}: ${t}`));
     applied.push(...lines.filter((l) => l.entityId === g.bingAdGroupId && v.confirmed.some((t) => l.field.endsWith(t))));
   }
+  // The bids of the items now excluded – a later re-activation gives them back (workspace/oldBids.ts).
+  const done = new Set(applied.map((l) => l.pickKey!));
+  await saveOldBids(ctx.accountId, groups.flatMap((g) => exclusionBids(g, done)));
   const outcome = failed.length || missing.length ? (confirmed.length ? 'partial' : 'failed') : 'confirmed';
   return {
     result: {
@@ -168,8 +172,29 @@ async function applyGroups(ctx: ToolContext, groups: MirrorGroup[], lines: Chang
   };
 }
 
+/**
+ * Item ids to bid on again, split: those with an old bid saved for this ad group (workspace/oldBids.ts)
+ * get it as their own bid; the rest stay in `include` (the group's bid). Bids the request already
+ * names are kept.
+ */
+export async function reactivationBids(ctx: ToolContext, adGroupId: string, include: string[], given: Record<string, number>) {
+  const old = await loadOldBids(ctx.accountId);
+  const itemBids = { ...given };
+  const rest: string[] = [];
+  const reused: { id: string; bid: number }[] = [];
+  for (const id of include) {
+    if (itemBids[id] !== undefined) continue;
+    const bid = oldBidOf(old, adGroupId, id);
+    if (bid) {
+      itemBids[id] = bid;
+      reused.push({ id, bid });
+    } else rest.push(id);
+  }
+  return { include: rest, itemBids, reused };
+}
+
 /** A row of the product group card. */
-const cardLine = (g: MirrorGroup, r: MirrorGroup['rows'][number], skip: Set<string>): ChangeLine | null =>
+export const cardLine = (g: MirrorGroup, r: MirrorGroup['rows'][number], skip: Set<string>): ChangeLine | null =>
   skip.has(r.key)
     ? null
     : {
@@ -184,7 +209,7 @@ const cardLine = (g: MirrorGroup, r: MirrorGroup['rows'][number], skip: Set<stri
 
 const BID_ROWS: MirrorAction[] = ['add_bid', 'to_bid', 'rebid', 'else_bid', 'all', 'collapse'];
 
-const PICK = {
+export const PICK = {
   skipPath: ['skip'],
   group: 'group',
   itemLabel: 'Varenummer',
@@ -453,7 +478,16 @@ export const googleTools = [
         ag = { id: found.id, name: found.name, cpcBid: found.cpcBid };
         nodes = toListingNodes(await ctx.backend.listProductPartitions!(ctx.accountId, found.id, found.name));
       }
-      const planned = planEdit(nodes, ag, { exclude: input.exclude, include: input.include, remove: input.remove, setBid: input.setBid, itemBids: input.itemBids, bid: input.bid, noBids: pmax, everythingElse: input.everythingElse });
+      // Items bid on again get their old bid back (saved when they were excluded) – else the group's bid, at least the minimum bid.
+      const reuse = !pmax && !input.bid && input.include?.length ? await reactivationBids(ctx, ag.id, input.include, input.itemBids ?? {}) : null;
+      const edit = { exclude: input.exclude, include: reuse ? reuse.include : input.include, remove: input.remove, setBid: input.setBid, itemBids: reuse ? reuse.itemBids : input.itemBids, bid: input.bid, noBids: pmax, everythingElse: input.everythingElse };
+      let planned = planEdit(nodes, ag, edit);
+      const min = ctx.rules.minCpcBid;
+      if (reuse && reuse.include.length && min && planned.bid !== null && planned.bid < min) {
+        planned = planEdit(nodes, ag, { ...edit, include: [], itemBids: { ...edit.itemBids, ...Object.fromEntries(reuse.include.map((id) => [id, min])) } });
+        planned.notes.push(`Intet tidligere bud gemt for ${reuse.include.join(', ')} – får mindstebuddet ${fmtMoney(min, ctx.currency, 2)} (gruppens bud er ${fmtMoney(planned.bid ?? 0, ctx.currency, 2)}).`);
+      }
+      if (reuse?.reused.length) planned.notes.push(`Samme bud som før de blev udelukket: ${reuse.reused.map((r) => `${r.id} ${fmtMoney(r.bid, ctx.currency, 2)}`).join(', ')}.`);
       if (planned.status === 'unsupported') throw new Error(planned.reason);
       const group: MirrorGroup = { ...planned, bid: pmax ? null : (input.bids?.[ag.id] ?? planned.bid) };
       const skip = new Set(input.skip ?? []);

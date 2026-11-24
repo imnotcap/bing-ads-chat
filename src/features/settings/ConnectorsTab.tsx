@@ -16,7 +16,7 @@ import { useAccount } from '@/stores/account';
 import { ACTIVE_CONNECTORS, CONNECTOR_GROUPS, type ConnectorDef, type ConnectorGroup, type ConnectorStatus, type ConnectorSummary } from '@/workspace/connectors';
 import { completeSourceLogin, disconnectSource, loadSources, saveSource, startSourceLogin, testSource, useSources } from '@/workspace/sources';
 import { ConnectorLogo, type LogoId } from './ConnectorLogo';
-import { AdsConnectionForm, ClaudeKeyForm, InventarlandForm, MicrosoftSetupGuide, NotesheetForm, SharedBy } from './forms';
+import { AdsConnectionForm, ClaudeKeyForm, InventarlandForm, MicrosoftSetupGuide, NotesheetForm, SharedBy, StocksheetForm } from './forms';
 
 type Group = ConnectorGroup | 'ai';
 // A group with nothing left in it is not shown. Annoncering always is: Microsoft Advertising and
@@ -27,7 +27,7 @@ const GROUPS: { id: Group; label: string }[] = [
 ];
 
 /** The three connections that have their own forms (shared from before). */
-type BuiltinId = 'claude' | 'microsoft_ads' | 'inventarland' | 'notesheet';
+type BuiltinId = 'claude' | 'microsoft_ads' | 'inventarland' | 'notesheet' | 'stocksheet';
 
 interface Item {
   id: LogoId;
@@ -49,6 +49,7 @@ function useItems(): Item[] {
     const ads = ws?.ads;
     const inv = ws?.inventarland;
     const ns = ws?.notesheet;
+    const ss = ws?.stocksheet;
     const builtins: Item[] = [
       {
         id: 'claude',
@@ -89,6 +90,16 @@ function useItems(): Item[] {
         group: 'ads',
         status: ns?.connected ? (ns.error ? 'error' : 'connected') : 'not_connected',
         detail: ns?.connected ? (ns.error ?? ns.name) : null,
+      },
+      {
+        id: 'stock_sheet',
+        builtin: 'stocksheet',
+        name: 'Udsolgt-ark (Google Sheets)',
+        description: 'Udsolgte og fjernede varer udelukkes, varer på lager genaktiveres – du godkender hver ændring',
+        vendor: 'Google',
+        group: 'ads',
+        status: ss?.connected ? (ss.error ? 'error' : 'connected') : 'not_connected',
+        detail: ss?.connected ? (ss.error ?? ss.name) : null,
       },
     ];
     const sources: Item[] = ACTIVE_CONNECTORS.map((def) => {
@@ -352,7 +363,7 @@ function ConnectorDialog({ item, onClose }: { item: Item | null; onClose: () => 
     >
       {current && (
         <div className="-mx-1 grid max-h-[min(66vh,620px)] gap-4 overflow-y-auto px-1">
-          {current.builtin !== 'microsoft_ads' && current.builtin !== 'claude' && current.builtin !== 'inventarland' && current.builtin !== 'notesheet' && <StatusBanner item={current} summary={summary} />}
+          {current.builtin !== 'microsoft_ads' && current.builtin !== 'claude' && current.builtin !== 'inventarland' && current.builtin !== 'notesheet' && current.builtin !== 'stocksheet' && <StatusBanner item={current} summary={summary} />}
           {current.builtin === 'claude' && <ClaudeKeyForm />}
           {current.builtin === 'microsoft_ads' && (
             <>
@@ -362,6 +373,7 @@ function ConnectorDialog({ item, onClose }: { item: Item | null; onClose: () => 
           )}
           {current.builtin === 'inventarland' && <InventarlandForm />}
           {current.builtin === 'notesheet' && <NotesheetForm />}
+          {current.builtin === 'stocksheet' && <StocksheetForm />}
           {current.def && <SourceForm key={current.def.id} def={current.def} summary={summary} />}
         </div>
       )}

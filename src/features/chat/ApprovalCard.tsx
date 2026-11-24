@@ -4,7 +4,7 @@
  */
 import { AnimatePresence, motion } from 'motion/react';
 import { Ban, Check, CheckCircle2, ChevronDown, Clock, Loader2, Pin, Plus, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from '@/components/icons';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from '@/components/notifications/toast';
 import { answerApproval, parseAmount } from '@/ai/approvals';
 import { undoActivity } from '@/ai/agent';
@@ -18,6 +18,19 @@ import { useActivity, type ChangeLine } from '@/stores/activity';
 import { useSettings } from '@/stores/settings';
 import { NotePreview } from '../notes/NotePreview';
 import type { ToolPart } from '@/stores/chat';
+
+/**
+ * The approve of each mounted card while it waits, for the batch (ApprovalBatch.tsx): it sends
+ * the card's own edits and ticks. Returns false when the card can't be approved as it is
+ * (an invalid value, or nothing ticked).
+ */
+export const batchApprovers = new Map<string, () => boolean>();
+
+/** The answer an untouched card gives: no edits, the rows a tool starts unticked left out. */
+export function defaultApproval(part: ToolPart) {
+  const plan = part.plan;
+  return { approved: true, excluded: plan?.pick ? plan.changes.flatMap((c, i) => (c.pickOff ? [i] : [])) : undefined };
+}
 
 function cell(v: string | number | null | undefined, currency: string) {
   if (v === null || v === undefined || v === '') return <span className="text-subtle">–</span>;
@@ -469,7 +482,8 @@ function PickTable({
   );
 }
 
-export function ApprovalCard({ part, currency }: { part: ToolPart; currency: string }) {
+/** `inBatch`: one of several cards shown together – Godkend/Afvis are on the batch, not here. */
+export function ApprovalCard({ part, currency, inBatch = false }: { part: ToolPart; currency: string; inBatch?: boolean }) {
   const plan = part.plan!;
   const [note, setNote] = useState('');
   const [showNote, setShowNote] = useState(false);
@@ -524,13 +538,27 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
       added: plan.pick?.add && manual.length ? manual : undefined,
     });
 
+  const batchApprove = useRef<() => boolean>(() => false);
+  batchApprove.current = () => {
+    if (invalid || (!!plan.pick && chosen === 0)) return false;
+    approve();
+    return true;
+  };
+  useEffect(() => {
+    if (!waiting) return;
+    batchApprovers.set(part.id, () => batchApprove.current());
+    return () => {
+      batchApprovers.delete(part.id);
+    };
+  }, [waiting, part.id]);
+
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: 8, scale: 0.99 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.35, ease: EASE }}
-      className={cn('relative overflow-hidden rounded-2xl border bg-surface transition-[border-color,box-shadow]', waiting ? 'border-brand/35 shadow-glow' : 'border-line')}
+      className={cn('relative overflow-hidden rounded-2xl border bg-surface transition-[border-color,box-shadow]', waiting && !inBatch ? 'border-brand/35 shadow-glow' : 'border-line')}
     >
       <div className="flex items-start gap-3 px-4 pb-3 pt-4">
         <span className={cn('mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg', part.status === 'blocked' ? 'bg-negative-bg text-negative' : 'bg-brand-50 text-brand')}>
@@ -675,7 +703,11 @@ export function ApprovalCard({ part, currency }: { part: ToolPart; currency: str
             </motion.div>
           )}
         </AnimatePresence>
-        {waiting ? (
+        {waiting && inBatch ? (
+          <p className="text-[11.5px] text-subtle">
+            {invalid ? <span className="text-negative">Ret de markerede værdier – ellers springes kortet over.</span> : 'Dine rettelser og flueben her kommer med, når du trykker Godkend nederst.'}
+          </p>
+        ) : waiting ? (
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="positive" disabled={invalid || (!!plan.pick && chosen === 0)} onClick={approve}>
               <Check />{' '}

@@ -9,7 +9,7 @@ import { openExternal } from '@/lib/platform';
 import { cn, errorMessage } from '@/lib/utils';
 import { isAdmin, useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
-import { connectInventarland, connectNotesheet, disconnectInventarland, disconnectNotesheet, disconnectSharedAds, goDemo, goLive, saveSharedAds } from '@/workspace/shared';
+import { connectInventarland, connectNotesheet, connectStocksheet, disconnectInventarland, disconnectNotesheet, disconnectSharedAds, disconnectStocksheet, goDemo, goLive, saveSharedAds } from '@/workspace/shared';
 import { INVENTARLAND_URL, type SharedKeyInfo } from '@/workspace/types';
 import { removeAnthropicKey, saveAnthropicKey, testAnthropicKey } from './connection';
 import { draftTestNote } from '@/ai/notes';
@@ -509,6 +509,152 @@ export function NotesheetForm() {
                   try {
                     await disconnectNotesheet();
                     toast('Notatarket er afbrudt');
+                  } catch (e) {
+                    toast.error('Kunne ikke afbryde', { description: errorMessage(e) });
+                  } finally {
+                    setBusy(null);
+                  }
+                }}
+              >
+                <Unplug /> Afbryd
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The sold-out sheet: columns A–E – item id and name among A–C, D the status (Udsolgt / Fjernet /
+ * På lager), E the date it is expected back. Read only; an administrator connects it.
+ */
+export function StocksheetForm() {
+  const ss = useAccount((s) => s.workspace?.stocksheet ?? null);
+  const admin = useAccount((s) => isAdmin(s.user));
+  const [url, setUrl] = useState('');
+  const [key, setKey] = useState<{ name: string; text: string } | null>(null);
+  const [busy, setBusy] = useState<'save' | 'off' | null>(null);
+  const [editing, setEditing] = useState(false);
+  const file = useRef<HTMLInputElement>(null);
+  const connected = !!ss?.connected;
+  const showForm = admin && (!connected || editing);
+  const account = ss?.serviceAccount ?? NOTES_ACCOUNT;
+  const needsKey = !ss?.serviceAccount;
+
+  const save = async () => {
+    setBusy('save');
+    try {
+      await connectStocksheet(url.trim(), key?.text);
+      setEditing(false);
+      setKey(null);
+      toast.success('Udsolgt-arket er forbundet', { description: 'Se Overblik → Til i dag → Lager.' });
+    } catch (e) {
+      toast.error('Kunne ikke forbinde udsolgt-arket', { description: errorMessage(e), duration: 10_000 });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="grid content-start gap-4">
+      {connected && ss && (
+        <div className={cn('grid gap-1 rounded-xl px-3.5 py-2.5 text-[13px]', ss.error ? 'bg-warning-bg text-warning' : 'bg-positive-bg text-positive')}>
+          <div className="flex flex-wrap items-center gap-2">
+            {ss.error ? <AlertTriangle className="size-4" /> : <CheckCircle2 className="size-4" />}
+            <span className="font-medium">
+              {ss.name} · fanen "{ss.tab}"
+            </span>
+            {ss.url && (
+              <button type="button" onClick={() => void openExternal(ss.url!)} className="inline-flex items-center gap-1 underline-offset-2 hover:underline">
+                Åbn <ExternalLink className="size-3" />
+              </button>
+            )}
+          </div>
+          {ss.error && <p className="text-[12.5px]">{ss.error}</p>}
+          <SharedBy by={ss.connectedBy} at={ss.connectedAt} className={ss.error ? 'text-warning/80' : 'text-positive/80'} />
+        </div>
+      )}
+      <div className="grid gap-1.5 rounded-xl border border-line bg-surface px-3.5 py-3 text-[13px] text-ink-2">
+        <p>
+          <b>1.</b> Del arket med service-kontoen (læseadgang er nok):
+        </p>
+        <div className="flex items-center gap-2">
+          <code className="min-w-0 flex-1 truncate rounded-md bg-line-2 px-2 py-1 text-[12px]">{account}</code>
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => {
+              void navigator.clipboard.writeText(account);
+              toast.success('Kopieret');
+            }}
+          >
+            <Copy /> Kopiér
+          </Button>
+        </div>
+        <p>
+          <b>2.</b> Indsæt linket til fanen med produkterne (adressen fra browseren).
+        </p>
+        <p className="text-[12px] text-muted">
+          Kolonne A–C: varenummer og navn · D: status (Udsolgt, Fjernet eller På lager) · E: dato, hvor varen ventes på lager igen. Appen læser kun arket – den skriver aldrig i det.
+          Udsolgte og fjernede varer udelukkes i Microsoft, og varer på lager genaktiveres, når du godkender det.
+        </p>
+      </div>
+      {!admin && !connected && <p className="text-[13px] text-muted">En administrator forbinder udsolgt-arket.</p>}
+      {showForm && (
+        <div className="grid gap-4">
+          <Field label="Link til arket" htmlFor="ss-url" hint="Fx https://docs.google.com/spreadsheets/d/…/edit#gid=0">
+            <Input id="ss-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" className="font-mono text-[13px]" />
+          </Field>
+          {needsKey && (
+            <Field label="Service-kontoens JSON-nøgle" htmlFor="ss-key" hint="Appen har ikke service-kontoens nøgle endnu, så udsolgt-arket skal have den. Gemmes kun på jeres Cloudflare.">
+              <div className="flex items-center gap-2">
+                <Button id="ss-key" variant="secondary" size="sm" onClick={() => file.current?.click()}>
+                  <FileUp /> {key ? key.name : 'Vælg JSON-fil'}
+                </Button>
+                <input
+                  ref={file}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setKey({ name: f.name, text: await f.text() });
+                  }}
+                />
+              </div>
+            </Field>
+          )}
+        </div>
+      )}
+      {admin && (
+        <div className="flex flex-wrap items-center gap-2">
+          {showForm ? (
+            <>
+              <Button variant={connected ? 'secondary' : 'gradient'} disabled={!!busy || !url.includes('/spreadsheets/d/') || (needsKey && !key)} onClick={() => void save()}>
+                {busy === 'save' ? <Loader2 className="animate-spin" /> : <PlugZap />} {connected ? 'Gem og test' : 'Forbind udsolgt-ark'}
+              </Button>
+              {editing && (
+                <Button variant="ghost" onClick={() => setEditing(false)}>
+                  Annullér
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={() => setEditing(true)}>
+                Skift ark
+              </Button>
+              <Button
+                variant="ghost"
+                className="text-muted"
+                disabled={!!busy}
+                onClick={async () => {
+                  setBusy('off');
+                  try {
+                    await disconnectStocksheet();
+                    toast('Udsolgt-arket er afbrudt');
                   } catch (e) {
                     toast.error('Kunne ikke afbryde', { description: errorMessage(e) });
                   } finally {

@@ -11,7 +11,7 @@ import { queryClient } from '@/lib/queryClient';
 import { useAccount } from '@/stores/account';
 import { useConnection } from '@/stores/connection';
 import { api } from './api';
-import { type InventarlandView, type SharedKeyName, type WorkspaceInfo } from './types';
+import { type InventarlandView, type SharedKeyName, type StockDone, type StockRow, type StockStatus, type WorkspaceInfo } from './types';
 
 /* --------------------------------- overview --------------------------------- */
 
@@ -175,6 +175,27 @@ export async function disconnectNotesheet() {
 /** Adds rows at the bottom of the notes sheet's table (the Worker only ever appends). */
 export async function writeNotes(notes: { campaign: string; adGroup: string; topics: string[]; comment: string }[]) {
   return api<{ written: number }>('/workspace/notesheet/rows', { method: 'POST', body: JSON.stringify({ notes }) });
+}
+
+/* ------------------------------ the sold-out sheet ------------------------------ */
+
+/** Connects the sold-out sheet (a link to the tab); the service account must be able to read it. */
+export async function connectStocksheet(url: string, key?: string) {
+  applyWorkspace(await api<WorkspaceInfo>('/workspace/stocksheet', { method: 'PUT', body: JSON.stringify({ url, ...(key ? { key } : {}) }) }));
+}
+
+export async function disconnectStocksheet() {
+  applyWorkspace(await api<WorkspaceInfo>('/workspace/stocksheet', { method: 'DELETE' }));
+}
+
+/** The sheet's rows (read by the Worker at most every 2 minutes; `fresh` reads it now) and what the app already did. */
+export async function getStockSheet(fresh = false) {
+  return api<{ rows: StockRow[]; readAt: number; done: StockDone }>(`/workspace/stocksheet/rows${fresh ? '?fresh=1' : ''}`);
+}
+
+/** Remembers that these items were excluded or re-activated in Microsoft (after approval). */
+export async function markStockDone(items: { id: string; status: StockStatus }[]) {
+  return api<{ done: StockDone }>('/workspace/stocksheet/done', { method: 'POST', body: JSON.stringify({ items }) });
 }
 
 export interface WatchItem {

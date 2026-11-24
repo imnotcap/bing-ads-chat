@@ -570,6 +570,8 @@ export interface AdsBackend {
    * products worth showing happens in bing/products.ts.
    */
   productPerformance?(accountId: string, range: DateRange, signal?: AbortSignal): Promise<ProductPerformance[]>;
+  /** Only the period's product report (no period before, no catalogue) – e.g. which products converted on one day. */
+  productsInRange?(accountId: string, range: DateRange, signal?: AbortSignal): Promise<ProductPerformance[]>;
   /** The products one campaign showed in the period (impressions per item id and ad group / asset group). */
   shownProducts?(accountId: string, campaignId: string, range: DateRange, signal?: AbortSignal): Promise<ShownProduct[]>;
   /** `location`: a country name in English (default Denmark). */
