@@ -783,9 +783,21 @@ export const REPORT_LABELS: Record<ReportKind, string> = {
   hourofday: 'Time på dagen',
   dayofweek: 'Ugedag',
   impressionshare: 'Visningsandel',
+  adgrouphourly: 'Time for time pr. annoncegruppe',
+  adgroupdevice: 'Enheder pr. annoncegruppe',
+  adgroupagegender: 'Alder og køn pr. annoncegruppe',
+  adgroupgeo: 'Regioner pr. annoncegruppe',
 };
 
+const AG = [
+  { key: 'adGroupName', label: 'Annoncegruppe' },
+  { key: 'campaignName', label: 'Kampagne' },
+];
 const DIMENSION_COLUMNS: Record<ReportKind, VisualColumn[]> = {
+  adgrouphourly: [{ key: 'date', label: 'Dato' }, { key: 'hour', label: 'Time' }, ...AG],
+  adgroupdevice: [{ key: 'device', label: 'Enhed' }, ...AG],
+  adgroupagegender: [{ key: 'ageGroup', label: 'Alder' }, { key: 'gender', label: 'Køn' }, ...AG],
+  adgroupgeo: [{ key: 'region', label: 'Region' }, ...AG],
   account: [],
   campaign: [{ key: 'campaignName', label: 'Kampagne' }],
   adgroup: [

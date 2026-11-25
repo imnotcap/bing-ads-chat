@@ -17,6 +17,7 @@ import { CampaignsPage } from '@/features/campaigns/CampaignsPage';
 import { ProductsPage } from '@/features/products/ProductsPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { DailyPage } from '@/features/dashboard/DailyPage';
+import { TargetingPage } from '@/features/targeting/TargetingPage';
 import { BoardPage } from '@/features/board/BoardPage';
 import { AuditPage } from '@/features/audit/AuditPage';
 import { AuditSidebar } from '@/features/audit/AuditSidebar';
@@ -198,6 +199,7 @@ function Shell() {
               {view === 'dashboard' && <DashboardPage key="dashboard" />}
               {view === 'daily' && <DailyPage key="daily" />}
               {view === 'campaigns' && <CampaignsPage key="campaigns" />}
+              {view === 'targeting' && <TargetingPage key="targeting" />}
               {view === 'products' && <ProductsPage key="products" />}
               {view === 'activity' && <ActivityPage key="activity" />}
               {view === 'board' && <BoardPage key="board" />}

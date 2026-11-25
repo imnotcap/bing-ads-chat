@@ -38,6 +38,10 @@ export const REPORT_DEFS: Record<ReportKind, ReportDef> = {
   ad: { type: 'AdPerformanceReportRequest', dimensions: ['CampaignName', 'AdGroupId', 'AdGroupName', 'AdId', 'AdTitle', 'AdType'] },
   geo: { type: 'GeographicPerformanceReportRequest', dimensions: ['Country', 'State', 'City'], accountScopeOnly: true },
   agegender: { type: 'AgeGenderAudienceReportRequest', dimensions: ['AgeGroup', 'Gender'], accountScopeOnly: true },
+  adgrouphourly: { type: 'AdGroupPerformanceReportRequest', dimensions: ['CampaignId', 'CampaignName', 'AdGroupId', 'AdGroupName'], aggregation: 'Hourly' },
+  adgroupdevice: { type: 'AdGroupPerformanceReportRequest', dimensions: ['CampaignId', 'CampaignName', 'AdGroupId', 'AdGroupName', 'DeviceType'] },
+  adgroupagegender: { type: 'AgeGenderAudienceReportRequest', dimensions: ['CampaignId', 'CampaignName', 'AdGroupId', 'AdGroupName', 'AgeGroup', 'Gender'] },
+  adgroupgeo: { type: 'GeographicPerformanceReportRequest', dimensions: ['CampaignId', 'CampaignName', 'AdGroupId', 'AdGroupName', 'Country', 'State'] },
   impressionshare: {
     type: 'CampaignPerformanceReportRequest',
     dimensions: [
@@ -131,6 +135,12 @@ export function normalizeReportRows(kind: ReportKind, raw: Record<string, string
     for (const [col, value] of Object.entries(r)) {
       if (col === 'TimePeriod') {
         if (kind === 'hourofday') row.hour = toNumber(value);
+        else if (kind === 'adgrouphourly') {
+          // Hourly: "2026-11-02|13" – the date and the hour.
+          const [d, h] = value.split('|');
+          row.date = normalizeReportDate(d ?? '');
+          row.hour = toNumber(h ?? '0');
+        }
         else if (kind === 'dayofweek') row.dayOfWeek = DAY_NAMES[value] ?? value;
         else row.date = normalizeReportDate(value);
       } else if (DIMENSION_MAP[col]) {
