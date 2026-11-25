@@ -166,3 +166,37 @@ export function roasColor(roas: number | null, scale: RoasScale): string | null 
   const mix = lo.map((c, k) => Math.round(c + (hi[k]! - c) * t));
   return `rgb(${mix[0]} ${mix[1]} ${mix[2]})`;
 }
+
+/* ------------------------------------ excluding brand ------------------------------------ */
+
+/** Brand campaigns: the ones the user chose for the account, else every campaign with "brand" in its name. */
+export function brandCampaignIds(campaigns: { id: string; name: string; status?: string }[], chosen: string[] | undefined): string[] {
+  if (chosen) return chosen.filter((id) => campaigns.some((c) => c.id === id));
+  return campaigns.filter((c) => c.status !== 'Deleted' && /brand/i.test(c.name)).map((c) => c.id);
+}
+
+/** The brand campaigns' days as account days (summed per day). */
+export function daysOf(rows: { date?: string; impressions?: number; clicks?: number; spend?: number; conversions?: number; revenue?: number }[]): DayMetrics[] {
+  const by = new Map<string, DayMetrics>();
+  for (const r of rows) {
+    if (!r.date) continue;
+    const d = by.get(r.date) ?? { day: r.date, impressions: 0, clicks: 0, spend: 0, conversions: 0, revenue: 0 };
+    by.set(r.date, { day: d.day, impressions: d.impressions + (r.impressions ?? 0), clicks: d.clicks + (r.clicks ?? 0), spend: d.spend + (r.spend ?? 0), conversions: d.conversions + (r.conversions ?? 0), revenue: d.revenue + (r.revenue ?? 0) });
+  }
+  return [...by.values()].sort((a, b) => a.day.localeCompare(b.day));
+}
+
+/**
+ * The account's days without the brand campaigns': day by day, never below 0 (the account
+ * report and the campaign report can differ by a rounding on a day).
+ */
+export function withoutBrand(days: DayMetrics[], brand: DayMetrics[]): DayMetrics[] {
+  const b = new Map(brand.map((d) => [d.day, d]));
+  const minus = (x: number, y: number | undefined) => Math.max(0, Math.round((x - (y ?? 0)) * 100) / 100);
+  return days.map((d) => {
+    const x = b.get(d.day);
+    return x
+      ? { day: d.day, impressions: minus(d.impressions, x.impressions), clicks: minus(d.clicks, x.clicks), spend: minus(d.spend, x.spend), conversions: minus(d.conversions, x.conversions), revenue: minus(d.revenue, x.revenue) }
+      : d;
+  });
+}

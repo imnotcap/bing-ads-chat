@@ -15,10 +15,10 @@ export interface ConversionsTarget {
   conversions: number;
 }
 
-export function ConversionsDialog({ target, currency, onClose }: { target: ConversionsTarget | null; currency: string; onClose: () => void }) {
+export function ConversionsDialog({ target, currency, onClose, exclude }: { target: ConversionsTarget | null; currency: string; onClose: () => void; exclude?: string[] }) {
   const accountId = useConnection((s) => s.accountId);
   const q = useQuery({
-    queryKey: ['conversion-products', accountId, target?.range.from, target?.range.to],
+    queryKey: ['conversion-products', accountId, target?.range.from, target?.range.to, exclude?.join(',') ?? ''],
     enabled: !!target && !!accountId,
     staleTime: 10 * 60_000,
     queryFn: async ({ signal }) => {
@@ -28,7 +28,7 @@ export function ConversionsDialog({ target, currency, onClose }: { target: Conve
         backend.productsInRange(accountId!, target!.range, signal),
         backend.runReport(accountId!, { kind: 'campaign', range: target!.range, aggregation: 'Summary' }, signal),
       ]);
-      return conversionBreakdown(products, campaigns);
+      return conversionBreakdown(products, campaigns, new Set(exclude ?? []));
     },
   });
   const kr = (v: number) => fmtMoney(v, currency, 0);
@@ -40,7 +40,7 @@ export function ConversionsDialog({ target, currency, onClose }: { target: Conve
       open={!!target}
       onOpenChange={(o) => !o && onClose()}
       title={target ? `${conv(target.conversions)} konverteringer · ${target.label}` : ''}
-      description="Produktet kunden klikkede på i Shopping eller Performance Max – Microsoft oplyser ikke, hvad der blev købt."
+      description={`Produktet kunden klikkede på i Shopping eller Performance Max – Microsoft oplyser ikke, hvad der blev købt.${exclude?.length ? ' Brand-kampagner er trukket fra.' : ''}`}
       className="w-[min(680px,calc(100vw-32px))]"
     >
       {q.isLoading ? (
