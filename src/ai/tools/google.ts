@@ -18,6 +18,7 @@ import { rankCandidates, suggestMatch } from '@/features/audit/match';
 import { googleBidsByHand, settingsFacts } from '@/features/audit/settings';
 import { benchRoas, bidAdvice, buildActions, compareProductTrees, planEdit, planMirror, performsWell, shapeOf, stateText, statsText, verifyMirror, type ItemState, type MirrorAction, type MirrorGroup } from '@/features/audit/productMirror';
 import type { ChangeLine } from '@/stores/activity';
+import { useSettings } from '@/stores/settings';
 import { exclusionBids, loadOldBids, oldBidOf, saveOldBids } from '@/workspace/oldBids';
 import { auditGoogleMatch, googleCampaigns, googleDetail, requireGoogle } from '../googleSource';
 import { PERIOD_DESCRIPTION, defineRead, defineWrite, expiredReason, getAdGroups, getCampaign, getReport, memo, resolvePeriod, type ExecutionResult, type ToolContext } from './context';
@@ -70,7 +71,9 @@ async function productPlan(ctx: ToolContext, bing: Campaign, google: GoogleCampa
   ]);
   const live = groups.filter((x: AdGroup) => x.status !== 'Deleted');
   // An item Google leaves out stays when it earns at least the campaign's own ROAS target here.
-  const opts = { keepRoas: bing.bidStrategy.targetRoas ?? 1, targetRoas: bing.bidStrategy.targetRoas ?? null, currency: ctx.currency, bids: googleBidsByHand(google.bidStrategy) };
+  // Without a target on the campaign (Enhanced CPC): the team's target ROAS, else break-even (1 / gross margin) – never ROAS 1, a loss at any margin.
+  const target = bing.bidStrategy.targetRoas ?? teamTargetRoas();
+  const opts = { keepRoas: target ?? 1, targetRoas: target, currency: ctx.currency, bids: googleBidsByHand(google.bidStrategy) };
   return { plan: planMirror(g.data, nodes, live.map((x) => ({ id: x.id, name: x.name, cpcBid: x.cpcBid })), shown.items, opts), shown, google: g.data, bing: nodes, bingGroups: live };
 }
 
@@ -191,6 +194,13 @@ export async function reactivationBids(ctx: ToolContext, adGroupId: string, incl
     } else rest.push(id);
   }
   return { include: rest, itemBids, reused };
+}
+
+/** The team's target ROAS (business profile), else break-even ROAS from the gross margin; null when neither is set. */
+export function teamTargetRoas(): number | null {
+  const b = useSettings.getState().business;
+  if (b.targetRoas && b.targetRoas > 0) return b.targetRoas;
+  return b.grossMarginPct && b.grossMarginPct > 0 ? Math.round((100 / b.grossMarginPct) * 100) / 100 : null;
 }
 
 /** A row of the product group card. */

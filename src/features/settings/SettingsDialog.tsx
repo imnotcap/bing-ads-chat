@@ -234,6 +234,9 @@ function BusinessTab() {
         <Field label="Dækningsgrad" hint="Bruges til at beregne break-even ROAS.">
           <NumberInput value={b.grossMarginPct} onChange={(grossMarginPct) => set({ grossMarginPct })} suffix="%" placeholder="Ikke sat" />
         </Field>
+        <Field label="Konverteringscyklus" hint="Dage fra klik til (næsten) alle konverteringer er kommet – se kolonnen Konverteringsforsinkelse i Microsoft. Så længe ventes efter en ændring, og de nyeste dage tælles ikke med i CPA/ROAS.">
+          <NumberInput value={b.conversionCycleDays ?? 7} onChange={(conversionCycleDays) => set({ conversionCycleDays })} suffix="dage" placeholder="7" />
+        </Field>
         <Field label="Tone of voice" hint="Til annoncetekster.">
           <Input value={b.toneOfVoice} onChange={(e) => set({ toneOfVoice: e.target.value })} placeholder="Venlig, faglig, uden udråbstegn" />
         </Field>

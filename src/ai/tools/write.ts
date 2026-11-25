@@ -30,6 +30,7 @@ import {
   CONVERSION_BASED,
   editorialNote,
   failedIndexes,
+  accountConversions30,
   last30,
   near,
   readBack,
@@ -248,11 +249,18 @@ The tool checks feasibility first and refuses changes Microsoft would ignore or 
             throw new Error(`"${c.name}" bruger en porteføljebudstrategi (delt med andre kampagner, id ${c.portfolioBidStrategyId}). Den skal ændres på porteføljen, ikke på kampagnen alene.`);
           }
           if (CONVERSION_BASED.has(b.type) || b.targetCpa || b.targetRoas) {
-            const check = strategyDataCheck(c, b, await last30(ctx, c.id), ctx.currency);
+            const check = strategyDataCheck(c, b, await last30(ctx, c.id), ctx.currency, await accountConversions30(ctx).catch(() => null));
             problems.push(...check.problems);
             notes.push(...check.warnings);
           }
           if (b.type !== c.bidStrategy.type) approvalReasons.push('Skift af budstrategi ændrer, hvordan Microsoft byder – tjek det, før det gemmes.');
+          // Target steps: about ±15 % per change, one per conversion cycle (Microsoft).
+          for (const [now, next, name] of [[c.bidStrategy.targetCpa, b.targetCpa, 'Mål-CPA'], [c.bidStrategy.targetRoas, b.targetRoas, 'Mål-ROAS']] as const) {
+            if (b.type === c.bidStrategy.type && now && next && Math.abs(next / now - 1) > 0.15 + 1e-9)
+              approvalReasons.push(`${name} flyttes ${Math.round(Math.abs(next / now - 1) * 100)} % (${now} → ${next}) – Microsoft anbefaler ca. ±15 % pr. ændring og én ændring pr. konverteringscyklus.`);
+          }
+          if (b.maxCpc && CONVERSION_BASED.has(b.type) && !c.bidStrategy.maxCpc)
+            notes.push('Et maks. CPC-loft arbejder imod mål-CPA/-ROAS (Microsoft fraråder det), og det kan ikke sættes på nye kampagner uden portefølje siden 1. oktober 2026.');
           const line: ChangeLine = { entity: 'Kampagne', entityId: c.id, field: `${c.name} · budstrategi`, before: bidLabel(c.bidStrategy), after: bidLabel(b) };
           lines.push(line);
           checks.push({

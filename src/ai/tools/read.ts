@@ -683,7 +683,8 @@ Rows contain dimensions plus impressions, clicks, spend, conversions, revenue, c
   defineRead({
     name: 'get_budget_opportunities',
     kind: 'read',
-    description: 'Microsoft Advertising budget recommendations for campaigns limited by budget (suggested budget and estimated extra clicks/conversions).',
+    description:
+      "Microsoft Advertising budget recommendations for campaigns limited by budget (suggested budget and estimated extra clicks/conversions). Microsoft's suggestion is click-based, not profit-based: follow it only for campaigns review_bids_and_budgets says to raise (limited by budget AND on goal), and in steps of at most 20 %.",
     schema: z.object({ campaignId: z.string().optional() }),
     label: () => 'Henter budgetanbefalinger',
     async run(input, ctx) {

@@ -126,7 +126,11 @@ export interface BidAdvice {
   why: string;
 }
 
-export const MIN_CLICKS_FOR_ADVICE = 10;
+/** Below this many clicks Microsoft's own numbers say nothing – Google's bid is the starting point. */
+export const MIN_CLICKS_FOR_ADVICE = 30;
+/** A ROAS is only judged better or worse than the target from here (clicks or conversions). */
+export const JUDGE_CLICKS = 100;
+export const JUDGE_CONVERSIONS = 10;
 
 /** The ROAS to judge against: the target, else the campaign's own over the same 90 days. */
 export function benchRoas(target: number | null | undefined, shown: ShownItems | null): number | null {
@@ -152,8 +156,14 @@ export function bidAdvice(googleBid: number, bingBid: number, stats: ItemStats |
   if (stats.conversions <= 0)
     return up ? keep(`${fmtNumber(clicks)} klik for ${kr(stats.spend)} uden salg i Microsoft – et højere bud betaler sig næppe.`) : follow(`${fmtNumber(clicks)} klik for ${kr(stats.spend)} uden salg i Microsoft – et lavere bud som i Google sparer penge.`);
   if (!bench) return follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft, intet mål at holde det op mod – Googles bud er udgangspunktet.`);
+  // A few good sales don't make a ROAS: a raise because it is "over target" needs 100 clicks or 10 conversions.
+  const enough = clicks >= JUDGE_CLICKS || stats.conversions >= JUDGE_CONVERSIONS;
   if (roas >= bench)
-    return up ? follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft – over ${goal}, så et højere bud kan give mere salg.`) : keep(`ROAS ${fmtNumber(roas, 1)} i Microsoft – over ${goal}; et lavere bud kan koste salg.`);
+    return up
+      ? enough
+        ? follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft – over ${goal}, så et højere bud kan give mere salg.`)
+        : keep(`ROAS ${fmtNumber(roas, 1)} i Microsoft på kun ${fmtNumber(clicks)} klik og ${fmtNumber(stats.conversions, stats.conversions % 1 ? 1 : 0)} konv. – for lidt til at hæve buddet på (kræver 100 klik eller 10 konv.).`)
+      : keep(`ROAS ${fmtNumber(roas, 1)} i Microsoft – over ${goal}; et lavere bud kan koste salg.`);
   if (roas < bench * 0.8)
     return up ? keep(`ROAS ${fmtNumber(roas, 1)} i Microsoft – under ${goal}; et højere bud gør det dyrere.`) : follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft – under ${goal}, så et lavere bud som i Google giver mening.`);
   return follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft – tæt på ${goal}; Googles bud er fint.`);
