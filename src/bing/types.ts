@@ -134,7 +134,15 @@ export type PartitionAction =
       excluded: boolean;
       bid?: number | null;
     }
-  | { action: 'Delete'; adGroupId: string; id: string; excluded: boolean };
+  | {
+      action: 'Delete';
+      adGroupId: string;
+      id: string;
+      excluded: boolean;
+      /** The node's type and parent: Performance Max reads a delete without them as an invalid AssetGroupListingType. */
+      kind?: 'subdivision' | 'unit';
+      parentId?: string | null;
+    };
 
 /** A shared negative keyword list a campaign uses (GetSharedEntityAssociationsByEntityIds). */
 export interface NegativeKeywordList {

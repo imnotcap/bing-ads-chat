@@ -173,7 +173,19 @@ const ownId = (id: string | number) => (typeof id === 'number' ? id : Number(Str
 
 /** A product tree action as Performance Max's AssetGroupListingGroupAction (no bids). */
 export function listingGroupActionJson(a: PartitionAction): Json {
-  if (a.action === 'Delete') return { Action: 'Delete', ListingGroup: { AssetGroupId: Number(a.adGroupId), Id: ownId(a.id) } };
+  // Microsoft's docs say Id and AssetGroupId are enough – but the REST call then fails with
+  // "AssetGroupListingType is invalid": the type (and parent) of the node go along.
+  if (a.action === 'Delete')
+    return {
+      Action: 'Delete',
+      ListingGroup: {
+        AssetGroupId: Number(a.adGroupId),
+        Id: ownId(a.id),
+        AssetGroupListingType: a.kind === 'subdivision' ? 'Subdivision' : 'Unit',
+        ParentListingGroupId: a.parentId ? ownId(a.parentId) : null,
+        IsExcluded: a.excluded,
+      },
+    };
   return {
     Action: 'Add',
     ListingGroup: {
@@ -494,7 +506,17 @@ export class LiveBackend implements AdsBackend {
     const res = (await this.cm<Json>(accountId, 'AssetGroupListingGroupActions/Apply', 'POST', { ListingGroupActions: actions.map(listingGroupActionJson) })) ?? {};
     const errors = arr<Json>(res.PartialErrors);
     if (errors.length) {
-      const messages = [...new Set(errors.flatMap((e) => extractErrorMessages(e)))];
+      // Which action Microsoft refused ("#2 Delete Unit 123"), so a rejection can be traced.
+      const messages = [
+        ...new Set(
+          errors.flatMap((e) => {
+            const i = typeof e.Index === 'number' ? e.Index : Number(e.Index);
+            const a = Number.isInteger(i) ? actions[i] : undefined;
+            const what = a ? ` (#${i + 1} ${a.action} ${a.action === 'Add' ? `${a.kind}${a.attribute ? ` ${a.attribute}` : ''}` : `${a.kind ?? ''} ${ownId(a.id)}`.trim()})` : '';
+            return extractErrorMessages(e).map((m) => m + what);
+          }),
+        ),
+      ];
       throw new MsApiError(`Microsoft Advertising afviste ændringen af listinggrupperne – intet blev ændret: ${messages.slice(0, 3).join(' · ') || 'ukendt fejl'}`, 400, errors);
     }
     return { ids: arr<unknown>(res.AssetGroupListingGroupIds).map((v) => str(v)).filter(Boolean) };

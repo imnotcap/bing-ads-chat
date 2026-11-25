@@ -115,7 +115,7 @@ describe('Microsoft has "Alle produkter" – split it like Google', () => {
 
   it('builds a valid tree that is the same as Google’s – item ids spelled as Google spells them', () => {
     const actions = buildActions(g!, all(g!));
-    expect(actions[0]).toEqual({ action: 'Delete', adGroupId: '500', id: '9', excluded: false });
+    expect(actions[0]).toEqual({ action: 'Delete', adGroupId: '500', id: '9', excluded: false, kind: 'unit', parentId: null });
     const after = simulate(bing, actions);
     expect(state(after)).toEqual({ items: { 'sku-1': 'bud', 'sku-2': 'bud', 'sku-3': 'udelukket' }, else: 'udelukket' });
     expect(after.find((n) => n.value === 'sku-1')!.raw).toBe('SKU-1');
@@ -324,7 +324,13 @@ describe('product groups the user asks for (edit_product_groups)', () => {
       ['to_exclude', '2515012108'],
       ['to_exclude', '2392163005'],
     ]);
-    const after = simulate(tree, buildActions(g, all(g)));
+    const actions = buildActions(g, all(g));
+    // The replaced units are deleted with their type and parent (Performance Max needs them).
+    expect(actions.filter((a) => a.action === 'Delete')).toEqual([
+      { action: 'Delete', adGroupId: '500', id: '4', excluded: false, kind: 'unit', parentId: '1' },
+      { action: 'Delete', adGroupId: '500', id: '6', excluded: false, kind: 'unit', parentId: '1' },
+    ]);
+    const after = simulate(tree, actions);
     expect(state(after)).toEqual({ items: { '2392164005': 'bud', '2392163105': 'bud', '2515012108': 'udelukket', '2392163005': 'udelukket' }, else: 'udelukket' });
   });
 
@@ -388,7 +394,16 @@ describe('bids and Performance Max (edit_product_groups)', () => {
 
 describe('what Microsoft gets for Performance Max', () => {
   it('sends listing groups without bids, with the asset group and Microsoft\'s own ids', () => {
-    expect(listingGroupActionJson({ action: 'Delete', adGroupId: '77', id: '77~5', excluded: false })).toEqual({ Action: 'Delete', ListingGroup: { AssetGroupId: 77, Id: 5 } });
+    // A delete carries the node's type and parent – without them Microsoft answers "AssetGroupListingType is invalid".
+    expect(listingGroupActionJson({ action: 'Delete', adGroupId: '77', id: '77~5', excluded: false, kind: 'unit', parentId: null })).toEqual({
+      Action: 'Delete',
+      ListingGroup: { AssetGroupId: 77, Id: 5, AssetGroupListingType: 'Unit', ParentListingGroupId: null, IsExcluded: false },
+    });
+    expect(listingGroupActionJson({ action: 'Delete', adGroupId: '77', id: '77~8', excluded: true, kind: 'unit', parentId: '77~4' })).toEqual({
+      Action: 'Delete',
+      ListingGroup: { AssetGroupId: 77, Id: 8, AssetGroupListingType: 'Unit', ParentListingGroupId: 4, IsExcluded: true },
+    });
+    expect(listingGroupActionJson({ action: 'Delete', adGroupId: '77', id: '77~4', excluded: false, kind: 'subdivision', parentId: null }).ListingGroup).toMatchObject({ AssetGroupListingType: 'Subdivision' });
     expect(listingGroupActionJson({ action: 'Add', adGroupId: '77', tempId: -1, parentId: null, kind: 'subdivision', operand: 'All', attribute: null, excluded: false })).toEqual({
       Action: 'Add',
       ListingGroup: { AssetGroupId: 77, Id: -1, ParentListingGroupId: null, AssetGroupListingType: 'Subdivision', IsExcluded: false, Dimension: { Operand: 'All', Attribute: null } },
