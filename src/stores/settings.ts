@@ -87,6 +87,9 @@ interface SettingsState {
   appearance: Appearance;
   datePreset: DatePreset;
   onboarded: boolean;
+  /** Dagligt overblik "Ekskl. brand": the brand campaigns per ad account (missing = names containing "brand"). */
+  brandCampaigns: Record<string, string[]>;
+  setBrandCampaigns: (accountId: string, ids: string[] | null) => void;
   /** Dagligt overblik: where ROAS turns from red to green, per ad account (features/dashboard/daily.ts). */
   roasScales: Record<string, RoasScale>;
   setSpend: (patch: Partial<SpendRules>) => void;
@@ -138,6 +141,12 @@ export const useSettings = create<SettingsState>()(
       setAppearance: (patch) => set((s) => ({ appearance: { ...s.appearance, ...patch } })),
       setDatePreset: (datePreset) => set({ datePreset }),
       setOnboarded: (onboarded) => set({ onboarded }),
+      brandCampaigns: {},
+      setBrandCampaigns: (accountId, ids) =>
+        set((s) => {
+          const { [accountId]: _old, ...rest } = s.brandCampaigns;
+          return { brandCampaigns: ids ? { ...rest, [accountId]: ids } : rest };
+        }),
       setRoasScale: (accountId, scale) =>
         set((s) => {
           const { [accountId]: _old, ...rest } = s.roasScales;
@@ -174,6 +183,7 @@ export const useSettings = create<SettingsState>()(
           ai: { ...current.ai, ...p.ai },
           business: { ...current.business, ...p.business },
           appearance: { ...current.appearance, ...p.appearance },
+          brandCampaigns: { ...current.brandCampaigns, ...p.brandCampaigns },
         };
       },
     },
