@@ -119,6 +119,9 @@ describe('Microsoft requests (REST v13 shapes)', () => {
             { Id: '2', Type: 'BiddableCampaignCriterion', Criterion: { Type: 'DayTimeCriterion', Day: 'Friday', FromHour: 19, FromMinute: 'Zero', ToHour: 24, ToMinute: 'Zero' }, CriterionBid: { Type: 'BidMultiplier', Multiplier: -55 } },
           ],
         };
+      if (body.CriterionType === 'Age')
+        return { CampaignCriterions: [{ Id: '4', Type: 'BiddableCampaignCriterion', Criterion: { Type: 'AgeCriterion', AgeRange: 'EighteenToTwentyFour' }, CriterionBid: { Type: 'BidMultiplier', Multiplier: -30 } }] };
+      if (body.CriterionType === 'Gender') return { CampaignCriterions: [] };
       return { CampaignCriterions: [{ Id: '3', Type: 'BiddableCampaignCriterion', Criterion: { Type: 'LocationCriterion', LocationId: '59', DisplayName: 'Denmark' }, CriterionBid: { Type: 'BidMultiplier', Multiplier: 0 } }] };
     });
     const t = await backend.getCampaignTargets('5', '900');
@@ -126,11 +129,32 @@ describe('Microsoft requests (REST v13 shapes)', () => {
       { CampaignCriterionIds: null, CampaignId: 900, CriterionType: 'Device' },
       { CampaignCriterionIds: null, CampaignId: 900, CriterionType: 'DayTime' },
       { CampaignCriterionIds: null, CampaignId: 900, CriterionType: 'Location' },
+      { CampaignCriterionIds: null, CampaignId: 900, CriterionType: 'Age' },
+      { CampaignCriterionIds: null, CampaignId: 900, CriterionType: 'Gender' },
     ]);
     expect(t).toEqual({
       devices: [{ id: '1', device: 'Tablets', adjustment: -90 }],
       schedule: [{ id: '2', day: 'Friday', from: 19, to: 24, adjustment: -55 }],
       locations: [{ id: '3', locationId: '59', name: 'Denmark', adjustment: 0 }],
+      ages: [{ id: '4', age: 'EighteenToTwentyFour', adjustment: -30 }],
+      genders: [],
+    });
+  });
+
+  it('reads and writes an ad group\'s own targets as ad group criterions', async () => {
+    const { backend, calls } = liveWith((path, body) => (path.includes('QueryByIds') ? { AdGroupCriterions: [] } : body.AdGroupCriterions ? { AdGroupCriterionIds: ['77'] } : {}));
+    await backend.getTargets('5', { campaignId: '900', adGroupId: '901' });
+    expect(calls[0]).toMatchObject({ path: 'AdGroupCriterions/QueryByIds', body: { AdGroupCriterionIds: null, AdGroupId: 901, CriterionType: 'Device' } });
+    calls.length = 0;
+    await backend.applyTargets('5', { campaignId: '900', adGroupId: '901' }, { add: [{ kind: 'age', age: 'SixtyFiveAndAbove', adjustment: -50 }], update: [], delete: ['5'] });
+    expect(calls.map((c) => [c.path, c.method])).toEqual([
+      ['AdGroupCriterions', 'DELETE'],
+      ['AdGroupCriterions', 'POST'],
+    ]);
+    expect(calls[0]!.body).toEqual({ AdGroupCriterionIds: [5], AdGroupId: 901, CriterionType: 'Targets' });
+    expect(calls[1]!.body).toEqual({
+      AdGroupCriterions: [{ Type: 'BiddableAdGroupCriterion', AdGroupId: 901, Criterion: { Type: 'AgeCriterion', AgeRange: 'SixtyFiveAndAbove' }, CriterionBid: { Type: 'BidMultiplier', Multiplier: -50 } }],
+      CriterionType: 'Targets',
     });
   });
 

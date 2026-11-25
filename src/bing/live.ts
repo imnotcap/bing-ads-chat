@@ -17,7 +17,10 @@ import type {
   AdPatch,
   AdsBackend,
   AuctionCompetitor,
+  AgeRange,
   CampaignTargets,
+  GenderName,
+  TargetLevel,
   DeviceName,
   GeoLocation,
   MerchantStore,
@@ -173,7 +176,19 @@ const ownId = (id: string | number) => (typeof id === 'number' ? id : Number(Str
 
 /** A product tree action as Performance Max's AssetGroupListingGroupAction (no bids). */
 export function listingGroupActionJson(a: PartitionAction): Json {
-  if (a.action === 'Delete') return { Action: 'Delete', ListingGroup: { AssetGroupId: Number(a.adGroupId), Id: ownId(a.id) } };
+  // Microsoft's docs say Id and AssetGroupId are enough – but the REST call then fails with
+  // "AssetGroupListingType is invalid": the type (and parent) of the node go along.
+  if (a.action === 'Delete')
+    return {
+      Action: 'Delete',
+      ListingGroup: {
+        AssetGroupId: Number(a.adGroupId),
+        Id: ownId(a.id),
+        AssetGroupListingType: a.kind === 'subdivision' ? 'Subdivision' : 'Unit',
+        ParentListingGroupId: a.parentId ? ownId(a.parentId) : null,
+        IsExcluded: a.excluded,
+      },
+    };
   return {
     Action: 'Add',
     ListingGroup: {
@@ -494,7 +509,17 @@ export class LiveBackend implements AdsBackend {
     const res = (await this.cm<Json>(accountId, 'AssetGroupListingGroupActions/Apply', 'POST', { ListingGroupActions: actions.map(listingGroupActionJson) })) ?? {};
     const errors = arr<Json>(res.PartialErrors);
     if (errors.length) {
-      const messages = [...new Set(errors.flatMap((e) => extractErrorMessages(e)))];
+      // Which action Microsoft refused ("#2 Delete Unit 123"), so a rejection can be traced.
+      const messages = [
+        ...new Set(
+          errors.flatMap((e) => {
+            const i = typeof e.Index === 'number' ? e.Index : Number(e.Index);
+            const a = Number.isInteger(i) ? actions[i] : undefined;
+            const what = a ? ` (#${i + 1} ${a.action} ${a.action === 'Add' ? `${a.kind}${a.attribute ? ` ${a.attribute}` : ''}` : `${a.kind ?? ''} ${ownId(a.id)}`.trim()})` : '';
+            return extractErrorMessages(e).map((m) => m + what);
+          }),
+        ),
+      ];
       throw new MsApiError(`Microsoft Advertising afviste ændringen af listinggrupperne – intet blev ændret: ${messages.slice(0, 3).join(' · ') || 'ukendt fejl'}`, 400, errors);
     }
     return { ids: arr<unknown>(res.AssetGroupListingGroupIds).map((v) => str(v)).filter(Boolean) };
@@ -629,38 +654,54 @@ export class LiveBackend implements AdsBackend {
   }
 
   async getCampaignTargets(accountId: string, campaignId: string): Promise<CampaignTargets> {
-    // Target criterions are read one type at a time ("Targets" is only for add/update/delete).
+    return this.getTargets(accountId, { campaignId });
+  }
+
+  async applyCampaignTargets(accountId: string, campaignId: string, changes: TargetChanges): Promise<MutationResult> {
+    return this.applyTargets(accountId, { campaignId }, changes);
+  }
+
+  /** A campaign's or an ad group's target criterions, read one type at a time ("Targets" is only for add/update/delete). */
+  async getTargets(accountId: string, level: TargetLevel): Promise<CampaignTargets> {
+    const ag = !!level.adGroupId;
     const get = async (type: string) =>
-      arr<Json>((await this.cm<Json>(accountId, 'CampaignCriterions/QueryByIds', 'POST', { CampaignCriterionIds: null, CampaignId: Number(campaignId), CriterionType: type })).CampaignCriterions);
-    const [devices, schedule, locations] = await Promise.all([get('Device'), get('DayTime'), get('Location')]);
+      ag
+        ? arr<Json>((await this.cm<Json>(accountId, 'AdGroupCriterions/QueryByIds', 'POST', { AdGroupCriterionIds: null, AdGroupId: Number(level.adGroupId), CriterionType: type })).AdGroupCriterions)
+        : arr<Json>((await this.cm<Json>(accountId, 'CampaignCriterions/QueryByIds', 'POST', { CampaignCriterionIds: null, CampaignId: Number(level.campaignId), CriterionType: type })).CampaignCriterions);
+    const [devices, schedule, locations, ages, genders] = await Promise.all([get('Device'), get('DayTime'), get('Location'), get('Age').catch(() => []), get('Gender').catch(() => [])]);
     const multiplier = (c: Json) => Number(((c.CriterionBid ?? {}) as Json).Multiplier ?? 0);
     const criterion = (c: Json) => (c.Criterion ?? {}) as Json;
+    const biddable = (c: Json) => !/^Negative/.test(str(c.Type));
     return {
-      devices: devices
-        .filter((c) => str(c.Type) !== 'NegativeCampaignCriterion')
-        .map((c) => ({ id: str(c.Id), device: str(criterion(c).DeviceName) as DeviceName, adjustment: multiplier(c) })),
+      devices: devices.filter(biddable).map((c) => ({ id: str(c.Id), device: str(criterion(c).DeviceName) as DeviceName, adjustment: multiplier(c) })),
       schedule: schedule.map((c) => {
         const t = criterion(c);
         return { id: str(c.Id), day: str(t.Day) as WeekDay, from: Number(t.FromHour ?? 0) + fromMinute(t.FromMinute), to: Number(t.ToHour ?? 0) + fromMinute(t.ToMinute), adjustment: multiplier(c) };
       }),
-      locations: locations
-        .filter((c) => str(c.Type) !== 'NegativeCampaignCriterion')
-        .map((c) => ({ id: str(c.Id), locationId: str(criterion(c).LocationId), name: str(criterion(c).DisplayName), adjustment: multiplier(c) })),
+      locations: locations.filter(biddable).map((c) => ({ id: str(c.Id), locationId: str(criterion(c).LocationId), name: str(criterion(c).DisplayName), adjustment: multiplier(c) })),
+      ages: ages.filter(biddable).map((c) => ({ id: str(c.Id), age: str(criterion(c).AgeRange) as AgeRange, adjustment: multiplier(c) })),
+      genders: genders.filter(biddable).map((c) => ({ id: str(c.Id), gender: str(criterion(c).GenderType) as GenderName, adjustment: multiplier(c) })),
     };
   }
 
-  async applyCampaignTargets(accountId: string, campaignId: string, changes: TargetChanges): Promise<MutationResult> {
-    const cid = Number(campaignId);
+  async applyTargets(accountId: string, level: TargetLevel, changes: TargetChanges): Promise<MutationResult> {
+    const ag = !!level.adGroupId;
+    const owner = ag ? { AdGroupId: Number(level.adGroupId) } : { CampaignId: Number(level.campaignId) };
+    const path = ag ? 'AdGroupCriterions' : 'CampaignCriterions';
     const json = (t: TargetCriterion, id?: string): Json => ({
-      Type: 'BiddableCampaignCriterion',
-      CampaignId: cid,
+      Type: ag ? 'BiddableAdGroupCriterion' : 'BiddableCampaignCriterion',
+      ...owner,
       ...(id ? { Id: Number(id) } : {}),
       Criterion:
         t.kind === 'device'
           ? { Type: 'DeviceCriterion', DeviceName: t.device }
           : t.kind === 'schedule'
             ? { Type: 'DayTimeCriterion', Day: t.day, FromHour: Math.floor(t.from), FromMinute: toMinute(t.from), ToHour: Math.floor(t.to), ToMinute: toMinute(t.to) }
-            : { Type: 'LocationCriterion', LocationId: Number(t.locationId) },
+            : t.kind === 'age'
+              ? { Type: 'AgeCriterion', AgeRange: t.age }
+              : t.kind === 'gender'
+                ? { Type: 'GenderCriterion', GenderType: t.gender }
+                : { Type: 'LocationCriterion', LocationId: Number(t.locationId) },
       CriterionBid: { Type: 'BidMultiplier', Multiplier: t.adjustment },
     });
     const failed: ItemError[] = [];
@@ -668,19 +709,19 @@ export class LiveBackend implements AdsBackend {
     const chunks = <T>(list: T[]) => Array.from({ length: Math.ceil(list.length / 100) }, (_, i) => list.slice(i * 100, i * 100 + 100));
     // Deletes first, so a replaced schedule block never overlaps its successor; then updates, then additions.
     for (const part of chunks(changes.delete)) {
-      const res = await this.cm(accountId, 'CampaignCriterions', 'DELETE', { CampaignCriterionIds: part.map(Number), CampaignId: cid, CriterionType: 'Targets' });
+      const res = await this.cm(accountId, path, 'DELETE', { [ag ? 'AdGroupCriterionIds' : 'CampaignCriterionIds']: part.map(Number), ...owner, CriterionType: 'Targets' });
       failed.push(...(batchResult(res, part.length).failed ?? []).map((f) => ({ ...f, index: null, message: `Fjernelse: ${f.message}` })));
     }
     let offset = 0;
     for (const part of chunks(changes.update)) {
-      const res = await this.cm(accountId, 'CampaignCriterions', 'PUT', { CampaignCriterions: part.map((u) => json(u, u.id)), CriterionType: 'Targets' });
+      const res = await this.cm(accountId, path, 'PUT', { [ag ? 'AdGroupCriterions' : 'CampaignCriterions']: part.map((u) => json(u, u.id)), CriterionType: 'Targets' });
       failed.push(...(batchResult(res, part.length).failed ?? []).map((f) => ({ ...f, index: f.index === null ? null : f.index + offset })));
       offset += part.length;
     }
     offset = changes.update.length;
     for (const part of chunks(changes.add)) {
-      const res = await this.cm(accountId, 'CampaignCriterions', 'POST', { CampaignCriterions: part.map((a) => json(a)), CriterionType: 'Targets' });
-      const r = batchResult(res, part.length, 'CampaignCriterionIds');
+      const res = await this.cm(accountId, path, 'POST', { [ag ? 'AdGroupCriterions' : 'CampaignCriterions']: part.map((a) => json(a)), CriterionType: 'Targets' });
+      const r = batchResult(res, part.length, ag ? 'AdGroupCriterionIds' : 'CampaignCriterionIds');
       ids.push(...(r.ids ?? []));
       failed.push(...(r.failed ?? []).map((f) => ({ ...f, index: f.index === null ? null : f.index + offset })));
       offset += part.length;

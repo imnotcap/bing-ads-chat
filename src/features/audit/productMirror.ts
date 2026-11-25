@@ -126,7 +126,11 @@ export interface BidAdvice {
   why: string;
 }
 
-export const MIN_CLICKS_FOR_ADVICE = 10;
+/** Below this many clicks Microsoft's own numbers say nothing – Google's bid is the starting point. */
+export const MIN_CLICKS_FOR_ADVICE = 30;
+/** A ROAS is only judged better or worse than the target from here (clicks or conversions). */
+export const JUDGE_CLICKS = 100;
+export const JUDGE_CONVERSIONS = 10;
 
 /** The ROAS to judge against: the target, else the campaign's own over the same 90 days. */
 export function benchRoas(target: number | null | undefined, shown: ShownItems | null): number | null {
@@ -152,8 +156,14 @@ export function bidAdvice(googleBid: number, bingBid: number, stats: ItemStats |
   if (stats.conversions <= 0)
     return up ? keep(`${fmtNumber(clicks)} klik for ${kr(stats.spend)} uden salg i Microsoft – et højere bud betaler sig næppe.`) : follow(`${fmtNumber(clicks)} klik for ${kr(stats.spend)} uden salg i Microsoft – et lavere bud som i Google sparer penge.`);
   if (!bench) return follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft, intet mål at holde det op mod – Googles bud er udgangspunktet.`);
+  // A few good sales don't make a ROAS: a raise because it is "over target" needs 100 clicks or 10 conversions.
+  const enough = clicks >= JUDGE_CLICKS || stats.conversions >= JUDGE_CONVERSIONS;
   if (roas >= bench)
-    return up ? follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft – over ${goal}, så et højere bud kan give mere salg.`) : keep(`ROAS ${fmtNumber(roas, 1)} i Microsoft – over ${goal}; et lavere bud kan koste salg.`);
+    return up
+      ? enough
+        ? follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft – over ${goal}, så et højere bud kan give mere salg.`)
+        : keep(`ROAS ${fmtNumber(roas, 1)} i Microsoft på kun ${fmtNumber(clicks)} klik og ${fmtNumber(stats.conversions, stats.conversions % 1 ? 1 : 0)} konv. – for lidt til at hæve buddet på (kræver 100 klik eller 10 konv.).`)
+      : keep(`ROAS ${fmtNumber(roas, 1)} i Microsoft – over ${goal}; et lavere bud kan koste salg.`);
   if (roas < bench * 0.8)
     return up ? keep(`ROAS ${fmtNumber(roas, 1)} i Microsoft – under ${goal}; et højere bud gør det dyrere.`) : follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft – under ${goal}, så et lavere bud som i Google giver mening.`);
   return follow(`ROAS ${fmtNumber(roas, 1)} i Microsoft – tæt på ${goal}; Googles bud er fint.`);
@@ -467,11 +477,19 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
     ...(excluded || group.noBids ? {} : { bid: bid || group.bid }),
   });
 
+  // A node removed, with its type and parent (Performance Max needs them on a delete).
+  const del = (node: DListingNode): PartitionAction => ({ action: 'Delete', adGroupId, id: node.id, excluded: node.excluded, kind: node.unit ? 'unit' : 'subdivision', parentId: node.parentId });
+  const nodeById = new Map<string, DListingNode>(b.kind === 'ids' ? [b.root, b.other, ...b.items.values()].map((n) => [n.id, n]) : b.kind === 'all' ? [[b.root.id, b.root]] : []);
+  const delRow = (r: MirrorRow): PartitionAction => {
+    const node = nodeById.get(r.bingNodeId!);
+    return node ? del(node) : { action: 'Delete', adGroupId, id: r.bingNodeId!, excluded: !!r.bingNodeExcluded, kind: 'unit' };
+  };
+
   // The whole tree as one unit (Google bids on all products).
   if (rows.some((r) => r.action === 'all' || r.action === 'collapse')) {
     const actions: PartitionAction[] = [];
     // Deleting the root takes its whole tree with it.
-    if (b.kind === 'ids' || b.kind === 'all') actions.push({ action: 'Delete', adGroupId, id: b.root.id, excluded: b.root.excluded });
+    if (b.kind === 'ids' || b.kind === 'all') actions.push(del(b.root));
     const bid = rows.find((r) => r.action === 'all' || r.action === 'collapse')?.bid || group.bid;
     actions.push({ action: 'Add', adGroupId, parentId: null, kind: 'unit', operand: 'All', attribute: null, excluded: false, bid });
     return actions;
@@ -483,7 +501,7 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
     const excludeElse = rows.some((r) => r.action === 'else_exclude');
     if (!adds.length && !(excludeElse && group.excludeAll)) return [];
     const actions: PartitionAction[] = [];
-    if (b.kind === 'all') actions.push({ action: 'Delete', adGroupId, id: b.root.id, excluded: b.root.excluded });
+    if (b.kind === 'all') actions.push(del(b.root));
     actions.push({ action: 'Add', adGroupId, tempId: -1, parentId: null, kind: 'subdivision', operand: 'All', attribute: null, excluded: false });
     for (const r of adds) actions.push(unit(-1, r.itemId, r.action === 'add_exclude', r.bid));
     // Unticked, "everything else" keeps what the group does today: bid on.
@@ -509,16 +527,16 @@ export function buildActions(group: MirrorGroup, chosen: Set<string>): Partition
       case 'to_exclude':
       case 'rebid':
         // A unit cannot change between bid on and excluded: it is replaced (a new bid the same way).
-        deletes.push({ action: 'Delete', adGroupId, id: r.bingNodeId!, excluded: !!r.bingNodeExcluded });
+        deletes.push(delRow(r));
         adds.push(unit(parent, r.itemId, r.action === 'to_exclude', r.bid));
         break;
       case 'remove':
-        deletes.push({ action: 'Delete', adGroupId, id: r.bingNodeId!, excluded: !!r.bingNodeExcluded });
+        deletes.push(delRow(r));
         remaining--;
         break;
       case 'else_bid':
       case 'else_exclude':
-        deletes.push({ action: 'Delete', adGroupId, id: r.bingNodeId!, excluded: !!r.bingNodeExcluded });
+        deletes.push(delRow(r));
         adds.push(unit(parent, null, r.action === 'else_exclude', r.bid));
         break;
     }

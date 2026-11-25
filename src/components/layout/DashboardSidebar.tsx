@@ -4,7 +4,7 @@
  * categories are listed at the bottom so they can be shown again.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { CalendarDays, ChevronDown, Eye, EyeOff, LayoutDashboard, LayoutGrid, Package, Plus, Search, SquareKanban, UserRound,
+import { CalendarDays, ChevronDown, Crosshair, Eye, EyeOff, LayoutDashboard, LayoutGrid, Package, Plus, Search, SquareKanban, UserRound,
   UsersRound, type LucideIcon } from '@/components/icons';
 import { useMemo, useState } from 'react';
 import { BrandIcon, type Brand } from '@/components/brand/BrandIcon';
@@ -260,6 +260,7 @@ export function DashboardSidebar({ section }: { section: 'dashboard' | 'planning
             nav('daily', 'Dagligt overblik', CalendarDays, 'daily'),
             nav('campaigns', 'Kampagner', LayoutGrid, 'campaigns'),
             nav('products', 'Produkter', Package, 'products'),
+            nav('targeting', 'Målretning', Crosshair, 'targeting'),
           ]),
         ],
       },

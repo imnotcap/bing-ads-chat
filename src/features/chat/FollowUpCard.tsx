@@ -97,7 +97,9 @@ export function FollowUpCard({ item }: { item: AssistantItem }) {
   const [title, setTitle] = useState(
     request?.title ?? (test ? 'Test: opfølgning fra XavierOS' : `Følg op: ${firstTitle}${changes.length > 1 ? ` (+${changes.length - 1})` : ''}`),
   );
-  const [due, setDue] = useState(request?.date && request.date >= isoDay(0) ? request.date : isoDay(test ? 1 : 7));
+  // Default: one conversion cycle later (the business profile's, at least 7 days) – when a change can be judged.
+  const cycle = useSettings((st) => Math.max(7, Math.round(st.business.conversionCycleDays ?? 7)));
+  const [due, setDue] = useState(request?.date && request.date >= isoDay(0) ? request.date : isoDay(test ? 1 : cycle));
   const [time, setTime] = useState(request?.time ?? '09:00');
   const [toBoard, setToBoard] = useState(true);
   const canOutlook = outlookAvailable();

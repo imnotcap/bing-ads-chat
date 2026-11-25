@@ -42,6 +42,8 @@ export interface BusinessProfile {
   targetCpa: number | null;
   targetRoas: number | null;
   grossMarginPct: number | null;
+  /** Days from click to (nearly all) conversions – how long to wait after a change, and the newest days left out of CPA/ROAS. Missing = 7. */
+  conversionCycleDays?: number | null;
   toneOfVoice: string;
   instructions: string;
 }
@@ -111,6 +113,7 @@ export const useSettings = create<SettingsState>()(
         targetCpa: null,
         targetRoas: null,
         grossMarginPct: null,
+        conversionCycleDays: 7,
         toneOfVoice: '',
         instructions: '',
       },

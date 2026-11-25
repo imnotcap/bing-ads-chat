@@ -114,6 +114,12 @@ export function evaluateGuardrails(plan: ChangePlan, rules: SpendRules, ctx: Spe
     const under = (plan.newBids ?? []).filter((b) => b < rules.minCpcBid!);
     if (under.length) approve.push(`${under.length === 1 ? 'Et bud' : `${under.length} bud`} er under mindstebuddet på ${money(rules.minCpcBid)} – ret ${under.length === 1 ? 'det' : 'dem'} til ${money(rules.minCpcBid)}.`);
   }
+  // Step limits: budgets and bids at most ±20 % per change (house rule) – bigger steps can't be read and can restart learning.
+  const steps = plan.changes.filter((c) => typeof c.before === 'number' && typeof c.after === 'number' && c.before > 0 && /· (bud|dagsbudget|standardbud)$/i.test(c.field) && Math.abs(c.after / c.before - 1) > 0.2 + 1e-9);
+  if (steps.length) {
+    const biggest = Math.max(...steps.map((c) => Math.abs((c.after as number) / (c.before as number) - 1)));
+    approve.push(`${steps.length === 1 ? 'Én værdi' : `${steps.length} værdier`} flyttes mere end 20 % (op til ${Math.round(biggest * 100)} %) – husreglen er højst ±20 % pr. ændring, så effekten kan aflæses. Del det hellere op.`);
+  }
   if (plan.kind === 'delete') approve.push('Sletning kan ikke fortrydes i Microsoft Advertising.');
   else if (plan.increasesSpend) approve.push('Ændringen kan øge forbruget.');
   if (rules.maxBudgetIncreasePct !== null && (plan.maxBudgetIncrease ?? 0) * 100 > rules.maxBudgetIncreasePct) {

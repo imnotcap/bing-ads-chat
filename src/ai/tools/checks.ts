@@ -40,10 +40,16 @@ const AUTOMATED = new Set(['MaxClicks', 'MaxConversions', 'TargetCpa', 'TargetRo
 /** Strategies that learn from conversion data. */
 export const CONVERSION_BASED = new Set(['MaxConversions', 'TargetCpa', 'TargetRoas', 'MaxConversionValue']);
 /**
- * Below this a conversion-based strategy needs the user's explicit go-ahead. Microsoft
- * (Nov 2026): start conversion-based from 5 conversions, below that Enhanced CPC.
+ * Microsoft (Nov 2026): start new campaigns on a conversion-based strategy once the ACCOUNT
+ * has 5 conversions, below that Enhanced CPC. Below this account-wide a conversion-based
+ * strategy needs the user's explicit go-ahead; a single campaign under it is a warning.
  */
 export const MIN_CONVERSIONS_30D = 5;
+/** Target steps: Microsoft says about 15 % per change, judged after one conversion cycle. */
+export const TARGET_STEP_PCT = 15;
+/** Bid and budget steps: the team's house rule (Microsoft gives no figure). */
+export const BID_STEP_PCT = 20;
+const STEP_RULE = `±${TARGET_STEP_PCT} % pr. skridt, vurderet efter én konverteringscyklus (kolonnen Konverteringsforsinkelse) – tidligst efter 7 dage (Søgning/Shopping), 2–4 uger for Performance Max`;
 /** The team's playbook: automated strategies need at least 30 conversions in 30 days. */
 export const RECOMMENDED_CONVERSIONS_30D = 30;
 
@@ -106,6 +112,12 @@ export interface ConversionData {
   roas: number | null;
 }
 
+/** The whole account's conversions in the last 30 days (Microsoft's threshold for conversion-based bidding is per account). */
+export async function accountConversions30(ctx: ToolContext): Promise<number> {
+  const rows = await getReport(ctx, { kind: 'campaign', range: presetRange('last30'), aggregation: 'Summary' });
+  return rows.reduce((s, x) => s + (x.conversions ?? 0), 0);
+}
+
 /** Last 30 days for one campaign (the window Microsoft's automated strategies learn from). */
 export async function last30(ctx: ToolContext, campaignId: string): Promise<ConversionData> {
   const rows = await getReport(ctx, { kind: 'campaign', range: presetRange('last30'), aggregation: 'Summary', campaignIds: [campaignId] });
@@ -120,31 +132,36 @@ export async function last30(ctx: ToolContext, campaignId: string): Promise<Conv
  * Data check before switching to a conversion-based strategy. Returns hard problems
  * (need the user's explicit acknowledgement) and softer warnings.
  */
-export function strategyDataCheck(c: Campaign, b: BidStrategy, d: ConversionData, currency: string): { problems: string[]; warnings: string[] } {
+export function strategyDataCheck(c: Campaign, b: BidStrategy, d: ConversionData, currency: string, accountConversions: number | null = null): { problems: string[]; warnings: string[] } {
   const problems: string[] = [];
   const warnings: string[] = [];
   const conv = Math.round(d.conversions * 10) / 10;
   if (CONVERSION_BASED.has(b.type)) {
+    const account = accountConversions ?? d.conversions;
     if (d.conversions === 0) problems.push(`"${c.name}" har 0 konverteringer de sidste 30 dage – ${BID_LABELS[b.type]} har intet at optimere efter (tjek UET-tag og konverteringsmål først).`);
-    else if (d.conversions < MIN_CONVERSIONS_30D) problems.push(`"${c.name}" har kun ${conv} konverteringer de sidste 30 dage. Microsoft anbefaler først en konverteringsbaseret strategi fra ${MIN_CONVERSIONS_30D} konverteringer – under det Forbedret CPC.`);
-    else if (d.conversions < RECOMMENDED_CONVERSIONS_30D) warnings.push(`"${c.name}" har ${conv} konverteringer de sidste 30 dage – under de ${RECOMMENDED_CONVERSIONS_30D}, jeres playbook kræver for automatiske strategier. Forvent ustabile resultater.`);
+    else if (account < MIN_CONVERSIONS_30D)
+      problems.push(`Kontoen har kun ${Math.round(account * 10) / 10} konverteringer de sidste 30 dage. Microsoft anbefaler først en konverteringsbaseret strategi, når kontoen har ${MIN_CONVERSIONS_30D} – under det Forbedret CPC.`);
+    else if (d.conversions < RECOMMENDED_CONVERSIONS_30D)
+      warnings.push(
+        `"${c.name}" har ${conv} konverteringer de sidste 30 dage – under de ${RECOMMENDED_CONVERSIONS_30D}, Microsoft vurderer resultaterne ud fra. Forvent ustabile resultater; en porteføljestrategi på tværs af kampagner giver strategien mere data.`,
+      );
   }
   if ((b.type === 'TargetRoas' || b.type === 'MaxConversionValue') && d.revenue === 0 && d.conversions > 0) {
     problems.push(`"${c.name}" har ingen konverteringsværdi (omsætning) de sidste 30 dage – værdibaserede strategier kræver, at omsætning spores.`);
   }
   if (b.targetCpa && d.cpa) {
     const ratio = b.targetCpa / d.cpa;
-    if (ratio < 0.85 || ratio > 1.15) warnings.push(`Mål-CPA flyttes ${Math.round(Math.abs(1 - ratio) * 100)} % fra den faktiske CPA – playbooken anbefaler ±10–15 % pr. skridt med mindst 2 uger imellem.`);
-    if (ratio < 0.7) warnings.push(`Mål-CPA ${b.targetCpa} er ${Math.round((1 - ratio) * 100)} % under den faktiske CPA (${d.cpa.toFixed(0)} ${currency}) – forvent markant færre konverteringer. Sænk hellere i trin på 10–20 %.`);
+    if (ratio < 0.85 || ratio > 1.15) warnings.push(`Mål-CPA flyttes ${Math.round(Math.abs(1 - ratio) * 100)} % fra den faktiske CPA – Microsoft anbefaler ${STEP_RULE}.`);
+    if (ratio < 0.7) warnings.push(`Mål-CPA ${b.targetCpa} er ${Math.round((1 - ratio) * 100)} % under den faktiske CPA (${d.cpa.toFixed(0)} ${currency}) – forvent markant færre konverteringer. Sænk hellere i trin på ca. ${TARGET_STEP_PCT} %.`);
     if (ratio > 1.5) warnings.push(`Mål-CPA ${b.targetCpa} er langt over den faktiske CPA (${d.cpa.toFixed(0)} ${currency}) – det kan øge forbruget uden flere gode konverteringer.`);
   }
   if (b.targetRoas && d.roas) {
     const ratio = b.targetRoas / d.roas;
-    if (ratio < 0.85 || ratio > 1.15) warnings.push(`Mål-ROAS flyttes ${Math.round(Math.abs(1 - ratio) * 100)} % fra den faktiske ROAS – playbooken anbefaler ±10–15 % pr. skridt med mindst 2 uger imellem.`);
-    if (ratio > 1.3) warnings.push(`Mål-ROAS ${b.targetRoas} er over den faktiske ROAS (${d.roas.toFixed(2)}) – forvent lavere volumen. Hæv hellere i trin på 10–20 %.`);
+    if (ratio < 0.85 || ratio > 1.15) warnings.push(`Mål-ROAS flyttes ${Math.round(Math.abs(1 - ratio) * 100)} % fra den faktiske ROAS – Microsoft anbefaler ${STEP_RULE}.`);
+    if (ratio > 1.3) warnings.push(`Mål-ROAS ${b.targetRoas} er over den faktiske ROAS (${d.roas.toFixed(2)}) – forvent lavere volumen. Hæv hellere i trin på ca. ${TARGET_STEP_PCT} %; et nyt mål sættes ud fra den faktiske ROAS de seneste 30 dage (Microsoft).`);
   }
   if (CONVERSION_BASED.has(b.type) && b.type !== c.bidStrategy.type) {
-    warnings.push('Nyt budstrategiskift giver en læringsperiode på typisk 1–2 uger, hvor resultaterne svinger. Vurder først effekten bagefter, og undgå andre store ændringer imens.');
+    warnings.push('Et skift af budstrategi giver en læringsperiode på 1–2 uger (Performance Max 2–4 uger), og strategien vurderes først 2–4 uger efter. Ændringer af budget, konverteringsmål, annoncegrupper eller søgeord imens kan starte læringen forfra.');
   }
   return { problems, warnings };
 }

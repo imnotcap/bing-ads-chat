@@ -134,7 +134,15 @@ export type PartitionAction =
       excluded: boolean;
       bid?: number | null;
     }
-  | { action: 'Delete'; adGroupId: string; id: string; excluded: boolean };
+  | {
+      action: 'Delete';
+      adGroupId: string;
+      id: string;
+      excluded: boolean;
+      /** The node's type and parent: Performance Max reads a delete without them as an invalid AssetGroupListingType. */
+      kind?: 'subdivision' | 'unit';
+      parentId?: string | null;
+    };
 
 /** A shared negative keyword list a campaign uses (GetSharedEntityAssociationsByEntityIds). */
 export interface NegativeKeywordList {
@@ -236,17 +244,35 @@ export interface ScheduleBlock {
   adjustment: number;
 }
 
-/** A campaign's bid adjustments by device, its ad schedule and its locations (each with its Microsoft criterion id). */
+/** Microsoft's age ranges (AgeRange) – the ones that can be targeted in Denmark. */
+export type AgeRange = 'EighteenToTwentyFour' | 'TwentyFiveToThirtyFour' | 'ThirtyFiveToFortyNine' | 'FiftyToSixtyFour' | 'SixtyFiveAndAbove' | 'Unknown';
+export type GenderName = 'Male' | 'Female' | 'Unknown';
+
+/**
+ * A campaign's – or an ad group's – bid adjustments by device, its ad schedule, its locations
+ * and (when read) ages and genders, each with its Microsoft criterion id. An ad group's own
+ * targets of a type replace the campaign's of that type for that ad group (Microsoft).
+ */
 export interface CampaignTargets {
   devices: { id: string; device: DeviceName; adjustment: number }[];
   schedule: (ScheduleBlock & { id: string })[];
   locations: { id: string; locationId: string; name: string; adjustment: number }[];
+  ages?: { id: string; age: AgeRange; adjustment: number }[];
+  genders?: { id: string; gender: GenderName; adjustment: number }[];
+}
+
+/** Where targets live: a campaign, or one of its ad groups. */
+export interface TargetLevel {
+  campaignId: string;
+  adGroupId?: string | null;
 }
 
 export type TargetCriterion =
   | { kind: 'device'; device: DeviceName; adjustment: number }
   | ({ kind: 'schedule' } & ScheduleBlock)
-  | { kind: 'location'; locationId: string; adjustment: number };
+  | { kind: 'location'; locationId: string; adjustment: number }
+  | { kind: 'age'; age: AgeRange; adjustment: number }
+  | { kind: 'gender'; gender: GenderName; adjustment: number };
 
 /** What to change in a campaign's targeting: deletes are sent first, then updates, then additions. */
 export interface TargetChanges {
@@ -340,7 +366,12 @@ export type ReportKind =
   | 'agegender'
   | 'hourofday'
   | 'dayofweek'
-  | 'impressionshare';
+  | 'impressionshare'
+  /** Per ad group (campaign scope): hour by hour (date + hour), device, age/gender, region – the targeting page. */
+  | 'adgrouphourly'
+  | 'adgroupdevice'
+  | 'adgroupagegender'
+  | 'adgroupgeo';
 
 export type ReportAggregation = 'Summary' | 'Daily' | 'Weekly' | 'Monthly';
 
@@ -537,6 +568,10 @@ export interface AdsBackend {
   createProductAd?(accountId: string, adGroupId: string): Promise<MutationResult>;
   /** Devices, ad schedule and locations of a campaign. */
   getCampaignTargets?(accountId: string, campaignId: string): Promise<CampaignTargets>;
+  /** The targets of a campaign or an ad group, ages and genders included. */
+  getTargets?(accountId: string, level: TargetLevel): Promise<CampaignTargets>;
+  /** Changes a campaign's or an ad group's targets (deletes, then updates, then additions). */
+  applyTargets?(accountId: string, level: TargetLevel, changes: TargetChanges): Promise<MutationResult>;
   /** Sends the targeting changes as Microsoft's "Targets" criterions (deletes, then updates, then additions). */
   applyCampaignTargets?(accountId: string, campaignId: string, changes: TargetChanges): Promise<MutationResult>;
   /** Places by their English names (e.g. "Denmark", "Region Zealand"), from Microsoft's locations file. */

@@ -683,7 +683,8 @@ Rows contain dimensions plus impressions, clicks, spend, conversions, revenue, c
   defineRead({
     name: 'get_budget_opportunities',
     kind: 'read',
-    description: 'Microsoft Advertising budget recommendations for campaigns limited by budget (suggested budget and estimated extra clicks/conversions).',
+    description:
+      "Microsoft Advertising budget recommendations for campaigns limited by budget (suggested budget and estimated extra clicks/conversions). Microsoft's suggestion is click-based, not profit-based: follow it only for campaigns review_bids_and_budgets says to raise (limited by budget AND on goal), and in steps of at most 20 %.",
     schema: z.object({ campaignId: z.string().optional() }),
     label: () => 'Henter budgetanbefalinger',
     async run(input, ctx) {
@@ -782,9 +783,21 @@ export const REPORT_LABELS: Record<ReportKind, string> = {
   hourofday: 'Time på dagen',
   dayofweek: 'Ugedag',
   impressionshare: 'Visningsandel',
+  adgrouphourly: 'Time for time pr. annoncegruppe',
+  adgroupdevice: 'Enheder pr. annoncegruppe',
+  adgroupagegender: 'Alder og køn pr. annoncegruppe',
+  adgroupgeo: 'Regioner pr. annoncegruppe',
 };
 
+const AG = [
+  { key: 'adGroupName', label: 'Annoncegruppe' },
+  { key: 'campaignName', label: 'Kampagne' },
+];
 const DIMENSION_COLUMNS: Record<ReportKind, VisualColumn[]> = {
+  adgrouphourly: [{ key: 'date', label: 'Dato' }, { key: 'hour', label: 'Time' }, ...AG],
+  adgroupdevice: [{ key: 'device', label: 'Enhed' }, ...AG],
+  adgroupagegender: [{ key: 'ageGroup', label: 'Alder' }, { key: 'gender', label: 'Køn' }, ...AG],
+  adgroupgeo: [{ key: 'region', label: 'Region' }, ...AG],
   account: [],
   campaign: [{ key: 'campaignName', label: 'Kampagne' }],
   adgroup: [

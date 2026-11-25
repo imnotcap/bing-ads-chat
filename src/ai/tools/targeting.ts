@@ -6,7 +6,7 @@
  * assistant creates a campaign or ad groups.
  */
 import { z } from 'zod';
-import type { Campaign, CampaignTargets, DeviceName, GeoLocation, ScheduleBlock, WeekDay } from '@/bing/types';
+import type { Campaign, CampaignTargets, DeviceName, GeoLocation, ScheduleBlock, TargetChanges, WeekDay } from '@/bing/types';
 import type { ChangeLine } from '@/stores/activity';
 import {
   DAY_LABELS,
@@ -26,7 +26,7 @@ import {
   scheduleOverlaps,
 } from '../targetingDefaults';
 import { readBack, report, verify, type LineCheck, type Verified } from './checks';
-import { defineRead, defineWrite, getCampaign, type ToolContext } from './context';
+import { defineRead, defineWrite, getAdGroups, getCampaign, type ToolContext } from './context';
 
 const AUTOMATED_BIDDING = new Set(['MaxClicks', 'MaxConversions', 'MaxConversionValue', 'TargetCpa', 'TargetRoas', 'TargetImpressionShare']);
 
@@ -47,8 +47,11 @@ export interface TargetingPlan {
 
 const EMPTY: CampaignTargets = { devices: [], schedule: [], locations: [] };
 
-export async function readTargets(ctx: ToolContext, campaignId: string | null): Promise<CampaignTargets> {
-  if (!campaignId || !ctx.backend.getCampaignTargets) return EMPTY;
+/** A campaign's targets – or, with adGroupId, the ad group's own (an ad group's own replace the campaign's of that kind). */
+export async function readTargets(ctx: ToolContext, campaignId: string | null, adGroupId?: string | null): Promise<CampaignTargets> {
+  if (!campaignId) return EMPTY;
+  if (ctx.backend.getTargets) return ctx.backend.getTargets(ctx.accountId, { campaignId, adGroupId });
+  if (adGroupId || !ctx.backend.getCampaignTargets) return EMPTY;
   return ctx.backend.getCampaignTargets(ctx.accountId, campaignId);
 }
 
@@ -114,10 +117,14 @@ export async function planTargeting(ctx: ToolContext, wanted: WantedTargets, cur
  * Sends the wanted targeting to a campaign, worked out from what it has right now (so a
  * new campaign's own defaults are respected), and checks each line by reading it back.
  */
-export async function applyTargeting(ctx: ToolContext, campaignId: string, wanted: WantedTargets, plan: TargetingPlan): Promise<Verified> {
+export async function applyTargeting(ctx: ToolContext, campaignId: string, wanted: WantedTargets, plan: TargetingPlan, adGroupId?: string | null): Promise<Verified> {
   const empty: Verified = { applied: [], appliedIndexes: new Set(), confirmed: [], rejected: [], notApplied: [] };
-  if (!plan.lines.length || !ctx.backend.applyCampaignTargets || !ctx.backend.getCampaignTargets) return empty;
-  const current = await ctx.backend.getCampaignTargets(ctx.accountId, campaignId);
+  const level = { campaignId, adGroupId };
+  const get = () => readTargets(ctx, campaignId, adGroupId);
+  const send = (changes: TargetChanges) =>
+    ctx.backend.applyTargets ? ctx.backend.applyTargets(ctx.accountId, level, changes) : adGroupId ? Promise.reject(new Error('Annoncegruppens målretning kan ikke ændres her.')) : ctx.backend.applyCampaignTargets!(ctx.accountId, campaignId, changes);
+  if (!plan.lines.length || (!ctx.backend.applyTargets && !ctx.backend.applyCampaignTargets)) return empty;
+  const current = await get();
   const changes = mergeChanges(
     wanted.devices ? deviceChanges(current.devices, wanted.devices) : { add: [], update: [], delete: [] },
     wanted.schedule ? scheduleChanges(current.schedule, wanted.schedule) : { add: [], update: [], delete: [] },
@@ -127,11 +134,11 @@ export async function applyTargeting(ctx: ToolContext, campaignId: string, wante
       delete: [],
     },
   );
-  const res = isEmptyChange(changes) ? {} : await ctx.backend.applyCampaignTargets(ctx.accountId, campaignId, changes);
+  const res = isEmptyChange(changes) ? {} : await send(changes);
   // Microsoft's errors don't map onto the card's lines one to one: each line is judged by reading back.
   const generic = { failed: (res.failed ?? []).map((f) => ({ ...f, index: null })) };
   const checks: LineCheck<CampaignTargets>[] = plan.lines.map((line) => ({ line, index: -1, verify: lineCheck(line, wanted, plan.places) }));
-  const state = await readBack(() => ctx.backend.getCampaignTargets!(ctx.accountId, campaignId), checks, new Set());
+  const state = await readBack(get, checks, new Set());
   return verify(checks, generic, state);
 }
 
@@ -237,13 +244,18 @@ export const targetingTools = [
         .max(84)
         .optional(),
       locations: z.array(z.string().min(2)).max(50).optional(),
+      adGroupId: z.string().optional().describe("Set it on this ad group instead of the campaign. The ad group's own devices/schedule/locations then REPLACE the campaign's of that kind for it (Microsoft) – only when the user asks for the ad group."),
       reason: z.string().describe('Why, in Danish – shown on the approval card.'),
     }),
     label: () => 'Sætter enheder, tidsplan og lokationer',
     async plan(input, ctx) {
       const c: Campaign = await getCampaign(ctx, input.campaignId);
-      if (!ctx.backend.applyCampaignTargets) throw new Error('Enheder, tidsplan og lokationer kan ikke sættes på denne konto.');
-      const current = await readTargets(ctx, c.id);
+      if (!ctx.backend.applyCampaignTargets && !ctx.backend.applyTargets) throw new Error('Enheder, tidsplan og lokationer kan ikke sættes på denne konto.');
+      const group = input.adGroupId ? (await getAdGroups(ctx, c.id)).find((g) => g.id === String(input.adGroupId)) : null;
+      if (input.adGroupId && !group) throw new Error(`Annoncegruppe ${input.adGroupId} findes ikke i "${c.name}".`);
+      if (group && !ctx.backend.applyTargets) throw new Error('Annoncegruppens målretning kan kun ændres på den rigtige konto.');
+      if (group && input.standard) throw new Error('Teamets standard sættes på kampagnen, ikke på en annoncegruppe.');
+      const current = await readTargets(ctx, c.id, group?.id);
       const standard = input.standard ? standardFor(current) : {};
       for (const b of input.schedule ?? []) if (b.from >= b.to) throw new Error(`Tidsrummet ${fmtHour(b.from)}–${fmtHour(b.to)} slutter før det starter. Brug fx 19–24 for "19–00".`);
       const wanted: WantedTargets = {
@@ -253,8 +265,9 @@ export const targetingTools = [
         schedule: input.schedule ? input.schedule.flatMap((b) => b.days.map((day: WeekDay) => ({ day, from: b.from, to: b.to, adjustment: b.adjustment }))) : standard.schedule,
         locations: input.locations ?? standard.locations,
       };
-      const t = await planTargeting(ctx, wanted, current, '');
-      if (!t.lines.length) throw new Error(`"${c.name}" har allerede ${input.standard ? 'standardopsætningen' : 'præcis denne opsætning'} – intet at ændre.${t.notes.length ? ` ${t.notes.join(' ')}` : ''}`);
+      const t = await planTargeting(ctx, wanted, current, group ? `${group.name} · ` : '');
+      if (group) t.notes.push(`Sættes på annoncegruppen "${group.name}": dens egne ${[wanted.devices ? 'enheder' : '', wanted.schedule ? 'tidsplan' : '', wanted.locations ? 'lokationer' : ''].filter(Boolean).join(', ')} erstatter kampagnens for den.`);
+      if (!t.lines.length) throw new Error(`"${group?.name ?? c.name}" har allerede ${input.standard ? 'standardopsætningen' : 'præcis denne opsætning'} – intet at ændre.${t.notes.length ? ` ${t.notes.join(' ')}` : ''}`);
       // Under automated bidding Microsoft sets the bids itself; how far it follows adjustments isn't clearly documented – -100 % on a device always stops it.
       if (AUTOMATED_BIDDING.has(c.bidStrategy.type) && (input.devices || input.schedule?.some((b) => b.adjustment !== 0)))
         t.notes.push(`"${c.name}" byder automatisk – Microsoft sætter selv buddene, og det er ikke klart dokumenteret, hvor meget den følger budjusteringerne. -100 % på en enhed slår den altid fra, og annonceplanens tider styrer, hvornår annoncerne vises.`);
@@ -264,7 +277,7 @@ export const targetingTools = [
       return {
         plan: {
           kind: 'update',
-          title: `Enheder, tidsplan og lokationer · ${c.name}`,
+          title: `Enheder, tidsplan og lokationer · ${c.name}${group ? ` › ${group.name}` : ''}`,
           reason: input.reason,
           changes: t.lines,
           dailyBudgetDelta: 0,
@@ -272,7 +285,7 @@ export const targetingTools = [
           campaignIds: [c.id],
           notes: [...t.notes, OWN_TARGETING],
         },
-        execute: async () => report(await applyTargeting(ctx, c.id, wanted, t), { noun: ['indstilling', 'indstillinger'], warnings: t.notes }),
+        execute: async () => report(await applyTargeting(ctx, c.id, wanted, t, group?.id), { noun: ['indstilling', 'indstillinger'], warnings: t.notes }),
       };
     },
   }),

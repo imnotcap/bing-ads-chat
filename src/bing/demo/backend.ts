@@ -17,6 +17,7 @@ import type {
   AuctionCompetitor,
   BudgetOpportunity,
   CampaignTargets,
+  TargetLevel,
   GeoLocation,
   MerchantStore,
   TargetChanges,
@@ -424,21 +425,38 @@ export class DemoBackend implements AdsBackend {
   }
 
   async getCampaignTargets(accountId: string, campaignId: string): Promise<CampaignTargets> {
-    await this.delay();
-    this.campaign(accountId, campaignId);
-    return structuredClone(this.state.targets?.[campaignId] ?? { devices: [], schedule: [], locations: [] });
+    return this.getTargets(accountId, { campaignId });
   }
 
   async applyCampaignTargets(accountId: string, campaignId: string, changes: TargetChanges): Promise<MutationResult> {
+    return this.applyTargets(accountId, { campaignId }, changes);
+  }
+
+  /** Campaign targets are kept under the campaign id, an ad group's under "ag:<id>". */
+  private targetKey(accountId: string, level: TargetLevel): string {
+    this.campaign(accountId, level.campaignId);
+    return level.adGroupId ? `ag:${level.adGroupId}` : level.campaignId;
+  }
+
+  async getTargets(accountId: string, level: TargetLevel): Promise<CampaignTargets> {
     await this.delay();
-    this.campaign(accountId, campaignId);
-    const t = (this.state.targets ??= {})[campaignId] ??= { devices: [], schedule: [], locations: [] };
+    const t = this.state.targets?.[this.targetKey(accountId, level)];
+    return structuredClone({ devices: [], schedule: [], locations: [], ages: [], genders: [], ...t });
+  }
+
+  async applyTargets(accountId: string, level: TargetLevel, changes: TargetChanges): Promise<MutationResult> {
+    await this.delay();
+    const t = (this.state.targets ??= {})[this.targetKey(accountId, level)] ??= { devices: [], schedule: [], locations: [] };
+    t.ages ??= [];
+    t.genders ??= [];
     const drop = new Set(changes.delete);
     t.devices = t.devices.filter((d) => !drop.has(d.id));
     t.schedule = t.schedule.filter((d) => !drop.has(d.id));
     t.locations = t.locations.filter((d) => !drop.has(d.id));
+    t.ages = t.ages.filter((d) => !drop.has(d.id));
+    t.genders = t.genders.filter((d) => !drop.has(d.id));
     for (const u of changes.update) {
-      const list: { id: string; adjustment: number }[] = u.kind === 'device' ? t.devices : u.kind === 'schedule' ? t.schedule : t.locations;
+      const list: { id: string; adjustment: number }[] = u.kind === 'device' ? t.devices : u.kind === 'schedule' ? t.schedule : u.kind === 'age' ? t.ages : u.kind === 'gender' ? t.genders : t.locations;
       const hit = list.find((x) => x.id === u.id);
       if (hit) hit.adjustment = u.adjustment;
     }
@@ -448,6 +466,8 @@ export class DemoBackend implements AdsBackend {
       ids.push(id);
       if (a.kind === 'device') t.devices.push({ id, device: a.device, adjustment: a.adjustment });
       else if (a.kind === 'schedule') t.schedule.push({ id, day: a.day, from: a.from, to: a.to, adjustment: a.adjustment });
+      else if (a.kind === 'age') t.ages.push({ id, age: a.age, adjustment: a.adjustment });
+      else if (a.kind === 'gender') t.genders.push({ id, gender: a.gender, adjustment: a.adjustment });
       else t.locations.push({ id, locationId: a.locationId, name: DEMO_LOCATIONS.find((l) => l.locationId === a.locationId)?.name ?? a.locationId, adjustment: a.adjustment });
     }
     this.commit();
@@ -498,7 +518,7 @@ export class DemoBackend implements AdsBackend {
     await sleep(this.latencyMs * 2);
     const { kind, range, campaignIds } = spec;
     const days = this.sim.range(range.from, range.to);
-    const agg = kind === 'hourofday' || kind === 'dayofweek' ? 'Summary' : spec.aggregation;
+    const agg = kind === 'hourofday' || kind === 'dayofweek' || kind === 'adgrouphourly' ? 'Summary' : spec.aggregation;
     const groups = new Map<string, { row: ReportRow; m: Metrics }>();
     const add = (key: string, date: string, dims: ReportRow, m: Metrics) => {
       const b = bucket(date, agg);
@@ -550,6 +570,31 @@ export class DemoBackend implements AdsBackend {
               if (!w) return;
               add(a.id, date, { campaignName: c?.name, adGroupId: u.adGroupId, adGroupName: g?.name, adId: a.id, adTitle: a.headlines.slice(0, 2).join(' | '), adType: a.type }, scale(m, w));
             });
+          }
+        }
+      } else if (kind === 'adgrouphourly' || kind === 'adgroupdevice' || kind === 'adgroupagegender' || kind === 'adgroupgeo') {
+        // Each ad group's day split the same way as the account's (hours, devices, ages, regions).
+        for (const u of this.sim.units(accountId, campaignIds)) {
+          const m = this.sim.unitDay(accountId, u, date);
+          if (!m.impressions) continue;
+          const c = campaigns.get(u.campaignId);
+          const g = adGroups.get(u.adGroupId);
+          const base = { campaignId: u.campaignId, campaignName: c?.name, adGroupId: u.adGroupId, adGroupName: g?.name };
+          if (kind === 'adgrouphourly') {
+            for (const h of normalised(HOURS.map((traffic, hour) => ({ hour, traffic, conv: hour >= 19 && hour <= 22 ? 1.2 : hour < 7 ? 0.6 : 1 })))) {
+              const k = `${u.adGroupId}|${date}|${h.hour}`;
+              const row = groups.get(k);
+              if (row) row.m = addMetrics(row.m, scale(m, h.traffic, h.conv));
+              else groups.set(k, { row: { ...base, date, hour: h.hour }, m: scale(m, h.traffic, h.conv) });
+            }
+          } else if (kind === 'adgroupdevice') {
+            for (const d of normalised(DEVICES.map(([name, traffic, conv]) => ({ name, traffic, conv })))) add(`${u.adGroupId}|${d.name}`, date, { ...base, device: d.name }, scale(m, d.traffic, d.conv));
+          } else if (kind === 'adgroupagegender') {
+            for (const a of normalised(AGE_GENDER.map(([age, gender, traffic, conv]) => ({ age, gender, traffic, conv })))) add(`${u.adGroupId}|${a.age}|${a.gender}`, date, { ...base, ageGroup: a.age, gender: a.gender }, scale(m, a.traffic, a.conv));
+          } else {
+            const byRegion = new Map<string, number>();
+            for (const [region, , traffic] of REGIONS) byRegion.set(region, (byRegion.get(region) ?? 0) + traffic);
+            for (const r of normalised([...byRegion].map(([region, traffic]) => ({ region, traffic, conv: 0.8 + hash(region) * 0.4 })))) add(`${u.adGroupId}|${r.region}`, date, { ...base, country: 'Denmark', region: r.region }, scale(m, r.traffic, r.conv));
           }
         }
       } else if (kind === 'searchterm') {
