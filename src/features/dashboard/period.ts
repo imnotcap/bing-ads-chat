@@ -11,9 +11,13 @@ function daysLabel(from: string, to: string): string {
  * month: 4 weeks before (28-day February) or 5 weeks before (29–31 days) – never by date,
  * which would set a Tuesday the 8th against a Sunday the 8th and mix in other weekends.
  */
-import { addDays, parseIso, toIso, today, type DateRange } from '@/lib/format';
+import { addDays, daysBetween, parseIso, toIso, today, type DateRange } from '@/lib/format';
 
-export type Granularity = 'week' | 'month';
+/** A calendar week, a calendar month, or a period the user picks (from–to). */
+export type Granularity = 'week' | 'month' | 'custom';
+
+/** The longest period that can be picked: a year and a day. */
+export const MAX_CUSTOM_DAYS = 366;
 
 export interface Period {
   range: DateRange;
@@ -49,12 +53,25 @@ export type Compare = 'previous' | 'lastYear';
 /** Same weekdays a year back: 52 weeks = 364 days (Black Friday against Black Friday, Monday against Monday). */
 export const YEAR_WEEKS = 52;
 
-export function periodOf(granularity: Granularity, offset: number, ref = today(), compare: Compare = 'previous'): Period {
+export function periodOf(granularity: Granularity, offset: number, ref = today(), compare: Compare = 'previous', custom?: DateRange): Period {
   let from: string;
   let to: string;
   let length: number;
   let label: string;
-  if (granularity === 'week') {
+  if (granularity === 'custom') {
+    // The picked days (never after today, at most a year); the arrows step whole weeks, so the weekdays stay.
+    let a = custom?.from ?? addDays(ref, -13);
+    let b = custom?.to ?? ref;
+    if (a > b) [a, b] = [b, a];
+    if (b > ref) b = ref;
+    if (a > b) a = b;
+    if (daysBetween(a, b) > MAX_CUSTOM_DAYS) a = addDays(b, -(MAX_CUSTOM_DAYS - 1));
+    const step = Math.ceil(daysBetween(a, b) / 7) * 7 * offset;
+    from = addDays(a, -step);
+    to = addDays(b, -step);
+    length = daysBetween(from, to);
+    label = daysLabel(from, to);
+  } else if (granularity === 'week') {
     from = addDays(mondayOf(ref), -7 * offset);
     const end = addDays(from, 6);
     to = end < ref ? end : ref;
@@ -74,6 +91,7 @@ export function periodOf(granularity: Granularity, offset: number, ref = today()
   }
   // Whole weeks back, so every day stands against the same weekday: a week 1 week, a month 4 or 5 weeks
   // (at least its length – never overlapping itself), last year 52 weeks.
+  // (A picked period: as many whole weeks back as it is long, rounded up.)
   const weeksBack = compare === 'lastYear' ? YEAR_WEEKS : granularity === 'week' ? 1 : Math.ceil(length / 7);
   const shift = weeksBack * 7;
   const previous = { from: addDays(from, -shift), to: addDays(to, -shift) };
@@ -82,7 +100,7 @@ export function periodOf(granularity: Granularity, offset: number, ref = today()
     previous,
     previousFull: { from: addDays(from, -shift), to: addDays(from, -shift + length - 1) },
     weeksBack,
-    compareLabel: compare === 'lastYear' ? 'Sidste år' : granularity === 'week' ? 'Ugen før' : `${weeksBack} uger før`,
+    compareLabel: compare === 'lastYear' ? 'Sidste år' : weeksBack === 1 ? 'Ugen før' : `${weeksBack} uger før`,
     previousLabel: daysLabel(previous.from, previous.to),
     length,
     label,
@@ -91,8 +109,20 @@ export function periodOf(granularity: Granularity, offset: number, ref = today()
   };
 }
 
-/** Labels for the chart's x-axis. */
-export function axisLabels(granularity: Granularity, length: number): string[] {
+/** Labels for the chart's x-axis (a picked period: its dates, "23/11"). */
+export function axisLabels(granularity: Granularity, length: number, from?: string): string[] {
   if (granularity === 'week') return ['Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn'];
+  if (granularity === 'custom' && from)
+    return Array.from({ length }, (_, i) => {
+      const d = parseIso(addDays(from, i));
+      return `${d.getDate()}/${d.getMonth() + 1}`;
+    });
   return Array.from({ length }, (_, i) => String(i + 1));
 }
+
+/** "uge" / "måned" / "periode" – for titles and texts ("Ugens indsigt", "i måneden"). */
+export const PERIOD_NOUN: Record<Granularity, { the: string; this: string; in: string; of: string }> = {
+  week: { the: 'Ugens', this: 'denne uge', in: 'i ugen', of: 'ugens' },
+  month: { the: 'Månedens', this: 'denne måned', in: 'i måneden', of: 'månedens' },
+  custom: { the: 'Periodens', this: 'i perioden', in: 'i perioden', of: 'periodens' },
+};

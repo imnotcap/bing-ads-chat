@@ -8,7 +8,7 @@ import type { DerivedMetrics } from '@/bing/types';
 import type { CampaignRow } from '@/hooks/useAdsData';
 import { fmtMoney, fmtNumber, parseIso } from '@/lib/format';
 import type { Alert } from '../insights/alerts';
-import type { Granularity } from './period';
+import { PERIOD_NOUN, type Granularity } from './period';
 
 export interface InsightChip {
   label: string;
@@ -57,9 +57,9 @@ export function buildInsights({
   /** The period ends today, which is not over – its numbers are still coming in. */
   untilToday?: boolean;
 }): InsightPage[] {
-  const period = onlyToday ? 'i dag indtil nu' : granularity === 'week' ? (current ? 'denne uge' : 'i ugen') : current ? 'denne måned' : 'i måneden';
+  const period = onlyToday ? 'i dag indtil nu' : current ? PERIOD_NOUN[granularity].this : PERIOD_NOUN[granularity].in;
   const lastYear = weeksBack === 52;
-  const back = lastYear ? 'sidste år' : `${weeksBack ?? 5} uger før`;
+  const back = lastYear ? 'sidste år' : weeksBack === 1 ? 'ugen før' : `${weeksBack ?? 5} uger før`;
   const before = lastYear
     ? onlyToday
       ? 'samme ugedag sidste år'
@@ -101,7 +101,13 @@ export function buildInsights({
   const best = [...daily].sort((a, b) => b.revenue - a.revenue)[0];
   if (best && best.revenue > 0 && daily.length > 2) {
     const d = parseIso(best.date);
-    parts.push(granularity === 'week' ? `${WEEKDAYS[d.getDay()]!.replace(/^./, (c) => c.toUpperCase())} var ugens stærkeste dag.` : `Den ${d.getDate()}. var månedens stærkeste dag.`);
+    parts.push(
+      granularity === 'week'
+        ? `${WEEKDAYS[d.getDay()]!.replace(/^./, (c) => c.toUpperCase())} var ugens stærkeste dag.`
+        : granularity === 'custom'
+          ? `${WEEKDAYS[d.getDay()]!.replace(/^./, (c) => c.toUpperCase())} d. ${d.getDate()}/${d.getMonth() + 1} var periodens stærkeste dag.`
+          : `Den ${d.getDate()}. var månedens stærkeste dag.`,
+    );
   }
   // Today's numbers are still coming in – say so, rather than let a half day read as a drop.
   if (untilToday) parts.push(`I dag er ikke slut endnu, så tallene stiger stadig.`);

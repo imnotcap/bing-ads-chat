@@ -58,5 +58,25 @@ describe('dashboard period', () => {
     expect(weekday(m.previous.from)).toBe(weekday(m.range.from));
     expect(m.previousFull).toEqual({ from: '2025-11-02', to: '2025-12-01' });
   });
+
+  it('a picked period: compared with the same weekdays whole weeks back – and last year 52 weeks back', () => {
+    const weekday = (iso: string) => new Date(`${iso}T12:00:00Z`).getUTCDay();
+    // Thursday 12 – Monday 23 November (12 days): 2 weeks back, Thursday 29 Oct – Monday 9 Nov.
+    const p = periodOf('custom', 0, '2026-11-27', 'previous', { from: '2026-11-12', to: '2026-11-23' });
+    expect(p).toMatchObject({ range: { from: '2026-11-12', to: '2026-11-23' }, length: 12, weeksBack: 2, compareLabel: '2 uger før' });
+    expect(p.previous).toEqual({ from: '2026-10-29', to: '2026-11-09' });
+    expect(weekday(p.previous.from)).toBe(weekday(p.range.from));
+    expect(weekday(p.previous.to)).toBe(weekday(p.range.to));
+    expect(p.previous.to < p.range.from).toBe(true);
+    // Black Week against Black Week.
+    const y = periodOf('custom', 0, '2026-11-27', 'lastYear', { from: '2026-11-23', to: '2026-11-30' });
+    expect(y.range).toEqual({ from: '2026-11-23', to: '2026-11-27' }); // never after today
+    expect(y.previous).toEqual({ from: '2025-11-24', to: '2025-11-28' });
+    // A single day: the same weekday a week before.
+    expect(periodOf('custom', 0, '2026-11-27', 'previous', { from: '2026-11-20', to: '2026-11-20' }).previous).toEqual({ from: '2026-11-13', to: '2026-11-13' });
+    // Reversed dates are put the right way round; the arrows step whole weeks.
+    expect(periodOf('custom', 0, '2026-11-27', 'previous', { from: '2026-11-23', to: '2026-11-12' }).range).toEqual({ from: '2026-11-12', to: '2026-11-23' });
+    expect(periodOf('custom', 1, '2026-11-27', 'previous', { from: '2026-11-12', to: '2026-11-23' }).range).toEqual({ from: '2026-10-29', to: '2026-11-09' });
+  });
 });
 
