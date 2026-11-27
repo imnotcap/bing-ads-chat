@@ -153,7 +153,7 @@ function MiniBars({ now, before }: { now: number | null; before: number | null }
   );
 }
 
-function KpiCard({ kpi }: { kpi: Kpi }) {
+function KpiCard({ kpi, compare }: { kpi: Kpi; compare: string }) {
   return (
     <motion.div variants={fadeUp} whileHover={{ y: -2 }} transition={{ duration: 0.2, ease: EASE }}>
       <SpotlightCard className="card h-full p-4" spotlightColor="rgba(109, 92, 246, 0.10)">
@@ -165,7 +165,9 @@ function KpiCard({ kpi }: { kpi: Kpi }) {
           <CountUp value={kpi.value} format={kpi.format} className="text-[28px] font-semibold leading-none tracking-[-0.03em] text-ink tabular" />
           <MiniBars now={kpi.value} before={kpi.previous} />
         </div>
-        <div className="mt-2 text-[11.5px] text-subtle">forrige periode {kpi.format(kpi.previous)}</div>
+        <div className="mt-2 truncate text-[11.5px] text-subtle" title={`Sammenlignet med de samme ugedage: ${compare}`}>
+          {compare}: {kpi.format(kpi.previous)}
+        </div>
       </SpotlightCard>
     </motion.div>
   );
@@ -226,9 +228,10 @@ function TrendTooltip({ active, payload, metric, currency, names }: { active?: b
   );
 }
 
-function TrendPanel({ points, currency, granularity }: { points: (Omit<Point, 'now' | 'before'> & { now: DerivedMetrics | null; before: DerivedMetrics | null })[]; currency: string; granularity: Granularity }) {
+function TrendPanel({ points, currency, granularity, compareLabel }: { points: (Omit<Point, 'now' | 'before'> & { now: DerivedMetrics | null; before: DerivedMetrics | null })[]; currency: string; granularity: Granularity; compareLabel: string }) {
   const [metric, setMetric] = useState<Metric>('revenue');
-  const names: [string, string] = granularity === 'week' ? ['Denne uge', 'Ugen før'] : ['Denne måned', 'Måneden før'];
+  // The line before is the same weekdays a whole number of weeks back (period.ts).
+  const names: [string, string] = granularity === 'week' ? ['Denne uge', 'Ugen før'] : ['Denne måned', `${compareLabel} (samme ugedage)`];
   const data: Point[] = points.map((p) => ({ ...p, now: p.now ? p.now[metric] : null, before: p.before ? p.before[metric] : null }));
   return (
     <Panel
@@ -426,7 +429,7 @@ function TopCampaigns({ campaigns, previous, currency, granularity, current }: {
 function summaryMarkdown(period: Period, kpis: Kpi[], insights: InsightPage[], campaigns: CampaignRow[], currency: string, accountName: string) {
   const lines = [
     `# Overblik – ${accountName}`,
-    `${period.label} (${period.range.from} – ${period.range.to}), sammenlignet med ${period.previous.from} – ${period.previous.to}.`,
+    `${period.label} (${period.range.from} – ${period.range.to}), sammenlignet med de samme ugedage ${period.weeksBack === 1 ? 'ugen' : `${period.weeksBack} uger`} før: ${period.previous.from} – ${period.previous.to}.`,
     '',
     '## Nøgletal',
     '| Nøgletal | Perioden | Forrige periode | Udvikling |',
@@ -493,6 +496,7 @@ export function DashboardPage() {
       alerts: computeAlerts(campaigns.data, period.range, currency),
       currency,
       granularity,
+      weeksBack: period.weeksBack,
       current: period.current,
       onlyToday: period.untilToday && period.range.from === period.range.to,
       untilToday: period.untilToday,
@@ -562,11 +566,11 @@ export function DashboardPage() {
             <RecentCards />
 
             <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-              {kpis ? kpis.map((k) => <KpiCard key={k.label} kpi={k} />) : Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-[118px]" />)}
+              {kpis ? kpis.map((k) => <KpiCard key={k.label} kpi={k} compare={period.previousLabel} />) : Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-[118px]" />)}
             </section>
 
             <section className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
-              {t ? <TrendPanel points={points} currency={currency} granularity={granularity} /> : <Skeleton className="h-[360px]" />}
+              {t ? <TrendPanel points={points} currency={currency} granularity={granularity} compareLabel={period.compareLabel} /> : <Skeleton className="h-[360px]" />}
               {campaigns.data ? <SharePanel campaigns={campaigns.data} currency={currency} /> : <Skeleton className="h-[360px]" />}
             </section>
 

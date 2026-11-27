@@ -6,19 +6,26 @@ function daysLabel(from: string, to: string): string {
 
 /**
  * The dashboard's period: a calendar week (Monday–Sunday) or month, stepped back and
- * forth with the arrows, compared with the same days of the week/month before – so
- * Monday is compared with Monday, also while the current week is still running.
+ * forth with the arrows, compared with the SAME WEEKDAYS a whole number of weeks before –
+ * Monday with Monday, also while the period is still running. A week: the week before. A
+ * month: 4 weeks before (28-day February) or 5 weeks before (29–31 days) – never by date,
+ * which would set a Tuesday the 8th against a Sunday the 8th and mix in other weekends.
  */
-import { addDays, daysBetween, parseIso, toIso, today, type DateRange } from '@/lib/format';
+import { addDays, parseIso, toIso, today, type DateRange } from '@/lib/format';
 
 export type Granularity = 'week' | 'month';
 
 export interface Period {
   range: DateRange;
-  /** The same days of the week/month before (what the numbers are compared with). */
+  /** The same weekdays a whole number of weeks before (what the numbers are compared with). */
   previous: DateRange;
-  /** The whole week/month before (its line in the chart). */
+  /** The whole span before, weekday by weekday (its line in the chart). */
   previousFull: DateRange;
+  /** How many weeks back the comparison is (1 for a week, 4 or 5 for a month). */
+  weeksBack: number;
+  /** "Ugen før" / "5 uger før (samme ugedage)" – and the dates compared with, "27. sep. – 23. okt.". */
+  compareLabel: string;
+  previousLabel: string;
   /** Days in the whole week/month (the chart's x-axis), even if it has not ended yet. */
   length: number;
   label: string;
@@ -45,6 +52,9 @@ export function periodOf(granularity: Granularity, offset: number, ref = today()
       range: { from, to },
       previous: { from: addDays(from, -7), to: addDays(to, -7) },
       previousFull: { from: addDays(from, -7), to: addDays(from, -1) },
+      weeksBack: 1,
+      compareLabel: 'Ugen før',
+      previousLabel: daysLabel(addDays(from, -7), addDays(to, -7)),
       length: 7,
       label: daysLabel(from, to),
       current: offset === 0,
@@ -57,18 +67,20 @@ export function periodOf(granularity: Granularity, offset: number, ref = today()
   const from = toIso(first);
   const end = toIso(last);
   const to = end < ref ? end : ref;
-  const prevFirst = new Date(first.getFullYear(), first.getMonth() - 1, 1);
-  const prevLast = new Date(first.getFullYear(), first.getMonth(), 0);
-  const span = daysBetween(from, to);
-  // The same days of the month before (31 March → the last day of February).
-  const sameDay = addDays(toIso(prevFirst), span - 1);
-  const prevTo = sameDay < toIso(prevLast) ? sameDay : toIso(prevLast);
+  const length = last.getDate();
+  // Whole weeks back, at least the month's length: the same weekdays, and never overlapping the month itself.
+  const weeksBack = Math.ceil(length / 7);
+  const shift = weeksBack * 7;
+  const previous = { from: addDays(from, -shift), to: addDays(to, -shift) };
   const label = monthYear.format(first);
   return {
     range: { from, to },
-    previous: { from: toIso(prevFirst), to: prevTo },
-    previousFull: { from: toIso(prevFirst), to: toIso(prevLast) },
-    length: last.getDate(),
+    previous,
+    previousFull: { from: addDays(from, -shift), to: addDays(from, -shift + length - 1) },
+    weeksBack,
+    compareLabel: `${weeksBack} uger før`,
+    previousLabel: daysLabel(previous.from, previous.to),
+    length,
     // A month that is still running shows the days so far; a whole month its name.
     label: to < end ? daysLabel(from, to) : label.charAt(0).toUpperCase() + label.slice(1),
     current: offset === 0,

@@ -35,6 +35,7 @@ export function buildInsights({
   alerts,
   currency,
   granularity,
+  weeksBack,
   current,
   onlyToday = false,
   untilToday = false,
@@ -47,6 +48,8 @@ export function buildInsights({
   alerts: Alert[];
   currency: string;
   granularity: Granularity;
+  /** How many weeks back the comparison is (period.ts: a month is set against the same weekdays 4 or 5 weeks before). */
+  weeksBack?: number;
   /** The running week/month ("denne uge") or one stepped back to ("i ugen"). */
   current: boolean;
   /** The period so far is only today (Monday, the 1st): say "i dag", not "denne uge". */
@@ -55,7 +58,8 @@ export function buildInsights({
   untilToday?: boolean;
 }): InsightPage[] {
   const period = onlyToday ? 'i dag indtil nu' : granularity === 'week' ? (current ? 'denne uge' : 'i ugen') : current ? 'denne måned' : 'i måneden';
-  const before = onlyToday ? (granularity === 'week' ? 'samme dag ugen før' : 'samme dag måneden før') : granularity === 'week' ? 'ugen før' : 'måneden før';
+  const back = `${weeksBack ?? 5} uger før`;
+  const before = onlyToday ? (granularity === 'week' ? 'samme dag ugen før' : `samme ugedag ${back}`) : granularity === 'week' ? 'ugen før' : `de samme ugedage ${back}`;
   const pages: InsightPage[] = [];
 
   // Who moved the most, in money.
