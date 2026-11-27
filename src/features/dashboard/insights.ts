@@ -8,7 +8,7 @@ import type { DerivedMetrics } from '@/bing/types';
 import type { CampaignRow } from '@/hooks/useAdsData';
 import { fmtMoney, fmtNumber, parseIso } from '@/lib/format';
 import type { Alert } from '../insights/alerts';
-import type { Granularity } from './period';
+import { PERIOD_NOUN, type Granularity } from './period';
 
 export interface InsightChip {
   label: string;
@@ -35,6 +35,7 @@ export function buildInsights({
   alerts,
   currency,
   granularity,
+  weeksBack,
   current,
   onlyToday = false,
   untilToday = false,
@@ -47,6 +48,8 @@ export function buildInsights({
   alerts: Alert[];
   currency: string;
   granularity: Granularity;
+  /** How many weeks back the comparison is (period.ts: a month is set against the same weekdays 4 or 5 weeks before). */
+  weeksBack?: number;
   /** The running week/month ("denne uge") or one stepped back to ("i ugen"). */
   current: boolean;
   /** The period so far is only today (Monday, the 1st): say "i dag", not "denne uge". */
@@ -54,8 +57,22 @@ export function buildInsights({
   /** The period ends today, which is not over – its numbers are still coming in. */
   untilToday?: boolean;
 }): InsightPage[] {
-  const period = onlyToday ? 'i dag indtil nu' : granularity === 'week' ? (current ? 'denne uge' : 'i ugen') : current ? 'denne måned' : 'i måneden';
-  const before = onlyToday ? (granularity === 'week' ? 'samme dag ugen før' : 'samme dag måneden før') : granularity === 'week' ? 'ugen før' : 'måneden før';
+  const period = onlyToday ? 'i dag indtil nu' : current ? PERIOD_NOUN[granularity].this : PERIOD_NOUN[granularity].in;
+  const lastYear = weeksBack === 52;
+  const back = lastYear ? 'sidste år' : weeksBack === 1 ? 'ugen før' : `${weeksBack ?? 5} uger før`;
+  const before = lastYear
+    ? onlyToday
+      ? 'samme ugedag sidste år'
+      : granularity === 'week'
+        ? 'samme uge sidste år'
+        : 'de samme ugedage sidste år'
+    : onlyToday
+      ? granularity === 'week'
+        ? 'samme dag ugen før'
+        : `samme ugedag ${back}`
+      : granularity === 'week'
+        ? 'ugen før'
+        : `de samme ugedage ${back}`;
   const pages: InsightPage[] = [];
 
   // Who moved the most, in money.
@@ -84,7 +101,13 @@ export function buildInsights({
   const best = [...daily].sort((a, b) => b.revenue - a.revenue)[0];
   if (best && best.revenue > 0 && daily.length > 2) {
     const d = parseIso(best.date);
-    parts.push(granularity === 'week' ? `${WEEKDAYS[d.getDay()]!.replace(/^./, (c) => c.toUpperCase())} var ugens stærkeste dag.` : `Den ${d.getDate()}. var månedens stærkeste dag.`);
+    parts.push(
+      granularity === 'week'
+        ? `${WEEKDAYS[d.getDay()]!.replace(/^./, (c) => c.toUpperCase())} var ugens stærkeste dag.`
+        : granularity === 'custom'
+          ? `${WEEKDAYS[d.getDay()]!.replace(/^./, (c) => c.toUpperCase())} d. ${d.getDate()}/${d.getMonth() + 1} var periodens stærkeste dag.`
+          : `Den ${d.getDate()}. var månedens stærkeste dag.`,
+    );
   }
   // Today's numbers are still coming in – say so, rather than let a half day read as a drop.
   if (untilToday) parts.push(`I dag er ikke slut endnu, så tallene stiger stadig.`);

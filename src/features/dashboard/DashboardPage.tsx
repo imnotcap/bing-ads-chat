@@ -23,15 +23,17 @@ import { campaignMenuItems } from '@/features/campaigns/campaignMenu';
 import { startChat } from '@/features/chat/startChat';
 import { computeAlerts } from '@/features/insights/alerts';
 import { refreshAdsData, useCampaigns, usePeriodTrend, type CampaignRow } from '@/hooks/useAdsData';
-import { fmtCompact, fmtDate, fmtMoney, fmtNumber, fmtPercent } from '@/lib/format';
+import { addDays, fmtCompact, fmtDate, fmtMoney, fmtNumber, fmtPercent, today, type DateRange } from '@/lib/format';
 import { saveExport } from '@/lib/platform';
 import { cn, errorMessage } from '@/lib/utils';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
+import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
+import { BrandNote, BrandSwitch, useBrand } from './brand';
 import { InsightBox } from './InsightBox';
 import { RecentCards } from './RecentCards';
 import { buildInsights, type InsightPage } from './insights';
-import { axisLabels, periodOf, type Granularity, type Period } from './period';
+import { PERIOD_NOUN, axisLabels, periodOf, type Granularity, type Period } from './period';
 
 const COLORS = ['#6d5cf6', '#14b8a6', '#8b5cf6', '#f59e0b', '#c4c4d0'];
 
@@ -97,7 +99,21 @@ function ChannelPicker({ value, onChange }: { value: string; onChange: (v: strin
   );
 }
 
-function PeriodPicker({ period, granularity, onGranularity, onStep }: { period: Period; granularity: Granularity; onGranularity: (g: Granularity) => void; onStep: (d: number) => void }) {
+function PeriodPicker({
+  period,
+  granularity,
+  onGranularity,
+  onStep,
+  onCustom,
+}: {
+  period: Period;
+  granularity: Granularity;
+  onGranularity: (g: Granularity) => void;
+  onStep: (d: number) => void;
+  onCustom: (r: DateRange) => void;
+}) {
+  const max = today();
+  const dateInput = 'h-6 rounded-md border border-transparent bg-transparent px-1 text-[12.5px] tabular text-ink outline-none hover:border-line focus:border-brand/50';
   return (
     <>
       <Select<Granularity>
@@ -109,11 +125,21 @@ function PeriodPicker({ period, granularity, onGranularity, onStep }: { period: 
         options={[
           { value: 'week', label: 'Ugentlig' },
           { value: 'month', label: 'Månedlig' },
+          { value: 'custom', label: 'Valgfri periode' },
         ]}
       />
       <div className="inline-flex h-8 items-center gap-1 rounded-lg border border-line bg-surface pl-2.5 pr-1 text-[12.5px] font-medium text-ink-2">
         <CalendarDays className="size-3.5 text-muted" />
-        <span className="min-w-[150px] text-center tabular">{period.label}</span>
+        {granularity === 'custom' ? (
+          <span className="inline-flex items-center gap-0.5">
+            <input type="date" aria-label="Fra" className={dateInput} value={period.range.from} max={max} onChange={(e) => e.target.value && onCustom({ from: e.target.value, to: period.range.to })} />
+            –
+            <input type="date" aria-label="Til" className={dateInput} value={period.range.to} max={max} onChange={(e) => e.target.value && onCustom({ from: period.range.from, to: e.target.value })} />
+            <span className="ml-1 text-[11.5px] font-normal text-muted">{period.length} dage</span>
+          </span>
+        ) : (
+          <span className="min-w-[150px] text-center tabular">{period.label}</span>
+        )}
         <button type="button" aria-label="Forrige periode" onClick={() => onStep(1)} className="grid size-6 place-items-center rounded-md text-muted hover:bg-line-2 hover:text-ink">
           <ChevronLeft className="size-3.5" />
         </button>
@@ -153,7 +179,7 @@ function MiniBars({ now, before }: { now: number | null; before: number | null }
   );
 }
 
-function KpiCard({ kpi }: { kpi: Kpi }) {
+function KpiCard({ kpi, compare }: { kpi: Kpi; compare: string }) {
   return (
     <motion.div variants={fadeUp} whileHover={{ y: -2 }} transition={{ duration: 0.2, ease: EASE }}>
       <SpotlightCard className="card h-full p-4" spotlightColor="rgba(109, 92, 246, 0.10)">
@@ -165,7 +191,9 @@ function KpiCard({ kpi }: { kpi: Kpi }) {
           <CountUp value={kpi.value} format={kpi.format} className="text-[28px] font-semibold leading-none tracking-[-0.03em] text-ink tabular" />
           <MiniBars now={kpi.value} before={kpi.previous} />
         </div>
-        <div className="mt-2 text-[11.5px] text-subtle">forrige periode {kpi.format(kpi.previous)}</div>
+        <div className="mt-2 truncate text-[11.5px] text-subtle" title={`Sammenlignet med de samme ugedage: ${compare}`}>
+          {compare}: {kpi.format(kpi.previous)}
+        </div>
       </SpotlightCard>
     </motion.div>
   );
@@ -226,9 +254,10 @@ function TrendTooltip({ active, payload, metric, currency, names }: { active?: b
   );
 }
 
-function TrendPanel({ points, currency, granularity }: { points: (Omit<Point, 'now' | 'before'> & { now: DerivedMetrics | null; before: DerivedMetrics | null })[]; currency: string; granularity: Granularity }) {
+function TrendPanel({ points, currency, granularity, compareLabel }: { points: (Omit<Point, 'now' | 'before'> & { now: DerivedMetrics | null; before: DerivedMetrics | null })[]; currency: string; granularity: Granularity; compareLabel: string }) {
   const [metric, setMetric] = useState<Metric>('revenue');
-  const names: [string, string] = granularity === 'week' ? ['Denne uge', 'Ugen før'] : ['Denne måned', 'Måneden før'];
+  // The line before is the same weekdays a whole number of weeks back (period.ts).
+  const names: [string, string] = [granularity === 'week' ? 'Denne uge' : granularity === 'custom' ? 'Perioden' : 'Denne måned', compareLabel === 'Ugen før' ? compareLabel : `${compareLabel} (samme ugedage)`];
   const data: Point[] = points.map((p) => ({ ...p, now: p.now ? p.now[metric] : null, before: p.before ? p.before[metric] : null }));
   return (
     <Panel
@@ -342,7 +371,7 @@ function TopCampaigns({ campaigns, previous, currency, granularity, current }: {
 
   return (
     <Panel
-      title={`Top kampagner ${granularity === 'week' ? (current ? 'denne uge' : 'i ugen') : current ? 'denne måned' : 'i måneden'}`}
+      title={`Top kampagner ${current ? PERIOD_NOUN[granularity].this : PERIOD_NOUN[granularity].in}`}
       action={
         <>
           <Select<StatusFilter>
@@ -426,7 +455,7 @@ function TopCampaigns({ campaigns, previous, currency, granularity, current }: {
 function summaryMarkdown(period: Period, kpis: Kpi[], insights: InsightPage[], campaigns: CampaignRow[], currency: string, accountName: string) {
   const lines = [
     `# Overblik – ${accountName}`,
-    `${period.label} (${period.range.from} – ${period.range.to}), sammenlignet med ${period.previous.from} – ${period.previous.to}.`,
+    `${period.label} (${period.range.from} – ${period.range.to}), sammenlignet med de samme ugedage ${period.weeksBack === 52 ? 'sidste år (52 uger før)' : period.weeksBack === 1 ? 'ugen før' : `${period.weeksBack} uger før`}: ${period.previous.from} – ${period.previous.to}.`,
     '',
     '## Nøgletal',
     '| Nøgletal | Perioden | Forrige periode | Udvikling |',
@@ -458,10 +487,21 @@ export function DashboardPage() {
   const [granularity, setGranularity] = useState<Granularity>('week');
   const [offset, setOffset] = useState(0);
   const [channel, setChannel] = useState('all');
-  const period = useMemo(() => periodOf(granularity, offset), [granularity, offset]);
-  const trend = usePeriodTrend(period.range, period.previous, period.previousFull);
-  const campaigns = useCampaigns(period.range);
-  const previousCampaigns = useCampaigns(period.previous);
+  const compareWith = useSettings((s) => s.compareWith);
+  const setCompareWith = useSettings((s) => s.setCompareWith);
+  const [custom, setCustom] = useState<DateRange>(() => ({ from: addDays(today(), -13), to: today() }));
+  const period = useMemo(() => periodOf(granularity, offset, undefined, compareWith, custom), [granularity, offset, compareWith, custom]);
+  // "Ekskl. brand" (shared with Dagligt overblik): brand campaigns out of the totals, the chart and the lists.
+  const brand = useBrand();
+  const excluded = brand.active ? brand.ids : [];
+  const trend = usePeriodTrend(period.range, period.previous, period.previousFull, excluded);
+  const allCampaigns = useCampaigns(period.range);
+  const allPrevious = useCampaigns(period.previous);
+  const excludedKey = excluded.join(',');
+  const nowData = useMemo(() => allCampaigns.data?.filter((c) => !excluded.includes(c.id)), [allCampaigns.data, excludedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const prevData = useMemo(() => allPrevious.data?.filter((c) => !excluded.includes(c.id)), [allPrevious.data, excludedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const campaigns = { ...allCampaigns, data: nowData };
+  const previousCampaigns = { ...allPrevious, data: prevData };
 
   const t = trend.data;
   const kpis: Kpi[] | null = t
@@ -475,7 +515,7 @@ export function DashboardPage() {
 
   const points = useMemo(() => {
     if (!t) return [];
-    const labels = axisLabels(granularity, period.length);
+    const labels = axisLabels(granularity, period.length, period.range.from);
     const byIndex = (rows: typeof t.daily) => rows.map((r) => ({ date: r.date ?? null, m: derive({ impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0, conversions: r.conversions ?? 0, revenue: r.revenue ?? 0 }) }));
     const now = byIndex(t.daily);
     const before = byIndex(t.previousDaily);
@@ -493,6 +533,7 @@ export function DashboardPage() {
       alerts: computeAlerts(campaigns.data, period.range, currency),
       currency,
       granularity,
+      weeksBack: period.weeksBack,
       current: period.current,
       onlyToday: period.untilToday && period.range.from === period.range.to,
       untilToday: period.untilToday,
@@ -536,8 +577,24 @@ export function DashboardPage() {
                 setOffset(0);
               }}
               onStep={(d) => setOffset((o) => Math.max(0, o + d))}
+              onCustom={(r) => {
+                setCustom(r);
+                setOffset(0);
+              }}
             />
             {CHANNELS.length > 1 && <ChannelPicker value={channel} onChange={setChannel} />}
+            <Select<'previous' | 'lastYear'>
+              triggerVariant="pill"
+              value={compareWith}
+              onChange={setCompareWith}
+              aria-label="Sammenlign med"
+              className="h-8 border border-line bg-surface text-ink-2"
+              options={[
+                { value: 'previous', label: 'Sammenlign med forrige periode' },
+                { value: 'lastYear', label: 'Sammenlign med samme periode sidste år' },
+              ]}
+            />
+            <BrandSwitch />
             <div className="ml-auto flex items-center gap-2">
               <Tooltip content="Hent tallene igen">
                 <Button variant="secondary" size="icon-sm" aria-label="Opdatér" onClick={() => void refreshAdsData()}>
@@ -551,22 +608,23 @@ export function DashboardPage() {
           </div>
         </header>
 
+        <BrandNote className="mt-3 text-[12.5px] text-muted" />
         {error ? (
           <div className="card mt-6 p-6 text-[13px] text-negative">{errorMessage(error)}</div>
         ) : (
           <motion.div variants={stagger(0.06, 0.05)} initial="hidden" animate="show" className="mt-5 grid gap-4">
             <motion.div variants={fadeUp}>
-              <InsightBox title={granularity === 'week' ? 'Ugens indsigt' : 'Månedens indsigt'} pages={insights} loading={!t || !campaigns.data} onAsk={ask} />
+              <InsightBox title={`${PERIOD_NOUN[granularity].the} indsigt`} pages={insights} loading={!t || !campaigns.data} onAsk={ask} />
             </motion.div>
 
             <RecentCards />
 
             <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-              {kpis ? kpis.map((k) => <KpiCard key={k.label} kpi={k} />) : Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-[118px]" />)}
+              {kpis ? kpis.map((k) => <KpiCard key={k.label} kpi={k} compare={period.previousLabel} />) : Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-[118px]" />)}
             </section>
 
             <section className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
-              {t ? <TrendPanel points={points} currency={currency} granularity={granularity} /> : <Skeleton className="h-[360px]" />}
+              {t ? <TrendPanel points={points} currency={currency} granularity={granularity} compareLabel={period.compareLabel} /> : <Skeleton className="h-[360px]" />}
               {campaigns.data ? <SharePanel campaigns={campaigns.data} currency={currency} /> : <Skeleton className="h-[360px]" />}
             </section>
 

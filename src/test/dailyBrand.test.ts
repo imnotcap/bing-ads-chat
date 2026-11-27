@@ -60,3 +60,22 @@ describe('Dagligt overblik ekskl. brand', () => {
     expect(b.rest.map((r) => r.campaignId)).toEqual(['search']);
   });
 });
+
+describe('Overblik ekskl. brand', () => {
+  it('takes the brand campaigns off the account\'s days, date by date, and works the ratios out again', async () => {
+    const { subtractByDate } = await import('@/hooks/useAdsData');
+    const out = subtractByDate(
+      [
+        { date: '2026-11-23', impressions: 1000, clicks: 100, spend: 500, conversions: 10, revenue: 5000 },
+        { date: '2026-11-24', impressions: 800, clicks: 80, spend: 400, conversions: 8, revenue: 3000 },
+      ],
+      [
+        { date: '2026-11-23', campaignId: 'b1', impressions: 200, clicks: 40, spend: 100, conversions: 6, revenue: 3000 },
+        { date: '2026-11-23', campaignId: 'b2', impressions: 100, clicks: 10, spend: 50, conversions: 1, revenue: 500 },
+      ],
+    );
+    expect(out[0]).toMatchObject({ date: '2026-11-23', spend: 350, conversions: 3, revenue: 1500, clicks: 50 });
+    expect(out[0]!.roas).toBeCloseTo(1500 / 350);
+    expect(out[1]).toMatchObject({ date: '2026-11-24', spend: 400, revenue: 3000 });
+  });
+});
