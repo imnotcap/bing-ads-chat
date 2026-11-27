@@ -87,6 +87,11 @@ interface SettingsState {
   appearance: Appearance;
   datePreset: DatePreset;
   onboarded: boolean;
+  /** Overblik and Dagligt overblik: without the brand campaigns, and (Overblik) what a period is compared with. */
+  excludeBrand: boolean;
+  setExcludeBrand: (v: boolean) => void;
+  compareWith: 'previous' | 'lastYear';
+  setCompareWith: (v: 'previous' | 'lastYear') => void;
   /** Dagligt overblik "Ekskl. brand": the brand campaigns per ad account (missing = names containing "brand"). */
   brandCampaigns: Record<string, string[]>;
   setBrandCampaigns: (accountId: string, ids: string[] | null) => void;
@@ -141,6 +146,10 @@ export const useSettings = create<SettingsState>()(
       setAppearance: (patch) => set((s) => ({ appearance: { ...s.appearance, ...patch } })),
       setDatePreset: (datePreset) => set({ datePreset }),
       setOnboarded: (onboarded) => set({ onboarded }),
+      excludeBrand: false,
+      setExcludeBrand: (excludeBrand) => set({ excludeBrand }),
+      compareWith: 'previous',
+      setCompareWith: (compareWith) => set({ compareWith }),
       brandCampaigns: {},
       setBrandCampaigns: (accountId, ids) =>
         set((s) => {

@@ -27,7 +27,9 @@ import { fmtCompact, fmtDate, fmtMoney, fmtNumber, fmtPercent } from '@/lib/form
 import { saveExport } from '@/lib/platform';
 import { cn, errorMessage } from '@/lib/utils';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
+import { useSettings } from '@/stores/settings';
 import { useUi } from '@/stores/ui';
+import { BrandNote, BrandSwitch, useBrand } from './brand';
 import { InsightBox } from './InsightBox';
 import { RecentCards } from './RecentCards';
 import { buildInsights, type InsightPage } from './insights';
@@ -231,7 +233,7 @@ function TrendTooltip({ active, payload, metric, currency, names }: { active?: b
 function TrendPanel({ points, currency, granularity, compareLabel }: { points: (Omit<Point, 'now' | 'before'> & { now: DerivedMetrics | null; before: DerivedMetrics | null })[]; currency: string; granularity: Granularity; compareLabel: string }) {
   const [metric, setMetric] = useState<Metric>('revenue');
   // The line before is the same weekdays a whole number of weeks back (period.ts).
-  const names: [string, string] = granularity === 'week' ? ['Denne uge', 'Ugen før'] : ['Denne måned', `${compareLabel} (samme ugedage)`];
+  const names: [string, string] = [granularity === 'week' ? 'Denne uge' : 'Denne måned', compareLabel === 'Ugen før' ? compareLabel : `${compareLabel} (samme ugedage)`];
   const data: Point[] = points.map((p) => ({ ...p, now: p.now ? p.now[metric] : null, before: p.before ? p.before[metric] : null }));
   return (
     <Panel
@@ -429,7 +431,7 @@ function TopCampaigns({ campaigns, previous, currency, granularity, current }: {
 function summaryMarkdown(period: Period, kpis: Kpi[], insights: InsightPage[], campaigns: CampaignRow[], currency: string, accountName: string) {
   const lines = [
     `# Overblik – ${accountName}`,
-    `${period.label} (${period.range.from} – ${period.range.to}), sammenlignet med de samme ugedage ${period.weeksBack === 1 ? 'ugen' : `${period.weeksBack} uger`} før: ${period.previous.from} – ${period.previous.to}.`,
+    `${period.label} (${period.range.from} – ${period.range.to}), sammenlignet med de samme ugedage ${period.weeksBack === 52 ? 'sidste år (52 uger før)' : period.weeksBack === 1 ? 'ugen før' : `${period.weeksBack} uger før`}: ${period.previous.from} – ${period.previous.to}.`,
     '',
     '## Nøgletal',
     '| Nøgletal | Perioden | Forrige periode | Udvikling |',
@@ -461,10 +463,20 @@ export function DashboardPage() {
   const [granularity, setGranularity] = useState<Granularity>('week');
   const [offset, setOffset] = useState(0);
   const [channel, setChannel] = useState('all');
-  const period = useMemo(() => periodOf(granularity, offset), [granularity, offset]);
-  const trend = usePeriodTrend(period.range, period.previous, period.previousFull);
-  const campaigns = useCampaigns(period.range);
-  const previousCampaigns = useCampaigns(period.previous);
+  const compareWith = useSettings((s) => s.compareWith);
+  const setCompareWith = useSettings((s) => s.setCompareWith);
+  const period = useMemo(() => periodOf(granularity, offset, undefined, compareWith), [granularity, offset, compareWith]);
+  // "Ekskl. brand" (shared with Dagligt overblik): brand campaigns out of the totals, the chart and the lists.
+  const brand = useBrand();
+  const excluded = brand.active ? brand.ids : [];
+  const trend = usePeriodTrend(period.range, period.previous, period.previousFull, excluded);
+  const allCampaigns = useCampaigns(period.range);
+  const allPrevious = useCampaigns(period.previous);
+  const excludedKey = excluded.join(',');
+  const nowData = useMemo(() => allCampaigns.data?.filter((c) => !excluded.includes(c.id)), [allCampaigns.data, excludedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const prevData = useMemo(() => allPrevious.data?.filter((c) => !excluded.includes(c.id)), [allPrevious.data, excludedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const campaigns = { ...allCampaigns, data: nowData };
+  const previousCampaigns = { ...allPrevious, data: prevData };
 
   const t = trend.data;
   const kpis: Kpi[] | null = t
@@ -542,6 +554,18 @@ export function DashboardPage() {
               onStep={(d) => setOffset((o) => Math.max(0, o + d))}
             />
             {CHANNELS.length > 1 && <ChannelPicker value={channel} onChange={setChannel} />}
+            <Select<'previous' | 'lastYear'>
+              triggerVariant="pill"
+              value={compareWith}
+              onChange={setCompareWith}
+              aria-label="Sammenlign med"
+              className="h-8 border border-line bg-surface text-ink-2"
+              options={[
+                { value: 'previous', label: 'Sammenlign med forrige periode' },
+                { value: 'lastYear', label: 'Sammenlign med samme periode sidste år' },
+              ]}
+            />
+            <BrandSwitch />
             <div className="ml-auto flex items-center gap-2">
               <Tooltip content="Hent tallene igen">
                 <Button variant="secondary" size="icon-sm" aria-label="Opdatér" onClick={() => void refreshAdsData()}>
@@ -555,6 +579,7 @@ export function DashboardPage() {
           </div>
         </header>
 
+        <BrandNote className="mt-3 text-[12.5px] text-muted" />
         {error ? (
           <div className="card mt-6 p-6 text-[13px] text-negative">{errorMessage(error)}</div>
         ) : (

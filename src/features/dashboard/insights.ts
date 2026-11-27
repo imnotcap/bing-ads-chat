@@ -58,8 +58,21 @@ export function buildInsights({
   untilToday?: boolean;
 }): InsightPage[] {
   const period = onlyToday ? 'i dag indtil nu' : granularity === 'week' ? (current ? 'denne uge' : 'i ugen') : current ? 'denne måned' : 'i måneden';
-  const back = `${weeksBack ?? 5} uger før`;
-  const before = onlyToday ? (granularity === 'week' ? 'samme dag ugen før' : `samme ugedag ${back}`) : granularity === 'week' ? 'ugen før' : `de samme ugedage ${back}`;
+  const lastYear = weeksBack === 52;
+  const back = lastYear ? 'sidste år' : `${weeksBack ?? 5} uger før`;
+  const before = lastYear
+    ? onlyToday
+      ? 'samme ugedag sidste år'
+      : granularity === 'week'
+        ? 'samme uge sidste år'
+        : 'de samme ugedage sidste år'
+    : onlyToday
+      ? granularity === 'week'
+        ? 'samme dag ugen før'
+        : `samme ugedag ${back}`
+      : granularity === 'week'
+        ? 'ugen før'
+        : `de samme ugedage ${back}`;
   const pages: InsightPage[] = [];
 
   // Who moved the most, in money.

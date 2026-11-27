@@ -43,46 +43,49 @@ function mondayOf(iso: string) {
   return addDays(iso, -day);
 }
 
-export function periodOf(granularity: Granularity, offset: number, ref = today()): Period {
+/** What a period is compared with: the period before, or the same period last year (52 weeks back). */
+export type Compare = 'previous' | 'lastYear';
+
+/** Same weekdays a year back: 52 weeks = 364 days (Black Friday against Black Friday, Monday against Monday). */
+export const YEAR_WEEKS = 52;
+
+export function periodOf(granularity: Granularity, offset: number, ref = today(), compare: Compare = 'previous'): Period {
+  let from: string;
+  let to: string;
+  let length: number;
+  let label: string;
   if (granularity === 'week') {
-    const from = addDays(mondayOf(ref), -7 * offset);
+    from = addDays(mondayOf(ref), -7 * offset);
     const end = addDays(from, 6);
-    const to = end < ref ? end : ref;
-    return {
-      range: { from, to },
-      previous: { from: addDays(from, -7), to: addDays(to, -7) },
-      previousFull: { from: addDays(from, -7), to: addDays(from, -1) },
-      weeksBack: 1,
-      compareLabel: 'Ugen før',
-      previousLabel: daysLabel(addDays(from, -7), addDays(to, -7)),
-      length: 7,
-      label: daysLabel(from, to),
-      current: offset === 0,
-      untilToday: to === ref,
-    };
+    to = end < ref ? end : ref;
+    length = 7;
+    label = daysLabel(from, to);
+  } else {
+    const r = parseIso(ref);
+    const first = new Date(r.getFullYear(), r.getMonth() - offset, 1);
+    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
+    from = toIso(first);
+    const end = toIso(last);
+    to = end < ref ? end : ref;
+    length = last.getDate();
+    const name = monthYear.format(first);
+    // A month that is still running shows the days so far; a whole month its name.
+    label = to < end ? daysLabel(from, to) : name.charAt(0).toUpperCase() + name.slice(1);
   }
-  const r = parseIso(ref);
-  const first = new Date(r.getFullYear(), r.getMonth() - offset, 1);
-  const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
-  const from = toIso(first);
-  const end = toIso(last);
-  const to = end < ref ? end : ref;
-  const length = last.getDate();
-  // Whole weeks back, at least the month's length: the same weekdays, and never overlapping the month itself.
-  const weeksBack = Math.ceil(length / 7);
+  // Whole weeks back, so every day stands against the same weekday: a week 1 week, a month 4 or 5 weeks
+  // (at least its length – never overlapping itself), last year 52 weeks.
+  const weeksBack = compare === 'lastYear' ? YEAR_WEEKS : granularity === 'week' ? 1 : Math.ceil(length / 7);
   const shift = weeksBack * 7;
   const previous = { from: addDays(from, -shift), to: addDays(to, -shift) };
-  const label = monthYear.format(first);
   return {
     range: { from, to },
     previous,
     previousFull: { from: addDays(from, -shift), to: addDays(from, -shift + length - 1) },
     weeksBack,
-    compareLabel: `${weeksBack} uger før`,
+    compareLabel: compare === 'lastYear' ? 'Sidste år' : granularity === 'week' ? 'Ugen før' : `${weeksBack} uger før`,
     previousLabel: daysLabel(previous.from, previous.to),
     length,
-    // A month that is still running shows the days so far; a whole month its name.
-    label: to < end ? daysLabel(from, to) : label.charAt(0).toUpperCase() + label.slice(1),
+    label,
     current: offset === 0,
     untilToday: to === ref,
   };

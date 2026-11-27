@@ -8,22 +8,23 @@
  * nothing. Only a month further back than the stored 13 is fetched – once.
  */
 import { motion } from 'motion/react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getBackend } from '@/bing/backend';
 import { CalendarDays, ChevronLeft, ChevronRight, Loader2, RefreshCw, TriangleAlert } from '@/components/icons';
 import { EASE, pageTransition } from '@/components/motion';
 import { Button } from '@/components/ui/button';
 import { Segmented } from '@/components/ui/controls';
-import { Dialog, Tooltip } from '@/components/ui/overlays';
-import { refreshAdsData, useCampaigns, useDailyHistory, useDailyRange } from '@/hooks/useAdsData';
+import { Tooltip } from '@/components/ui/overlays';
+import { refreshAdsData, useDailyHistory, useDailyRange } from '@/hooks/useAdsData';
 import { fmtMoney, fmtNumber, fmtPercent, fmtRelative, today as localToday } from '@/lib/format';
 import { cn, errorMessage } from '@/lib/utils';
 import { useConnection, useCurrentAccount } from '@/stores/connection';
 import { useSettings } from '@/stores/settings';
 import type { DerivedMetrics } from '@/bing/types';
 import { ConversionsDialog, type ConversionsTarget } from './ConversionsDialog';
-import { DEFAULT_ROAS_SCALE, brandCampaignIds, dayRows, daysOf, withoutBrand, monthRows, roasColor, totalOf, validScale, weekRows, type Grain, type PeriodRow, type RoasScale } from './daily';
+import { BrandNote, BrandSwitch, useBrand } from './brand';
+import { DEFAULT_ROAS_SCALE, dayRows, daysOf, withoutBrand, monthRows, roasColor, totalOf, validScale, weekRows, type Grain, type PeriodRow, type RoasScale } from './daily';
 
 /** How far back the month arrows go. */
 const MAX_MONTHS_BACK = 36;
@@ -159,14 +160,11 @@ export function DailyPage() {
   const older = useDailyRange(monthRange, beforeHistory);
   const source = beforeHistory ? older.data : view;
 
-  // "Ekskl. brand": the brand campaigns' own days (one campaign report) taken off the account's, day by day.
-  const [scope, setScope] = useState<'all' | 'nobrand'>('all');
-  const [pickBrand, setPickBrand] = useState(false);
-  const campaignList = useCampaigns(useMemo(() => ({ from: addDaysIso(today, -30), to: today }), [today]));
-  const chosen = useSettings((s) => (accountId ? s.brandCampaigns[accountId] : undefined));
-  const brandIds = useMemo(() => brandCampaignIds(campaignList.data ?? [], chosen), [campaignList.data, chosen]);
+  // "Ekskl. brand" (the switch is shared with Overblik): the brand campaigns' own days (one campaign report) taken off the account's, day by day.
+  const brandInfo = useBrand();
+  const brandIds = brandInfo.ids;
   const span = source?.days.length ? { from: source.days[0]!.day, to: source.days[source.days.length - 1]!.day } : null;
-  const noBrand = scope === 'nobrand' && brandIds.length > 0;
+  const noBrand = brandInfo.active;
   const brand = useQuery({
     queryKey: ['daily-brand', accountId, brandIds.join(','), span?.from, span?.to, source?.fetchedAt],
     enabled: noBrand && !!span && !!accountId,
@@ -211,19 +209,7 @@ export function DailyPage() {
             )}
           </p>
         </div>
-        <Segmented
-          layoutId="daily-scope"
-          size="sm"
-          value={scope}
-          onChange={setScope}
-          options={[
-            { value: 'all', label: 'Alle kampagner' },
-            { value: 'nobrand', label: 'Ekskl. brand', title: brandIds.length ? `Uden ${brandIds.length} brand-kampagne${brandIds.length === 1 ? '' : 'r'}` : 'Ingen brand-kampagner fundet – vælg dem' },
-          ]}
-        />
-        <Button variant="ghost" size="sm" onClick={() => setPickBrand(true)}>
-          Brand ({brandIds.length})
-        </Button>
+        <BrandSwitch />
         <Segmented
           layoutId="daily-grain"
           size="sm"
@@ -243,14 +229,8 @@ export function DailyPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-8 pb-10">
-        {scope === 'nobrand' && (
-          <p className="mb-3 text-[12.5px] text-muted">
-            {brandIds.length
-              ? `Ekskl. brand: ${(campaignList.data ?? []).filter((c) => brandIds.includes(c.id)).map((c) => c.name).join(', ')} er trukket fra dag for dag.`
-              : 'Ingen brand-kampagner fundet (ingen kampagne har "brand" i navnet) – vælg dem under Brand.'}
-            {brand.error ? <span className="text-negative"> Brand-tallene kunne ikke hentes: {errorMessage(brand.error)}</span> : null}
-          </p>
-        )}
+        <BrandNote className="mb-3 text-[12.5px] text-muted" />
+        {brand.error ? <p className="mb-3 text-[12.5px] text-negative">Brand-tallene kunne ikke hentes: {errorMessage(brand.error)}</p> : null}
         <div className="card overflow-hidden">
           <div className="flex min-h-[52px] flex-wrap items-center gap-3 border-b border-line px-4 py-2.5">
             {grain === 'day' ? (
@@ -390,96 +370,8 @@ export function DailyPage() {
           {view?.error && <span className="text-negative"> Seneste hentning fejlede: {view.error}</span>} Klik på antallet af konverteringer for at se, hvilke produkter de kom fra.
         </p>
         <ConversionsDialog target={conversions} currency={currency} onClose={() => setConversions(null)} exclude={noBrand ? brandIds : undefined} />
-        <BrandPicker open={pickBrand} onClose={() => setPickBrand(false)} accountId={accountId} campaigns={campaignList.data ?? []} chosen={chosen} current={brandIds} />
       </div>
     </motion.div>
   );
 }
 
-const addDaysIso = (iso: string, n: number) => {
-  const d = new Date(`${iso}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-};
-
-/** Which campaigns count as brand for the account – remembered per account (default: "brand" in the name). */
-function BrandPicker({
-  open,
-  onClose,
-  accountId,
-  campaigns,
-  chosen,
-  current,
-}: {
-  open: boolean;
-  onClose: () => void;
-  accountId: string | null;
-  campaigns: { id: string; name: string; status: string }[];
-  chosen: string[] | undefined;
-  current: string[];
-}) {
-  const setBrandCampaigns = useSettings((s) => s.setBrandCampaigns);
-  const [picked, setPicked] = useState<Set<string>>(new Set(current));
-  const [q, setQ] = useState('');
-  // Opens with what counts as brand right now.
-  useEffect(() => {
-    if (open) setPicked(new Set(current));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-  const list = campaigns.filter((c) => c.status !== 'Deleted' && c.name.toLowerCase().includes(q.trim().toLowerCase()));
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => !o && onClose()}
-      title="Hvilke kampagner er brand?"
-      description={chosen ? 'Valgt af jer for denne konto.' : 'Lige nu: kampagner med "brand" i navnet. Vælg selv, hvis det ikke passer.'}
-      footer={
-        <>
-          {chosen && (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                if (accountId) setBrandCampaigns(accountId, null);
-                onClose();
-              }}
-            >
-              Brug navnet igen
-            </Button>
-          )}
-          <Button
-            variant="positive"
-            onClick={() => {
-              if (accountId) setBrandCampaigns(accountId, [...picked]);
-              onClose();
-            }}
-          >
-            Gem ({picked.size})
-          </Button>
-        </>
-      }
-    >
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Søg kampagne …"
-        className="mb-2 h-9 w-full rounded-xl border border-line px-3 text-[13px] outline-none focus:border-brand/50"
-      />
-      <ul className="grid max-h-[50vh] gap-0.5 overflow-y-auto">
-        {list.map((c) => (
-          <li key={c.id}>
-            <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] hover:bg-line-2/60">
-              <input
-                type="checkbox"
-                checked={picked.has(c.id)}
-                onChange={() => setPicked((p) => (p.has(c.id) ? new Set([...p].filter((x) => x !== c.id)) : new Set(p).add(c.id)))}
-                className="size-4 accent-[var(--color-brand,#6d5cf6)]"
-              />
-              <span className="min-w-0 flex-1 truncate text-ink">{c.name}</span>
-              {c.status !== 'Active' && <span className="text-[11.5px] text-subtle">{c.status === 'Paused' ? 'Pauset' : c.status}</span>}
-            </label>
-          </li>
-        ))}
-      </ul>
-    </Dialog>
-  );
-}

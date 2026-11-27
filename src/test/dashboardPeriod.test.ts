@@ -46,4 +46,17 @@ describe('dashboard period', () => {
     expect(periodOf('month', 0, '2026-11-02').label).toMatch(/^1\. nov\.? – 2\. nov\.? 2026$/);
     expect(periodOf('month', 1, '2026-11-02').label).toBe('Oktober 2026');
   });
+
+  it('compares with the same weekdays last year – 52 weeks back, Black Friday against Black Friday', () => {
+    const weekday = (iso: string) => new Date(`${iso}T12:00:00Z`).getUTCDay();
+    const wk = periodOf('week', 0, '2026-11-27', 'lastYear');
+    expect(wk.range).toEqual({ from: '2026-11-23', to: '2026-11-27' });
+    expect(wk.previous).toEqual({ from: '2025-11-24', to: '2025-11-28' }); // Black Friday 2025 was 28 Nov
+    expect(wk).toMatchObject({ weeksBack: 52, compareLabel: 'Sidste år' });
+    const m = periodOf('month', 0, '2026-11-27', 'lastYear');
+    expect(m.previous).toEqual({ from: '2025-11-02', to: '2025-11-28' });
+    expect(weekday(m.previous.from)).toBe(weekday(m.range.from));
+    expect(m.previousFull).toEqual({ from: '2025-11-02', to: '2025-12-01' });
+  });
 });
+
